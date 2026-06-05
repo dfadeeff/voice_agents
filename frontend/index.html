@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mitchell &amp; Associates — Voice Agent</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Mitchell &amp; Associates</h1>
+      <p class="subtitle">Law Firm Voice Assistant</p>
+    </header>
+
+    <div class="call-panel">
+      <div id="status" class="status idle">Ready</div>
+
+      <div id="transcript" class="transcript">
+        <div class="transcript-placeholder">
+          Press the button below to start a call with our AI receptionist.
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="call-btn" class="call-btn" onclick="toggleCall()">
+          <span class="btn-icon" id="btn-icon">📞</span>
+          <span id="btn-label">Start Call</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/components/protobuf.js"></script>
+  <script src="/static/components/audio.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
