@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -20,6 +21,32 @@ if TYPE_CHECKING:
     from app.conversation.manager import ConversationManager
 
 logger = logging.getLogger(__name__)
+
+_PHONE_RE = re.compile(r"(?<!\w)[+]?[\d][\d\s\-]{3,}[\d](?!\w)")
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
+
+
+def _tts_preprocess(text: str) -> str:
+    """Make agent text more TTS-friendly.
+
+    - Expand phone-like digit sequences to space-separated digits so TTS
+      reads them individually instead of as large numbers.
+    - Expand email addresses to spoken form.
+    """
+
+    def _expand_phone(m: re.Match) -> str:
+        digits = re.sub(r"[^\d]", "", m.group(0))
+        prefix = "plus " if m.group(0).startswith("+") else ""
+        return prefix + ", ".join(digits)
+
+    def _expand_email(m: re.Match) -> str:
+        email = m.group(0)
+        return email.replace("@", " at ").replace(".", " dot ")
+
+    text = _EMAIL_RE.sub(_expand_email, text)
+    text = _PHONE_RE.sub(_expand_phone, text)
+    return text
+
 
 LOGS_DIR = Path("logs")
 
@@ -96,8 +123,8 @@ class TranscriptProcessor(FrameProcessor):
 
 
 class AgentTextProcessor(FrameProcessor):
-    """Sits between TTS and output transport. Sends agent text to the frontend.
-    Only catches AggregatedTextFrame (not TTSTextFrame) to avoid duplication."""
+    """Sits between LLM and TTS. Sends agent text to the frontend and
+    preprocesses text for better TTS pronunciation (digits, emails)."""
 
     def __init__(self, websocket, call_logger: CallLogger, **kwargs):
         super().__init__(**kwargs)
@@ -106,6 +133,13 @@ class AgentTextProcessor(FrameProcessor):
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
+
+        if isinstance(frame, TTSTextFrame) and frame.text:
+            original = frame.text
+            processed = _tts_preprocess(original)
+            if processed != original:
+                logger.debug("TTS preprocess: %r → %r", original, processed)
+                frame = TTSTextFrame(text=processed)
 
         if (
             isinstance(frame, AggregatedTextFrame)
