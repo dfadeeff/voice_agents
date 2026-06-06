@@ -2,7 +2,33 @@
 
 Inbound voice agent that handles calls end-to-end: greeting, routing by legal area (employment/tenancy), entity capture with confidence handling, consultation booking, and human escalation.
 
-Runs locally with zero API keys. No cloud accounts needed.
+This prototype follows the production-standard cascaded STT → LLM → TTS architecture, but uses local-first components so the project can run without API keys. In production, I would swap in streaming STT, streaming TTS, WebRTC/SIP transport, scalable state storage, and full observability.
+
+### What works in the prototype
+
+- Browser-based local voice call (mic → agent → speaker)
+- Full STT → LLM → TTS streaming pipeline
+- Employment/tenancy routing with unknown-area escalation
+- Structured contact capture (name, email, phone) with confidence-based confirmation
+- SQLite calendar with slot checking and alternatives for unavailable times
+- Human handoff path (caller request, out-of-scope area, repeated misunderstandings)
+- Legal advice boundary enforcement — agent refuses to assess cases
+- Call transcript logging to JSON
+- TTS preprocessing for phone numbers (digit-by-digit) and emails (spoken form)
+
+### What is intentionally simplified
+
+- Local STT (faster-whisper) processes complete utterances, not streaming interim results
+- Piper TTS voice is functional but noticeably synthetic
+- No real phone carrier required — browser mic/speaker only (Twilio adapter exists but needs cloud deployment)
+- Single-process backend (no horizontal scaling)
+- Local LLM tool calling quality depends on model — best with Qwen family
+
+| Mode | Purpose | Stack |
+|---|---|---|
+| **Local demo** (default) | Zero-key evaluation | faster-whisper + Ollama/Qwen + Piper |
+| **Best demo quality** | Better voice and tool reliability | Whisper/Deepgram + GPT-4o-mini + ElevenLabs |
+| **Production** | Scale, reliability, observability | Streaming STT + low-latency LLM + streaming TTS + telephony + monitoring |
 
 ## Prerequisites
 
@@ -63,7 +89,7 @@ make run     # step 5
 
 ## Choosing a Local Model
 
-For a real-time phone call agent, the priority is **latency first, then tool calling quality, then reasoning**. A fast model that responds in 200ms beats a smart model that takes 500ms — dead air on a phone call feels broken.
+For a real-time phone call agent, the priority is **latency first, then tool calling quality, then reasoning**. A smaller model that reliably produces short, correct responses under roughly one second of perceived latency is often better than a larger model that creates several seconds of silence.
 
 Set the model in `.env` via `OLLAMA_MODEL`:
 
@@ -74,11 +100,11 @@ Set the model in `.env` via `OLLAMA_MODEL`:
 | `qwen2.5:7b` | 4.7 GB | Fast | Good | Solid fallback |
 | `qwen3:14b` | 9.2 GB | Medium | Excellent | Better reasoning, slower response |
 | `llama3.2:3b` | 2.0 GB | Fastest | Fair | Speed-constrained devices |
-| `llama3.1:8b` | 4.9 GB | Fast | **Broken** | Not recommended (dumps JSON as text) |
+| `llama3.1:8b` | 4.9 GB | Fast | Unreliable | Not recommended (often dumps JSON as text) |
 
-**Qwen3 is strongly recommended.** Qwen3 was specifically optimized for agentic/tool-calling use cases and outperforms other local models in function calling benchmarks. The 4B model quantized to Q4/Q5 is the sweet spot: small enough to respond quickly, strong enough for structured conversation and reliable tool use.
+**Qwen3 is recommended.** In my local Ollama setup, Qwen models were the most reliable for this project's structured tool-calling scenarios. The 4B model quantized to Q4/Q5 is the sweet spot: small enough to respond quickly, strong enough for structured conversation and reliable tool use. The exact best model depends on hardware, quantization, and Ollama version — run `make benchmark` to test on your machine.
 
-**llama3.1:8b does not work** for tool calling — it outputs raw JSON as text instead of using Ollama's tool calling API.
+In my local tests, **llama3.1:8b was unreliable** for this project's tool-calling flow: it sometimes emitted JSON as normal text or called tools with invalid arguments. This is why Qwen is the default.
 
 To switch models:
 ```bash
@@ -89,7 +115,7 @@ ollama pull qwen3:4b
 OLLAMA_MODEL=qwen3:4b
 ```
 
-Tool calling is enabled by default for local models (`USE_TOOLS_LOCAL=true`). Set it to `false` to fall back to a purely conversational mode without structured tool calls.
+Tool calling is enabled by default (`USE_TOOLS_LOCAL=true` in `.env`). This enables the full structured tool pipeline locally: intent classification, legal area routing, entity extraction with confidence scoring, availability checking, and booking. If a local model outputs JSON as speech or misuses tools, set `USE_TOOLS_LOCAL=false` to fall back to a purely conversational mode.
 
 ## Cloud Mode (Optional)
 
@@ -119,6 +145,25 @@ You can mix local and cloud freely — e.g. keep Whisper STT local but use OpenA
 3. **Capture** — collects your name, email, phone number. If STT confidence is low (noisy line, unusual name), the agent asks you to spell it back rather than guessing
 4. **Booking** — checks the calendar for available consultation slots. If your preferred time is taken, offers alternatives
 5. **Escalation** — if you ask for a human, the issue is out of scope, or the agent can't understand you after 3 attempts, it hands off with context
+
+## Legal Advice Boundary
+
+The agent is a receptionist/intake assistant, not a lawyer. It does not assess legal merits, predict outcomes, recommend legal strategy, or provide legal advice. If the caller asks for legal advice ("Do I have a strong case?", "Will I win?"), the agent explains the boundary and offers to book a consultation or transfer to a human.
+
+This is enforced at two levels:
+- **System prompt**: every phase includes "NEVER give legal advice or opinions on cases"
+- **Escalation tool**: the LLM can call `escalate_to_human` with reason `caller_frustrated` or `complex_situation` when the caller pushes for advice
+
+## TTS Pronunciation
+
+Raw structured data sounds wrong when read aloud by TTS. A preprocessing layer (`processors.py`) reformats agent text before it reaches the TTS engine:
+
+| Raw text | TTS receives |
+|---|---|
+| `+49 151 9823 4567` | `plus 4, 9, 1, 5, 1, 9, 8, 2, 3, 4, 5, 6, 7` |
+| `fadejeff@gmail.com` | `fadejeff at gmail dot com` |
+
+This prevents phone numbers from being read as natural numbers ("nine million eight hundred...") and emails from being garbled.
 
 ## Call Logging
 
@@ -162,15 +207,16 @@ The benchmark runs automatically via GitHub Actions (`.github/workflows/benchmar
 - **Manual trigger** — `Actions → Model Benchmark → Run workflow` with optional model list
 - Results are uploaded as artifacts and commented on the commit
 
-### Latest Results (local, qwen2.5:7b)
+### Latest Results
+
+These results are from one local run and are hardware- and version-specific. Run `make benchmark` to reproduce on your machine.
 
 | Model | Greeting | Greeting + Tools | Tool Call | Avg Latency | Verdict |
 |-------|----------|-----------------|-----------|-------------|---------|
 | qwen2.5:7b | PASS | PASS | PASS | 0.72s | Recommended |
-| llama3.1 | PASS | PASS | PASS | 0.89s | Recommended (slower) |
-| llama3.2:3b | PASS | WARN | PASS | 0.44s | Usable (caveats) |
-
-Run `make benchmark` to generate up-to-date results for your hardware.
+| qwen3:4b | PASS | PASS | PASS | 0.48s | Recommended (fastest) |
+| llama3.2:3b | PASS | WARN | PASS | 0.44s | Usable (tool calling sometimes unreliable) |
+| llama3.1:8b | PASS | PASS | FAIL | 0.89s | Not recommended (outputs JSON as text) |
 
 ## Stack
 
@@ -255,24 +301,24 @@ voice_agent/
 
 **Why:** For a real-time voice agent, the ranking is: latency > tool calling reliability > reasoning depth. Qwen3 was specifically optimized for agentic/tool-calling use cases (per Qwen's model card and Docker's local tool-calling benchmarks). The 4B variant at Q4/Q5 quantization hits the sweet spot: responds fast enough for natural conversation while handling structured tool calls reliably.
 
-llama3.1:8b **cannot reliably do function calling** via Ollama's OpenAI-compatible API. Verified failure modes:
+In my local tests with Ollama's OpenAI-compatible API, llama3.1:8b showed these failure modes:
 1. **Outputs raw JSON as text** — e.g., `{"name": "greet", "parameters": {}}` spoken aloud by TTS
 2. **Calls wrong tools with garbage arguments** — e.g., `extract_caller_details` with `{"debug_mode": true}` on the first turn
 3. **Skips greeting entirely** — calls a tool immediately with empty content instead of speaking first
 
-This was verified via direct API testing (`curl` to Ollama's `/v1/chat/completions`). The issue is in the model's fine-tuning for tool use, not in our code or Pipecat.
+These were observed via direct API testing (`curl` to Ollama's `/v1/chat/completions`). The behavior may vary with different Ollama versions or quantizations.
 
-### Local vs Cloud LLM: automatic tool toggle
+### Local vs Cloud LLM: tool toggle
 
-**Decision:** Disable tool calling for Ollama by default, enable it when `USE_TOOLS_LOCAL=true` or when using OpenAI.
+**Decision:** Enable tool calling by default (`USE_TOOLS_LOCAL=true`). Disable with `USE_TOOLS_LOCAL=false` if the local model is unreliable with tools.
 
-**Trade-off:** Local mode without tools still has a natural conversation (greeting, asking about legal issues, collecting details) but doesn't execute structured business logic (booking, calendar checks). With tools enabled (qwen2.5 or cloud), the agent does real booking and routing.
+**Trade-off:** Local mode with tools enabled runs the full structured pipeline (routing, extraction, booking). With tools disabled, the agent still has a natural conversation but doesn't execute structured business logic. Cloud OpenAI mode always has the most reliable tool execution.
 
 **Why:** A single flag in `ws.py` controls this:
 ```python
 use_tools = settings.llm_provider != "ollama" or settings.use_tools_local
 ```
-This flows into `orchestrator.py` which either registers tool handlers + tool-aware prompt, or uses a simpler conversational prompt with no tool schemas. All 6 tools and their handlers stay intact in the codebase — nothing is deleted, just not wired in. This means switching from local-conversational to local-with-tools or cloud-with-tools is a one-line `.env` change.
+This flows into `orchestrator.py` which either registers tool handlers + tool-aware prompt, or uses a simpler conversational prompt with no tool schemas. All 6 tools and their handlers stay intact in the codebase — nothing is deleted, just not wired in. Switching between modes is a one-line `.env` change.
 
 ### Two system prompts
 
@@ -310,7 +356,20 @@ This flows into `orchestrator.py` which either registers tool handlers + tool-aw
 
 **Decision:** Code controls conversation flow via a deterministic state machine (`flow.py`). The LLM handles language understanding and natural phrasing within per-phase constraints.
 
+This is not a rigid phone tree and not a fully autonomous LLM agent. It is a workflow-controlled voice agent. The state manager owns business-critical transitions, while the LLM fills slots, classifies intent, routes legal areas, and phrases responses naturally.
+
 **Trade-off:** More engineering effort than letting the LLM improvise, but provides testable, deterministic flow control for business-critical transitions.
+
+| Decision | Owner |
+|---|---|
+| Caller intent classification | LLM proposes, state manager validates |
+| Legal area routing | LLM classifies, code checks supported values |
+| Which fields are required | Code (`REQUIRED_FIELDS` in flow.py) |
+| Whether a field is confirmed | STT confidence + regex validation + code policy |
+| Slot availability | Calendar tool (SQLite query) |
+| Whether booking is allowed | Code (all fields confirmed) |
+| When to escalate | Code policy, with LLM signal |
+| What words to say | LLM (within phase-specific prompt constraints) |
 
 **Why:** For a law-firm intake call, transitions like "did we confirm the email?", "is this slot available?", and "should we escalate?" must not depend on the LLM "deciding what feels right." The state machine (`next_phase()`) projects accumulated state to the correct phase. Each phase gives the LLM a narrow task via a phase-specific system prompt — not the full call flow. Tool handlers update state and trigger `advance_phase()`, which recomputes the phase and updates the prompt. The LLM never sees the overall flow; it only sees its current task. This makes the agent predictable while still sounding natural — the LLM phrases responses freely, but code decides what to ask and when to move on.
 
@@ -343,6 +402,41 @@ You can mix freely — e.g., local Whisper STT + cloud OpenAI LLM + local Piper 
 
 **Why:** For a demo/take-home, JSON files are sufficient to verify calls are being recorded and transcribed. The `CallLogger` class accumulates entries during the call and writes them on disconnect. In production, these would go to a database (the SQLite infrastructure is already there for calendar data). Logs are gitignored.
 
+## Privacy
+
+This prototype stores transcripts locally in `logs/` for debugging and evaluation. In production, legal intake calls may contain sensitive personal data (names, contact details, legal situations), so transcripts and recordings should be encrypted at rest, access-controlled, retained only as long as necessary, and redacted where possible. Logs are gitignored and never include secrets or API keys.
+
+## Production Telephony
+
+In production, the agent connects to real phone lines via Twilio Media Streams (adapter exists in `api/twilio.py`). The Pipecat pipeline is transport-agnostic — the same business logic handles both browser WebSocket and Twilio calls.
+
+**Warm transfer design**: On escalation, the agent would:
+1. Create a short handoff summary (caller name, legal area, issue description, collected details)
+2. Dial the human recipient
+3. Play or display the summary to the human
+4. Bridge the caller only after the human accepts
+
+**Failure handling**:
+- Human doesn't pick up → return to caller, offer voicemail or callback
+- Human line busy → try backup recipient or schedule callback
+- Bridge drops → keep caller connected, apologize, retry or collect callback number
+- SIP errors (486 Busy, 408 Timeout, 480 Unavailable) → mark transfer status, try backup route
+
+## Evaluation and Health Tracking
+
+**Offline evaluation**: A suite of scenario tests (`tests/test_scenarios.py`) covers the core user stories: routing, booking, low-confidence capture, unavailable slots, handoff, and legal-advice boundary. Each scenario has an expected final state and assertions on state machine behavior.
+
+**Online monitoring** (production): I would track:
+- Call completion rate and booking conversion rate
+- Escalation rate and fallback rate
+- P50/P95 time-to-first-audio per component (STT, LLM, TTS)
+- STT confidence distribution
+- Tool-call failure rate
+- Legal-advice boundary trigger count
+- Repeated-question rate (signal of poor understanding)
+
+Low-confidence, failed, or escalated calls would be sampled for human review and used to update prompts, validators, and workflow rules.
+
 ## Troubleshooting
 
 **"Ollama not found"** — Make sure `ollama serve` is running in a separate terminal.
@@ -353,18 +447,20 @@ You can mix freely — e.g., local Whisper STT + cloud OpenAI LLM + local Piper 
 
 **Microphone not working** — Chrome requires HTTPS for mic access on non-localhost origins. On localhost it works over HTTP.
 
-**Agent outputs JSON instead of speaking** — You're using llama3.1. Switch to qwen2.5 (`OLLAMA_MODEL=qwen2.5:7b` in `.env`).
+**Agent outputs JSON instead of speaking** — Your local model may not support tool calling reliably. Switch to qwen3:4b or qwen2.5:7b (`OLLAMA_MODEL=qwen3:4b` in `.env`), or set `USE_TOOLS_LOCAL=false` for conversational mode.
 
 **NLTK SSL warning** — Harmless. Appears on macOS when Python's SSL certificates aren't installed. Run: `/Applications/Python 3.11/Install Certificates.command`
 
 ## Honest Limitations
 
-- **STT latency**: faster-whisper processes complete utterances (~300-500ms), not streaming. Cloud Deepgram would stream interim results during speech.
+The prototype is production-shaped, not production-grade. It runs locally with zero API keys to make evaluation easy, but production would require the upgrades described in the table at the top.
+
+- **STT latency**: faster-whisper processes complete utterances (~300-500ms), not streaming. Cloud Deepgram would stream interim results during speech, showing words as the caller speaks.
 - **TTS quality**: Piper is functional but noticeably synthetic compared to ElevenLabs. This is the most obvious "not production" tell in a demo.
-- **End-to-end latency**: ~1-2s locally (STT + LLM inference + TTS) vs ~500-800ms with a cloud stack. The LLM inference is the bottleneck — larger models (32B) are slower but smarter.
-- **Local tool calling**: Only works reliably with Qwen 2.5 models. llama3.1:8b outputs raw JSON text instead of using the tool calling API. This is a model limitation, not a code issue.
-- **No streaming STT**: faster-whisper waits for a complete utterance before transcribing. The user sees nothing in the UI while speaking — the transcript appears all at once after they stop. Cloud Deepgram provides interim results that show words appearing as you speak.
-- **Single-process**: One Uvicorn worker handles all calls. Under load, calls would queue. Production would use multiple workers behind a load balancer, with Redis for shared state.
+- **End-to-end latency**: ~1-2s locally (STT + LLM inference + TTS) vs ~500-800ms with a cloud stack. The LLM inference is the bottleneck.
+- **Local tool calling**: Works best with Qwen models. llama3.1:8b was unreliable in my tests — outputs raw JSON text instead of using the tool calling API. Results may vary with different Ollama versions.
+- **Single-process**: One Uvicorn worker handles all calls. Production would use multiple workers behind a load balancer, with Redis for shared state.
+- **Confidence handling**: The prototype uses STT word-level confidence as one signal for uncertainty. Production would combine it with field-specific validation: email normalization, repeated-confirmation logic, and caller correction detection.
 
 ## Outlook
 

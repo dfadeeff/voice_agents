@@ -183,6 +183,19 @@ For a law-firm intake call, business-critical transitions must not depend on the
 
 A state machine makes all of this explicit, testable, and deterministic.
 
+### Decision Ownership
+
+| Decision | Owner | Why |
+|---|---|---|
+| Caller intent | LLM proposes → state manager validates | LLM interprets messy speech; code enforces valid values |
+| Legal area | LLM classifies → code checks supported values | Unknown areas trigger escalation, not a retry loop |
+| Required fields | Code (`REQUIRED_FIELDS`) | Business requirement, not LLM judgment |
+| Field confidence | STT scores + regex + code policy | LLM cannot assess audio quality |
+| Slot availability | Calendar tool (SQLite) | Source of truth is the database |
+| Booking permission | Code (all fields confirmed) | Safety gate the LLM cannot bypass |
+| When to escalate | Code policy + LLM signal | LLM detects distress; code enforces policy |
+| Spoken wording | LLM (phase-constrained) | Natural language is what LLMs are good at |
+
 ### Why not a rigid phone tree?
 
 Real callers give multiple details at once ("Hi, I'm Dmitry, I need help with my landlord keeping my deposit"). A rigid "ask name → ask email → ask phone" sequence sounds robotic. Instead:
@@ -463,11 +476,52 @@ GET /ready   -> {"ready": true, "checks": {"database": true, "tools": true}}
 
 ## Escalation Triggers
 
-1. Caller explicitly asks for a human
-2. Out-of-scope legal area (not employment or tenancy)
-3. 3+ consecutive misunderstandings
-4. Complex multi-party situation
-5. Caller expresses frustration or distress
+The agent escalates to a human when any of these conditions are met:
+
+| Trigger | Detection | Implementation |
+|---|---|---|
+| Caller asks for a human | LLM calls `escalate_to_human` | `reason: caller_requested_human` |
+| Out-of-scope legal area | `classify_legal_area(area="unknown")` | Sets `escalation_requested=True` in routing.py |
+| 3+ consecutive misunderstandings | State machine checks `misunderstanding_streak >= 3` | `next_phase()` returns ESCALATION |
+| Complex multi-party situation | LLM judgment | `reason: complex_situation` |
+| Caller frustrated or distressed | LLM judgment | `reason: caller_frustrated` |
+| Caller asks for legal advice | Prompt instructs refusal + offer to connect | LLM explains boundary, may escalate |
+| Booking tool failure | Calendar service error | Tool returns error, LLM offers human help |
+
+## Production Warm Transfer Design
+
+In production, escalation triggers a warm transfer via Twilio:
+
+```
+Agent decides to escalate
+  │
+  ▼
+Build handoff summary:
+  caller name, legal area, issue description,
+  collected entities, call duration, escalation reason
+  │
+  ▼
+Dial human recipient (lawyer / intake team)
+  │
+  ├── Human answers → play/display summary → bridge caller
+  ├── No answer (30s) → return to caller, offer voicemail/callback
+  ├── Busy (SIP 486) → try backup recipient or schedule callback
+  └── Timeout (SIP 408) / Unavailable (SIP 480) → try backup route
+```
+
+The `escalate_to_human` tool already builds `context_for_human` with all collected state — this is the payload that would be sent to the receiving human agent.
+
+## TTS Preprocessing
+
+Raw structured data sounds wrong when read aloud. The `AgentTextProcessor` in `processors.py` reformats agent text before TTS:
+
+- **Phone numbers**: regex detects digit sequences and expands to comma-separated digits (`+49 151 9823` → `plus 4, 9, 1, 5, 1, 9, 8, 2, 3`)
+- **Email addresses**: `@` → `at`, `.` → `dot` (`john@gmail.com` → `john at gmail dot com`)
+
+Production improvements would add:
+- Date/time formatting (`2026-06-09T14:00` → `Tuesday, June ninth at 2 PM`)
+- Name spelling normalization (NATO alphabet for confirmation)
+- Legal term pronunciation hints
 
 ## Honest Tradeoffs
 
