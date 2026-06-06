@@ -283,6 +283,16 @@ voice_agent/
 └── .env.example
 ```
 
+## Additional Questions
+
+See [QUESTIONS.md](QUESTIONS.md) for detailed answers to the four takehome questions:
+1. Real-Time Latency & Pipeline Design
+2. Turn-Taking, Interruptions & Audio Robustness
+3. Iteration, Scaling & Health Tracking
+4. Telephony, Warm Transfer & Failure Handling
+
+Each answer references specific files and code paths in the repo.
+
 ## Design Decisions & Trade-offs
 
 ### Why Pipecat (not a custom pipeline)
