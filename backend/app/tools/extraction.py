@@ -34,9 +34,7 @@ SCHEMA = {
 CONFIDENCE_THRESHOLD = 0.7
 
 
-async def extract_caller_details(
-    args: dict, ctx: ConversationManager
-) -> dict:
+async def extract_caller_details(args: dict, ctx: ConversationManager) -> dict:
     stored = []
     needs_confirmation = []
 

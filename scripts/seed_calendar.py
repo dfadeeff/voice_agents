@@ -17,8 +17,20 @@ LAWYERS = {
 }
 
 TIMES = [
-    "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
-    "13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30",
+    "09:00",
+    "09:30",
+    "10:00",
+    "10:30",
+    "11:00",
+    "11:30",
+    "13:00",
+    "13:30",
+    "14:00",
+    "14:30",
+    "15:00",
+    "15:30",
+    "16:00",
+    "16:30",
 ]
 
 PRE_BOOKED = [
@@ -88,15 +100,14 @@ async def seed():
                     for t in TIMES:
                         slot_id += 1
                         is_booked = any(
-                            day_offset == pb[0]
-                            and t == pb[1]
-                            and area == pb[2]
+                            day_offset == pb[0] and t == pb[1] and area == pb[2]
                             for pb in PRE_BOOKED
                         )
 
                         await db.execute(
                             """INSERT INTO slots
-                               (id, date, time, duration_minutes, legal_area, lawyer_name, is_booked)
+                               (id, date, time, duration_minutes,
+                                legal_area, lawyer_name, is_booked)
                                VALUES (?, ?, ?, 30, ?, ?, ?)""",
                             [slot_id, d.isoformat(), t, area, lawyer, int(is_booked)],
                         )

@@ -1,7 +1,6 @@
 """Tests for all tool handlers — intent, routing, extraction, booking, escalation."""
 
 import pytest
-
 from app.models.schemas import CallerIntent, CallPhase, LegalArea
 
 
@@ -29,16 +28,12 @@ class TestClassifyCallerIntent:
 
     @pytest.mark.asyncio
     async def test_empty_intent_returns_need_more_info(self, registry, conversation):
-        result = await registry.execute(
-            "classify_caller_intent", {"intent": ""}, conversation
-        )
+        result = await registry.execute("classify_caller_intent", {"intent": ""}, conversation)
         assert result["status"] == "need_more_info"
 
     @pytest.mark.asyncio
     async def test_missing_intent_returns_need_more_info(self, registry, conversation):
-        result = await registry.execute(
-            "classify_caller_intent", {}, conversation
-        )
+        result = await registry.execute("classify_caller_intent", {}, conversation)
         assert result["status"] == "need_more_info"
 
     @pytest.mark.asyncio
@@ -98,9 +93,7 @@ class TestClassifyLegalArea:
 
 class TestExtractCallerDetails:
     @pytest.mark.asyncio
-    async def test_high_confidence_auto_confirms(
-        self, registry, conversation_with_high_confidence
-    ):
+    async def test_high_confidence_auto_confirms(self, registry, conversation_with_high_confidence):
         ctx = conversation_with_high_confidence
         result = await registry.execute(
             "extract_caller_details",
@@ -140,9 +133,7 @@ class TestExtractCallerDetails:
 
     @pytest.mark.asyncio
     async def test_empty_args(self, registry, conversation):
-        result = await registry.execute(
-            "extract_caller_details", {}, conversation
-        )
+        result = await registry.execute("extract_caller_details", {}, conversation)
         assert result["stored"] == []
         assert result["all_confirmed"]
 
@@ -209,9 +200,7 @@ class TestCheckAvailability:
 
 class TestBookConsultation:
     @pytest.mark.asyncio
-    async def test_booking_blocked_without_confirmed_entities(
-        self, registry, conversation
-    ):
+    async def test_booking_blocked_without_confirmed_entities(self, registry, conversation):
         conversation.add_user_message("John Smith")
         conversation.store_entity("name", "John Smith", 0.9)
         result = await registry.execute(
@@ -264,9 +253,7 @@ class TestBookConsultation:
             conversation.store_entity(field, f"test_{field}", 0.9)
             conversation.confirm_entity(field)
 
-        result = await registry.execute(
-            "book_consultation", {"caller_name": "test"}, conversation
-        )
+        result = await registry.execute("book_consultation", {"caller_name": "test"}, conversation)
         assert result["status"] == "error"
 
 

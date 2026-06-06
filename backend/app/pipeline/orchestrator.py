@@ -32,23 +32,27 @@ def _build_tools_schema(registry: ToolRegistry) -> ToolsSchema:
     for raw in registry.get_schemas():
         fn = raw["function"]
         params = fn.get("parameters", {})
-        schemas.append(FunctionSchema(
-            name=fn["name"],
-            description=fn["description"],
-            properties=params.get("properties", {}),
-            required=params.get("required", []),
-        ))
+        schemas.append(
+            FunctionSchema(
+                name=fn["name"],
+                description=fn["description"],
+                properties=params.get("properties", {}),
+                required=params.get("required", []),
+            )
+        )
     return ToolsSchema(standard_tools=schemas)
 
 
 def register_tools_on_llm(llm_service, registry: ToolRegistry, conversation: ConversationManager):
     """Register our tool handlers with Pipecat's LLM service."""
     for tool_name in registry.list_tools():
+
         def _make_handler(name):
             async def handler(params):
                 args = params.arguments
                 result = await registry.execute(name, dict(args), conversation)
                 await params.result_callback(json.dumps(result))
+
             return handler
 
         llm_service.register_function(tool_name, _make_handler(tool_name))
@@ -87,17 +91,19 @@ async def create_pipeline(
     transcript_proc = TranscriptProcessor(websocket, call_logger)
     agent_text_proc = AgentTextProcessor(websocket, call_logger)
 
-    pipeline = Pipeline([
-        transport.input(),
-        stt_service,
-        transcript_proc,
-        context_aggregator.user(),
-        llm_service,
-        tts_service,
-        agent_text_proc,
-        transport.output(),
-        context_aggregator.assistant(),
-    ])
+    pipeline = Pipeline(
+        [
+            transport.input(),
+            stt_service,
+            transcript_proc,
+            context_aggregator.user(),
+            llm_service,
+            tts_service,
+            agent_text_proc,
+            transport.output(),
+            context_aggregator.assistant(),
+        ]
+    )
 
     task = PipelineTask(pipeline, params=PipelineParams())
     runner = WorkerRunner()

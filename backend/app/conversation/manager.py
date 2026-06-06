@@ -14,14 +14,10 @@ from app.models.schemas import (
 class ConversationManager:
     def __init__(self, call_id: str):
         self.state = ConversationState(call_id=call_id)
-        self.state.messages = [
-            {"role": "system", "content": SYSTEM_PROMPT_BASE}
-        ]
+        self.state.messages = [{"role": "system", "content": SYSTEM_PROMPT_BASE}]
         self._word_infos_by_turn: dict[int, list[WordInfo]] = {}
 
-    def add_user_message(
-        self, text: str, word_infos: list[WordInfo] | None = None
-    ) -> None:
+    def add_user_message(self, text: str, word_infos: list[WordInfo] | None = None) -> None:
         self.state.turn_count += 1
         self.state.messages.append({"role": "user", "content": text})
         if word_infos:
@@ -39,9 +35,7 @@ class ConversationManager:
             }
         )
 
-    def add_tool_result(
-        self, tool_call_id: str, name: str, result: dict
-    ) -> None:
+    def add_tool_result(self, tool_call_id: str, name: str, result: dict) -> None:
         self.state.messages.append(
             {
                 "role": "tool",
@@ -66,9 +60,7 @@ class ConversationManager:
             system_msg = self.state.messages[0]
             system_msg["content"] = SYSTEM_PROMPT_BASE + "\n" + fragment
 
-    def store_entity(
-        self, field_name: str, value: str, confidence: float
-    ) -> ExtractedEntity:
+    def store_entity(self, field_name: str, value: str, confidence: float) -> ExtractedEntity:
         entity = ExtractedEntity(
             field_name=field_name,
             value=value,

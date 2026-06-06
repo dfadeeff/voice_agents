@@ -1,7 +1,6 @@
 """Tests for the tool registry pattern."""
 
 import pytest
-
 from app.tools.registry import ToolRegistry
 
 

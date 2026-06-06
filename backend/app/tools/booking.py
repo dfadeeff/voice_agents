@@ -40,9 +40,7 @@ BOOK_SCHEMA = {
 
 
 def _make_check_availability(calendar: CalendarService):
-    async def check_availability(
-        args: dict, ctx: ConversationManager
-    ) -> dict:
+    async def check_availability(args: dict, ctx: ConversationManager) -> dict:
         date = args.get("date", "")
         time_pref = args.get("time_preference", "")
         legal_area = args.get("legal_area", ctx.state.legal_area.value)
@@ -65,8 +63,7 @@ def _make_check_availability(calendar: CalendarService):
                     for s in slots[:3]
                 ],
                 "message": (
-                    "Found available slots. Present them to the caller"
-                    " and ask which they prefer."
+                    "Found available slots. Present them to the caller and ask which they prefer."
                 ),
             }
 
@@ -92,9 +89,7 @@ def _make_check_availability(calendar: CalendarService):
 
 
 def _make_book_consultation(calendar: CalendarService):
-    async def book_consultation(
-        args: dict, ctx: ConversationManager
-    ) -> dict:
+    async def book_consultation(args: dict, ctx: ConversationManager) -> dict:
         unconfirmed = [
             name
             for name, e in ctx.state.entities.items()
@@ -134,17 +129,14 @@ def _make_book_consultation(calendar: CalendarService):
             "booking_id": booking["id"],
             "details": booking,
             "instruction": (
-                "Confirm all booking details back to the caller"
-                " and end the call warmly."
+                "Confirm all booking details back to the caller and end the call warmly."
             ),
         }
 
     return book_consultation
 
 
-def register_booking_tools(
-    registry: ToolRegistry, calendar: CalendarService
-) -> None:
+def register_booking_tools(registry: ToolRegistry, calendar: CalendarService) -> None:
     registry.register(
         name="check_availability",
         fn=_make_check_availability(calendar),

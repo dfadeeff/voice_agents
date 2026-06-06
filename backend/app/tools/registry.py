@@ -8,9 +8,7 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, tuple[Callable, dict]] = {}
 
-    def register(
-        self, name: str, fn: Callable, description: str, parameters: dict
-    ) -> None:
+    def register(self, name: str, fn: Callable, description: str, parameters: dict) -> None:
         schema = {
             "name": name,
             "description": description,
@@ -19,14 +17,9 @@ class ToolRegistry:
         self._tools[name] = (fn, schema)
 
     def get_schemas(self) -> list[dict]:
-        return [
-            {"type": "function", "function": schema}
-            for _, (_, schema) in self._tools.items()
-        ]
+        return [{"type": "function", "function": schema} for _, (_, schema) in self._tools.items()]
 
-    async def execute(
-        self, name: str, arguments: dict, ctx: ConversationManager
-    ) -> dict:
+    async def execute(self, name: str, arguments: dict, ctx: ConversationManager) -> dict:
         if name not in self._tools:
             return {"error": f"Unknown tool: {name}"}
         fn, _ = self._tools[name]

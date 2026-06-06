@@ -2,6 +2,8 @@
 
 setup: models seed
 	pip install -e "backend/.[dev]"
+	pip install pre-commit
+	pre-commit install
 
 models:
 	python3 scripts/download_models.py
@@ -17,8 +19,8 @@ test:
 	cd backend && pytest -v --tb=short
 
 lint:
-	ruff check backend/
-	ruff format --check backend/
+	ruff check backend/ --config backend/pyproject.toml
+	ruff format --check backend/ --config backend/pyproject.toml
 
 benchmark:
 	python3 scripts/benchmark_models.py

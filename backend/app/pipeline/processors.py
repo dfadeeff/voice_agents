@@ -27,11 +27,13 @@ class CallLogger:
         self.entries: list[dict] = []
 
     def log(self, role: str, text: str):
-        self.entries.append({
-            "role": role,
-            "text": text,
-            "timestamp": datetime.now(UTC).isoformat(),
-        })
+        self.entries.append(
+            {
+                "role": role,
+                "text": text,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
 
     def save(self):
         if not self.entries:

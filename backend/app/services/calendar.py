@@ -117,9 +117,7 @@ class CalendarService:
             if not slot:
                 return None
 
-            await db.execute(
-                "UPDATE slots SET is_booked = 1 WHERE id = ?", [slot_id]
-            )
+            await db.execute("UPDATE slots SET is_booked = 1 WHERE id = ?", [slot_id])
             cursor = await db.execute(
                 """INSERT INTO bookings
                    (slot_id, call_id, caller_name, caller_email, caller_phone,

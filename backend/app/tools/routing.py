@@ -19,9 +19,7 @@ SCHEMA = {
 }
 
 
-async def classify_legal_area(
-    args: dict, ctx: ConversationManager
-) -> dict:
+async def classify_legal_area(args: dict, ctx: ConversationManager) -> dict:
     area_str = args.get("legal_area", "unknown")
     try:
         area = LegalArea(area_str)

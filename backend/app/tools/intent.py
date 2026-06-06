@@ -23,16 +23,13 @@ SCHEMA = {
 }
 
 
-async def classify_caller_intent(
-    args: dict, ctx: ConversationManager
-) -> dict:
+async def classify_caller_intent(args: dict, ctx: ConversationManager) -> dict:
     intent_str = args.get("intent", "")
     if not intent_str:
         return {
             "status": "need_more_info",
             "message": (
-                "You haven't learned enough yet."
-                " Greet the caller warmly and ask how you can help."
+                "You haven't learned enough yet. Greet the caller warmly and ask how you can help."
             ),
         }
     try:

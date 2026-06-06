@@ -25,18 +25,14 @@ SCHEMA = {
 }
 
 
-async def escalate_to_human(
-    args: dict, ctx: ConversationManager
-) -> dict:
+async def escalate_to_human(args: dict, ctx: ConversationManager) -> dict:
     ctx.state.escalation_requested = True
     ctx.state.phase = CallPhase.ESCALATION
 
     context_for_human = {
         "reason": args.get("reason", "unknown"),
         "summary": args.get("summary", ""),
-        "caller_details": {
-            k: v.value for k, v in ctx.state.entities.items()
-        },
+        "caller_details": {k: v.value for k, v in ctx.state.entities.items()},
         "legal_area": ctx.state.legal_area.value,
         "turn_count": ctx.state.turn_count,
         "call_id": ctx.state.call_id,

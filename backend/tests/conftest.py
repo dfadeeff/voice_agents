@@ -3,7 +3,6 @@ import tempfile
 
 import pytest
 import pytest_asyncio
-
 from app.conversation.manager import ConversationManager
 from app.models.schemas import WordInfo
 from app.services.calendar import CalendarService
