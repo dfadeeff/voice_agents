@@ -10,7 +10,7 @@ build/
 *.db
 
 data/
-models/
+/models/
 logs/
 
 .venv/
