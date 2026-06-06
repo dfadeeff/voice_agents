@@ -1,7 +1,7 @@
-# Voice AI Agent — Law Firm
+# Voice AI Agent for Law Firms
 
 ## What this is
-Inbound voice AI agent for a law firm take-home challenge. Handles calls end-to-end: greeting, routing by legal area (employment/tenancy), entity capture with confidence handling, consultation booking, and human escalation.
+Inbound voice AI agent for law firms. Handles calls end-to-end: greeting, routing by legal area (employment/tenancy), entity capture with confidence handling, consultation booking, and human escalation.
 
 ## Architecture
 See ARCHITECTURE.md for full details. Key decisions:
@@ -14,7 +14,7 @@ See ARCHITECTURE.md for full details. Key decisions:
 ## Stack
 - Python 3.11+, FastAPI, Pipecat
 - STT: faster-whisper (local) | Deepgram (cloud)
-- LLM: Ollama llama3.1 (local) | OpenAI (cloud)
+- LLM: Ollama qwen2.5 (local) | OpenAI (cloud)
 - TTS: Piper (local) | ElevenLabs (cloud)
 - DB: SQLite with aiosqlite
 - Transport: Pipecat WebSocket | Twilio Media Streams

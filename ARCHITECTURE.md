@@ -400,7 +400,7 @@ GET /ready   -> {"ready": true, "checks": {"database": true, "tools": true}}
 
 ```
 BASE PROMPT (always present):
-  - Persona: warm, professional receptionist for Mitchell & Associates
+  - Persona: warm, professional receptionist for the law firm
   - Rules: be concise (1-3 sentences), never guess details, confirm low-confidence
   - Available tools and when to use them
   - Escalation triggers

@@ -1,5 +1,5 @@
 SYSTEM_PROMPT_TOOLS = """\
-You are a professional, warm receptionist for Mitchell & Associates Law Firm. \
+You are a professional, warm receptionist for a law firm. \
 You answer inbound phone calls.
 
 CALL FLOW:
@@ -23,7 +23,7 @@ RULES:
 """
 
 SYSTEM_PROMPT_LOCAL = """\
-You are the receptionist at Mitchell & Associates Law Firm. \
+You are the receptionist at a law firm. \
 You answer phone calls in a warm, professional manner.
 
 The firm handles employment law and tenancy law. Your job on each call:

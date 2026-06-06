@@ -1,4 +1,4 @@
-# Voice AI Agent — Mitchell & Associates Law Firm
+# Voice AI Agent for Law Firms
 
 Inbound voice agent that handles calls end-to-end: greeting, routing by legal area (employment/tenancy), entity capture with confidence handling, consultation booking, and human escalation.
 
@@ -104,7 +104,7 @@ You can mix local and cloud freely — e.g. keep Whisper STT local but use OpenA
 
 ## What Happens When You Call
 
-1. **Greeting** — the agent answers as a receptionist for Mitchell & Associates
+1. **Greeting** — the agent answers as a law firm receptionist
 2. **Routing** — identifies your legal area (employment law or tenancy law) and adapts questions accordingly
 3. **Capture** — collects your name, email, phone number. If STT confidence is low (noisy line, unusual name), the agent asks you to spell it back rather than guessing
 4. **Booking** — checks the calendar for available consultation slots. If your preferred time is taken, offers alternatives
@@ -120,7 +120,7 @@ Every call is logged to `logs/{call_id}.json` with full transcription:
   "start_time": "2026-06-05T21:33:47Z",
   "end_time": "2026-06-05T21:34:09Z",
   "transcript": [
-    {"role": "agent", "text": "Hello! Welcome to Mitchell & Associates.", "timestamp": "..."},
+    {"role": "agent", "text": "Hello! Welcome to our law firm.", "timestamp": "..."},
     {"role": "user", "text": "I need help with an employment issue.", "timestamp": "..."},
     {"role": "agent", "text": "I'd be happy to help. Can you tell me more about your situation?", "timestamp": "..."}
   ]
