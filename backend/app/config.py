@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     deepgram_api_key: str = ""
 
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.1"
+    ollama_model: str = "qwen2.5:7b"
 
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
@@ -37,5 +37,7 @@ class Settings(BaseSettings):
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_phone_number: str = ""
+
+    use_tools_local: bool = True
 
     model_config = {"env_file": ".env", "env_prefix": ""}

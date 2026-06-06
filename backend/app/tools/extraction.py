@@ -41,7 +41,7 @@ async def extract_caller_details(
     needs_confirmation = []
 
     for field_name, value in args.items():
-        if not value:
+        if not value or not isinstance(value, str):
             continue
 
         confidence = ctx.get_word_confidence_for_value(value)

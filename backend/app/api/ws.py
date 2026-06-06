@@ -47,7 +47,7 @@ async def websocket_call(websocket: WebSocket, call_id: str = "new"):
     conversation = ConversationManager(call_id=call_id)
     tools = websocket.app.state.tool_registry
 
-    use_tools = settings.llm_provider != "ollama"
+    use_tools = settings.llm_provider != "ollama" or settings.use_tools_local
     task, runner = await create_pipeline(
         stt, llm, tts, transport, websocket, conversation, tools,
         use_tools=use_tools,
