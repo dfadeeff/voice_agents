@@ -139,6 +139,39 @@ Every call is logged to `logs/{call_id}.json` with full transcription:
 
 Logs are excluded from git (`.gitignore`). In production, these would go to a database.
 
+## Model Benchmarks
+
+Model selection is data-driven. The benchmark script tests each model on 3 scenarios that matter for phone calls: natural greeting, greeting with tool schemas present, and structured tool calling after conversation context.
+
+```bash
+# Run benchmark on all installed models
+make benchmark
+
+# Or test specific models
+python3 scripts/benchmark_models.py qwen3:4b qwen2.5:7b llama3.1
+```
+
+Results are saved to `benchmarks/`:
+- `benchmark_results.json` — machine-readable (for CI/CD pipelines)
+- `benchmark_results.md` — markdown table (for PRs and documentation)
+
+### CI/CD Integration
+
+The benchmark runs automatically via GitHub Actions (`.github/workflows/benchmark.yml`):
+- **On push to `main`** — when benchmark script or prompts change
+- **Manual trigger** — `Actions → Model Benchmark → Run workflow` with optional model list
+- Results are uploaded as artifacts and commented on the commit
+
+### Latest Results (local, qwen2.5:7b)
+
+| Model | Greeting | Greeting + Tools | Tool Call | Avg Latency | Verdict |
+|-------|----------|-----------------|-----------|-------------|---------|
+| qwen2.5:7b | PASS | PASS | PASS | 0.72s | Recommended |
+| llama3.1 | PASS | PASS | PASS | 0.89s | Recommended (slower) |
+| llama3.2:3b | PASS | WARN | PASS | 0.44s | Usable (caveats) |
+
+Run `make benchmark` to generate up-to-date results for your hardware.
+
 ## Stack
 
 All local, all free:
@@ -193,8 +226,12 @@ voice_agent/
 │       └── audio.js                # AudioWorklet mic capture + playback
 ├── scripts/
 │   ├── download_models.py          # Download Piper voice + pull Ollama model
-│   └── seed_calendar.py            # Populate 2 weeks of appointment slots
+│   ├── seed_calendar.py            # Populate 2 weeks of appointment slots
+│   └── benchmark_models.py         # Model latency + tool calling benchmark
+├── benchmarks/                     # Benchmark output (JSON + markdown)
 ├── logs/                           # Call transcripts (auto-created, gitignored)
+├── .github/workflows/
+│   └── benchmark.yml               # CI: model benchmark on push/manual
 ├── ARCHITECTURE.md                 # Detailed architecture + diagrams
 ├── Makefile
 └── .env.example

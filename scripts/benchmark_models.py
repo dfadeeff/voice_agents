@@ -6,17 +6,27 @@ Tests each model on three dimensions that matter for phone calls:
   2. Tool calling — does the model use the API correctly or dump JSON as text?
   3. Conversation — does the model greet naturally?
 
+Outputs:
+  - Console table (human-readable)
+  - benchmarks/benchmark_results.json (machine-readable, for CI/CD)
+  - benchmarks/benchmark_results.md (markdown table, for README/PR)
+
 Usage:
     python3 scripts/benchmark_models.py                    # test all installed models
     python3 scripts/benchmark_models.py qwen3:4b llama3.1  # test specific models
 """
 
 import json
+import platform
+import subprocess
 import sys
 import time
 import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
 
 OLLAMA_URL = "http://localhost:11434"
+BENCHMARKS_DIR = Path("benchmarks")
 
 SYSTEM_PROMPT = (
     "You are the receptionist at a law firm. "
@@ -65,7 +75,8 @@ TOOLS = [
 
 SCENARIOS = [
     {
-        "name": "greeting (no tools)",
+        "name": "greeting_no_tools",
+        "display": "Greeting (no tools)",
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": "[A new caller has connected]"},
@@ -74,7 +85,8 @@ SCENARIOS = [
         "expect": "speech",
     },
     {
-        "name": "greeting (with tools)",
+        "name": "greeting_with_tools",
+        "display": "Greeting (with tools)",
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": "[A new caller has connected]"},
@@ -83,7 +95,8 @@ SCENARIOS = [
         "expect": "speech",
     },
     {
-        "name": "tool call (employment issue)",
+        "name": "tool_call_employment",
+        "display": "Tool call (employment)",
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": "[A new caller has connected]"},
@@ -138,7 +151,7 @@ def analyze_response(result, expected):
         if has_tool_call and not has_speech:
             tool_name = tool_calls[0]["function"]["name"]
             return "WARN", f"Tool call instead of speech: {tool_name}"
-        return "FAIL", f"Empty response"
+        return "FAIL", "Empty response"
 
     if expected == "tool_call":
         if has_tool_call:
@@ -148,8 +161,8 @@ def analyze_response(result, expected):
                 try:
                     args = json.loads(args)
                 except json.JSONDecodeError:
-                    args = args
-            speech_note = f" + speech" if has_speech else ""
+                    pass
+            speech_note = " + speech" if has_speech else ""
             return "PASS", f"{tc['name']}({json.dumps(args)}){speech_note}"
         if has_json_text:
             return "FAIL", f"JSON as text (not API): {content.strip()[:60]}"
@@ -161,7 +174,6 @@ def analyze_response(result, expected):
 
 
 def warmup_model(model):
-    """Load model into memory with a tiny request."""
     call_ollama(model, [{"role": "user", "content": "hi"}])
 
 
@@ -171,11 +183,129 @@ def get_installed_models():
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read())
             models = [m["name"] for m in data.get("models", [])]
-            # skip embedding models
             return [m for m in models if "embed" not in m]
     except Exception as e:
         print(f"Error connecting to Ollama: {e}")
         sys.exit(1)
+
+
+def get_system_info():
+    try:
+        ollama_version = subprocess.check_output(
+            ["ollama", "--version"], stderr=subprocess.STDOUT, text=True
+        ).strip()
+    except Exception:
+        ollama_version = "unknown"
+
+    return {
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "python": platform.python_version(),
+        "ollama": ollama_version,
+        "cpu": platform.processor() or "unknown",
+    }
+
+
+def get_model_info(model):
+    try:
+        req = urllib.request.Request(f"{OLLAMA_URL}/api/show")
+        data = json.dumps({"model": model}).encode()
+        req.data = data
+        req.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            info = json.loads(resp.read())
+            details = info.get("details", {})
+            return {
+                "family": details.get("family", "unknown"),
+                "parameter_size": details.get("parameter_size", "unknown"),
+                "quantization": details.get("quantization_level", "unknown"),
+            }
+    except Exception:
+        return {"family": "unknown", "parameter_size": "unknown", "quantization": "unknown"}
+
+
+def generate_markdown(report):
+    lines = [
+        "# Model Benchmark Results",
+        "",
+        f"**Date:** {report['timestamp']}  ",
+        f"**Platform:** {report['system']['platform']}  ",
+        f"**Ollama:** {report['system']['ollama']}",
+        "",
+        "## Summary",
+        "",
+        "| Model | Size | Greeting | Greeting + Tools | Tool Call | Avg Latency | Verdict |",
+        "|-------|------|----------|-----------------|-----------|-------------|---------|",
+    ]
+
+    for model_name, model_data in report["models"].items():
+        info = model_data["model_info"]
+        size = info.get("parameter_size", "?")
+        quant = info.get("quantization", "?")
+        size_str = f"{size} ({quant})"
+
+        scenarios = {s["scenario"]: s for s in model_data["scenarios"]}
+        s1 = scenarios.get("greeting_no_tools", {}).get("status", "?")
+        s2 = scenarios.get("greeting_with_tools", {}).get("status", "?")
+        s3 = scenarios.get("tool_call_employment", {}).get("status", "?")
+
+        latencies = [s["latency_s"] for s in model_data["scenarios"]]
+        avg_lat = sum(latencies) / len(latencies) if latencies else 0
+
+        statuses = [s["status"] for s in model_data["scenarios"]]
+        fails = statuses.count("FAIL")
+        warns = statuses.count("WARN")
+        if fails == 0 and warns == 0:
+            verdict = "Recommended"
+        elif fails == 0:
+            verdict = "Usable (caveats)"
+        else:
+            verdict = "Not recommended"
+
+        lines.append(
+            f"| {model_name} | {size_str} | {s1} | {s2} | {s3} | {avg_lat:.2f}s | {verdict} |"
+        )
+
+    lines += [
+        "",
+        "## Detailed Results",
+        "",
+    ]
+
+    for model_name, model_data in report["models"].items():
+        lines.append(f"### {model_name}")
+        lines.append("")
+        lines.append("| Scenario | Status | Latency | Tokens | Detail |")
+        lines.append("|----------|--------|---------|--------|--------|")
+
+        for s in model_data["scenarios"]:
+            tokens = f"{s['prompt_tokens']}→{s['completion_tokens']}"
+            detail = s["detail"][:60]
+            lines.append(
+                f"| {s['scenario']} | {s['status']} | {s['latency_s']:.2f}s | {tokens} | {detail} |"
+            )
+        lines.append("")
+
+    lines += [
+        "## Criteria",
+        "",
+        "- **Greeting (no tools):** Can the model have a basic conversation? Expect natural speech.",
+        "- **Greeting (with tools):** Does the model still greet when tool schemas are present, or does it skip to calling a tool? "
+        "For a phone call, the agent must speak first.",
+        "- **Tool call:** After conversation context, does the model use the tool calling API correctly "
+        "(structured `tool_calls`), or dump JSON as text?",
+        "",
+        "### Verdicts",
+        "",
+        "- **Recommended**: PASS on all scenarios — speaks naturally and uses tools correctly.",
+        "- **Usable (caveats)**: No failures but some warnings (e.g., skips greeting when tools present).",
+        "- **Not recommended**: At least one FAIL — broken tool calling or JSON dumping.",
+        "",
+        "---",
+        f"*Generated by `scripts/benchmark_models.py`*",
+    ]
+
+    return "\n".join(lines)
 
 
 def main():
@@ -192,7 +322,11 @@ def main():
     print(f"Scenarios: {len(SCENARIOS)}")
     print("=" * 100)
 
-    results = {}
+    report = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "system": get_system_info(),
+        "models": {},
+    }
 
     for model in models:
         print(f"\n{'─' * 100}")
@@ -203,43 +337,51 @@ def main():
         warmup_model(model)
         print("done")
 
-        model_results = []
+        model_info = get_model_info(model)
+        model_scenarios = []
+
         for scenario in SCENARIOS:
-            print(f"\n  [{scenario['name']}]")
+            print(f"\n  [{scenario['display']}]")
             result, elapsed = call_ollama(model, scenario["messages"], scenario["tools"])
             status, detail = analyze_response(result, scenario["expect"])
 
             tokens = result.get("usage", {})
-            prompt_tok = tokens.get("prompt_tokens", "?")
-            comp_tok = tokens.get("completion_tokens", "?")
+            if isinstance(tokens, dict):
+                prompt_tok = tokens.get("prompt_tokens", 0)
+                comp_tok = tokens.get("completion_tokens", 0)
+            else:
+                prompt_tok = 0
+                comp_tok = 0
 
             icon = {"PASS": "✓", "FAIL": "✗", "WARN": "⚠", "ERROR": "⚠"}.get(status, "?")
-            color_status = status
 
-            print(f"    {icon} {color_status}  ({elapsed:.2f}s, {prompt_tok}→{comp_tok} tokens)")
+            print(f"    {icon} {status}  ({elapsed:.2f}s, {prompt_tok}→{comp_tok} tokens)")
             print(f"    → {detail}")
 
-            model_results.append({
+            model_scenarios.append({
                 "scenario": scenario["name"],
                 "status": status,
-                "latency": elapsed,
+                "latency_s": round(elapsed, 3),
                 "detail": detail,
                 "prompt_tokens": prompt_tok,
                 "completion_tokens": comp_tok,
             })
 
-        results[model] = model_results
+        report["models"][model] = {
+            "model_info": model_info,
+            "scenarios": model_scenarios,
+        }
 
-    # Summary table
+    # Console summary
     print(f"\n\n{'=' * 100}")
     print("SUMMARY")
     print(f"{'=' * 100}")
-    print(f"\n{'Model':<25} {'Greeting':<10} {'Greeting+Tools':<15} {'Tool Call':<10} {'Avg Latency':<12} {'Verdict'}")
-    print(f"{'─' * 25} {'─' * 10} {'─' * 15} {'─' * 10} {'─' * 12} {'─' * 20}")
+    print(f"\n{'Model':<25} {'Greeting':<10} {'Greet+Tools':<13} {'Tool Call':<10} {'Avg Latency':<12} {'Verdict'}")
+    print(f"{'─' * 25} {'─' * 10} {'─' * 13} {'─' * 10} {'─' * 12} {'─' * 20}")
 
-    for model, model_results in results.items():
-        statuses = [r["status"] for r in model_results]
-        latencies = [r["latency"] for r in model_results]
+    for model_name, model_data in report["models"].items():
+        statuses = [s["status"] for s in model_data["scenarios"]]
+        latencies = [s["latency_s"] for s in model_data["scenarios"]]
         avg_lat = sum(latencies) / len(latencies)
 
         s1 = statuses[0] if len(statuses) > 0 else "?"
@@ -255,9 +397,18 @@ def main():
         else:
             verdict = "✗ Not recommended"
 
-        print(f"{model:<25} {s1:<10} {s2:<15} {s3:<10} {avg_lat:<12.2f}s {verdict}")
+        print(f"{model_name:<25} {s1:<10} {s2:<13} {s3:<10} {avg_lat:<12.2f}s {verdict}")
 
-    print()
+    # Save reports
+    BENCHMARKS_DIR.mkdir(parents=True, exist_ok=True)
+
+    json_path = BENCHMARKS_DIR / "benchmark_results.json"
+    json_path.write_text(json.dumps(report, indent=2))
+    print(f"\nJSON report: {json_path}")
+
+    md_path = BENCHMARKS_DIR / "benchmark_results.md"
+    md_path.write_text(generate_markdown(report))
+    print(f"Markdown report: {md_path}")
 
 
 if __name__ == "__main__":
