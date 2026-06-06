@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class CallPhase(str, Enum):
+class CallPhase(StrEnum):
     GREETING = "greeting"
     INTENT_DETECTION = "intent_detection"
     ROUTING = "routing"
@@ -14,13 +14,13 @@ class CallPhase(str, Enum):
     FAREWELL = "farewell"
 
 
-class CallerIntent(str, Enum):
+class CallerIntent(StrEnum):
     GENERAL_INFO = "general_info"
     BOOK_CONSULTATION = "book_consultation"
     UNKNOWN = "unknown"
 
 
-class LegalArea(str, Enum):
+class LegalArea(StrEnum):
     EMPLOYMENT = "employment"
     TENANCY = "tenancy"
     UNKNOWN = "unknown"
