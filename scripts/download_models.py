@@ -15,7 +15,7 @@ PIPER_FILES = [
 ]
 PIPER_DIR = Path("models/piper")
 
-OLLAMA_MODEL = "qwen2.5:7b"
+OLLAMA_MODEL = "qwen3:4b"
 
 
 def download_piper():

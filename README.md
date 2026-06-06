@@ -7,7 +7,7 @@ Runs locally with zero API keys. No cloud accounts needed.
 ## Prerequisites
 
 - **Python 3.11+** — [python.org/downloads](https://www.python.org/downloads/)
-- **Ollama** — local LLM runtime (provides the "brain" of the agent)
+- **Ollama** — local LLM runtime
 - **A microphone** — for browser-based voice calls
 
 ### Install Ollama
@@ -24,11 +24,15 @@ brew install ollama
 curl -fsSL https://ollama.com/install.sh | sh
 ```
 
-After installing, start the Ollama server:
+Start the Ollama server (keep it running in a separate terminal):
 ```bash
 ollama serve
 ```
-Leave this running in a separate terminal.
+
+Pull the default model:
+```bash
+ollama pull qwen3:4b
+```
 
 ## Quick Start
 
@@ -39,7 +43,7 @@ git clone https://github.com/dfadeeff/voice_agents.git && cd voice_agents
 # 2. Install Python dependencies
 pip install -e "backend/.[dev]"
 
-# 3. Download models (Piper TTS voice + Ollama LLM)
+# 3. Download models (Piper TTS voice + Ollama qwen3:4b + NLTK tokenizer)
 python3 scripts/download_models.py
 
 # 4. Seed the appointment calendar
@@ -59,27 +63,33 @@ make run     # step 5
 
 ## Choosing a Local Model
 
-The agent's quality depends heavily on the LLM. Set the model in `.env` via `OLLAMA_MODEL`:
+For a real-time phone call agent, the priority is **latency first, then tool calling quality, then reasoning**. A fast model that responds in 200ms beats a smart model that takes 500ms — dead air on a phone call feels broken.
 
-| Model | Size | RAM needed | Tool calling | Conversation quality | Recommended for |
-|-------|------|-----------|-------------|---------------------|----------------|
-| `qwen2.5:7b` | 4.7 GB | 8 GB | Good | Good | Machines with 8-16 GB RAM |
-| `qwen2.5:14b` | 9 GB | 16 GB | Very good | Very good | Machines with 16-32 GB RAM |
-| `qwen2.5:32b` | 20 GB | 32 GB | Excellent | Excellent | Machines with 32+ GB RAM |
-| `llama3.1:8b` | 4.9 GB | 8 GB | Poor | Good | Not recommended (dumps JSON as text) |
+Set the model in `.env` via `OLLAMA_MODEL`:
 
-**Qwen 2.5 is strongly recommended** over llama3.1 for this use case. llama3.1:8b cannot reliably use function calling via Ollama's API — it outputs raw JSON as text instead of using the tool calling protocol. Qwen 2.5 handles tool calling correctly at every size.
+| Model | Size | Latency | Tool calling | Recommended for |
+|-------|------|---------|-------------|----------------|
+| **`qwen3:4b`** | 2.6 GB | Fastest | Excellent | **Best default for phone calls** |
+| `qwen3:8b` | 5.2 GB | Fast | Excellent | Best tool calling if you have RAM |
+| `qwen2.5:7b` | 4.7 GB | Fast | Good | Solid fallback |
+| `qwen3:14b` | 9.2 GB | Medium | Excellent | Better reasoning, slower response |
+| `llama3.2:3b` | 2.0 GB | Fastest | Fair | Speed-constrained devices |
+| `llama3.1:8b` | 4.9 GB | Fast | **Broken** | Not recommended (dumps JSON as text) |
+
+**Qwen3 is strongly recommended.** Qwen3 was specifically optimized for agentic/tool-calling use cases and outperforms other local models in function calling benchmarks. The 4B model quantized to Q4/Q5 is the sweet spot: small enough to respond quickly, strong enough for structured conversation and reliable tool use.
+
+**llama3.1:8b does not work** for tool calling — it outputs raw JSON as text instead of using Ollama's tool calling API.
 
 To switch models:
 ```bash
-# Pull the model
-ollama pull qwen2.5:32b
+# Pull the model (recommended: qwen3:4b for speed, qwen3:8b for quality)
+ollama pull qwen3:4b
 
 # Set in .env
-OLLAMA_MODEL=qwen2.5:32b
+OLLAMA_MODEL=qwen3:4b
 ```
 
-When using Qwen 2.5 (or any model with reliable tool calling), set `USE_TOOLS_LOCAL=true` in `.env` to enable the full tool-calling pipeline locally. Without this, the local agent runs in conversational mode (no structured tool calls).
+Tool calling is enabled by default for local models (`USE_TOOLS_LOCAL=true`). Set it to `false` to fall back to a purely conversational mode without structured tool calls.
 
 ## Cloud Mode (Optional)
 
@@ -137,7 +147,7 @@ All local, all free:
 |-------|-----------|--------------|
 | **Orchestration** | [Pipecat](https://github.com/pipecat-ai/pipecat) | Pipeline wiring, VAD, turn-taking, interruptions, streaming |
 | **STT** | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (via Pipecat) | Speech-to-text with per-word confidence scores |
-| **LLM** | [Ollama](https://ollama.com) + Qwen 2.5 | Conversation, tool calling, routing decisions |
+| **LLM** | [Ollama](https://ollama.com) + Qwen 3 | Conversation, tool calling, routing decisions |
 | **TTS** | [Piper](https://github.com/rhasspy/piper) (via Pipecat) | Text-to-speech, en_US-lessac-medium voice |
 | **VAD** | Silero (via Pipecat) | Voice activity detection, endpointing |
 | **Transport** | WebSocket + protobuf | Browser mic/speaker over FastAPI WebSocket |
@@ -200,18 +210,20 @@ voice_agent/
 
 **Why:** Pipecat handles VAD (Silero), turn-taking, interruption/barge-in, streaming TTS sentence chunking, and transport abstraction out of the box. Building this from scratch would take weeks and produce a worse result. Our code only handles business logic — tools, prompts, and conversation state. When Pipecat's API changed between versions (e.g., `create_context_aggregator()` removed in 1.3.0, `PipelineRunner` deprecated for `WorkerRunner`), the migration was straightforward because our custom code is minimal.
 
-### Why Qwen 2.5 (not llama3.1)
+### Why Qwen 3 (not llama3.1)
 
-**Decision:** Default to `qwen2.5:7b` for the local LLM.
+**Decision:** Default to `qwen3:4b` for the local LLM. Optimize for latency + tool calling, not raw intelligence.
 
-**Trade-off:** Qwen 2.5 is less widely known than llama3.1, but it's the same download size (4.7 GB vs 4.9 GB) and runs identically via Ollama.
+**Trade-off:** Qwen3-4B is a smaller model with less general reasoning than a 7B or 14B. But for a phone call, fast response time matters more than deep reasoning — dead air feels broken.
 
-**Why:** llama3.1:8b **cannot reliably do function calling** via Ollama's OpenAI-compatible API. When given tool schemas, it exhibits three failure modes:
-1. **Outputs raw JSON as text** — e.g., `{"name": "greet", "parameters": {}}` spoken aloud by TTS instead of using the tool calling protocol
-2. **Calls wrong tools with garbage arguments** — e.g., calls `extract_caller_details` with `{"debug_mode": true}` on the very first turn
+**Why:** For a real-time voice agent, the ranking is: latency > tool calling reliability > reasoning depth. Qwen3 was specifically optimized for agentic/tool-calling use cases (per Qwen's model card and Docker's local tool-calling benchmarks). The 4B variant at Q4/Q5 quantization hits the sweet spot: responds fast enough for natural conversation while handling structured tool calls reliably.
+
+llama3.1:8b **cannot reliably do function calling** via Ollama's OpenAI-compatible API. Verified failure modes:
+1. **Outputs raw JSON as text** — e.g., `{"name": "greet", "parameters": {}}` spoken aloud by TTS
+2. **Calls wrong tools with garbage arguments** — e.g., `extract_caller_details` with `{"debug_mode": true}` on the first turn
 3. **Skips greeting entirely** — calls a tool immediately with empty content instead of speaking first
 
-This was verified via direct API testing (`curl` to Ollama's `/v1/chat/completions`). The issue is in the model's fine-tuning for tool use, not in our code or Pipecat. Qwen 2.5 handles the same tool schemas correctly at every size (7B, 14B, 32B).
+This was verified via direct API testing (`curl` to Ollama's `/v1/chat/completions`). The issue is in the model's fine-tuning for tool use, not in our code or Pipecat.
 
 ### Local vs Cloud LLM: automatic tool toggle
 
