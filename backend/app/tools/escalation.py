@@ -44,7 +44,10 @@ async def escalate_to_human(
 
     return {
         "status": "escalating",
-        "message": "I'm going to connect you with a member of our team who can help you directly. Please hold for just a moment.",
+        "message": (
+            "I'm going to connect you with a member of our team"
+            " who can help you directly. Please hold for just a moment."
+        ),
         "context_for_human": context_for_human,
     }
 

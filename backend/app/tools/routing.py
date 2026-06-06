@@ -48,6 +48,9 @@ def register_routing_tools(registry: ToolRegistry) -> None:
     registry.register(
         name="classify_legal_area",
         fn=classify_legal_area,
-        description="Classify the caller's legal issue into an area of law. Call once you have enough context to determine the area.",
+        description=(
+            "Classify the caller's legal issue into an area of law."
+            " Call once you have enough context to determine the area."
+        ),
         parameters=SCHEMA,
     )

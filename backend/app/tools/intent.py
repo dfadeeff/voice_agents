@@ -8,7 +8,11 @@ SCHEMA = {
         "intent": {
             "type": "string",
             "enum": ["general_info", "book_consultation"],
-            "description": "What the caller wants: 'general_info' if they want to know whether the firm can help with their situation, 'book_consultation' if they want to schedule a meeting with a lawyer.",
+            "description": (
+                "What the caller wants: 'general_info' if they want to know"
+                " whether the firm can help, 'book_consultation' if they want"
+                " to schedule a meeting with a lawyer."
+            ),
         },
         "reasoning": {
             "type": "string",
@@ -26,7 +30,10 @@ async def classify_caller_intent(
     if not intent_str:
         return {
             "status": "need_more_info",
-            "message": "You haven't learned enough yet. Greet the caller warmly and ask how you can help.",
+            "message": (
+                "You haven't learned enough yet."
+                " Greet the caller warmly and ask how you can help."
+            ),
         }
     try:
         intent = CallerIntent(intent_str)
@@ -39,13 +46,19 @@ async def classify_caller_intent(
         return {
             "status": "classified",
             "intent": intent.value,
-            "message": "Caller wants to book a consultation. Identify their legal area next, then collect details.",
+            "message": (
+                "Caller wants to book a consultation."
+                " Identify their legal area next, then collect details."
+            ),
         }
 
     return {
         "status": "classified",
         "intent": intent.value,
-        "message": "Caller wants general information. Identify their legal area to give relevant answers. Offer to book if appropriate.",
+        "message": (
+            "Caller wants general information. Identify their legal area"
+            " to give relevant answers. Offer to book if appropriate."
+        ),
     }
 
 

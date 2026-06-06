@@ -45,7 +45,7 @@ async def extract_caller_details(
             continue
 
         confidence = ctx.get_word_confidence_for_value(value)
-        entity = ctx.store_entity(field_name, value, confidence)
+        ctx.store_entity(field_name, value, confidence)
         stored.append(field_name)
 
         if confidence < CONFIDENCE_THRESHOLD and field_name in (
@@ -84,7 +84,8 @@ def register_extraction_tools(registry: ToolRegistry) -> None:
         fn=extract_caller_details,
         description=(
             "Store caller details extracted from conversation. "
-            "The system will check STT confidence and tell you which fields need verbal confirmation. "
+            "The system will check STT confidence and tell you which fields "
+            "need verbal confirmation. "
             "You MUST confirm any low-confidence fields before booking."
         ),
         parameters=SCHEMA,

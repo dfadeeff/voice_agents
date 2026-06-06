@@ -58,7 +58,8 @@ async def seeded_calendar(calendar):
 
     async with aiosqlite.connect(calendar._db_path) as db:
         await db.executemany(
-            "INSERT INTO slots (date, time, duration_minutes, legal_area, lawyer_name) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO slots (date, time, duration_minutes, legal_area, lawyer_name)"
+            " VALUES (?, ?, ?, ?, ?)",
             [
                 ("2026-06-10", "09:00", 30, "employment", "Sarah Chen"),
                 ("2026-06-10", "10:00", 30, "employment", "Sarah Chen"),

@@ -2,9 +2,6 @@
 
 import json
 
-import pytest
-
-from app.conversation.manager import ConversationManager
 from app.conversation.prompts import (
     FRAGMENTS,
     SYSTEM_PROMPT_BASE,

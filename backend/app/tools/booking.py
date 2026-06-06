@@ -64,7 +64,10 @@ def _make_check_availability(calendar: CalendarService):
                     }
                     for s in slots[:3]
                 ],
-                "message": "Found available slots. Present them to the caller and ask which they prefer.",
+                "message": (
+                    "Found available slots. Present them to the caller"
+                    " and ask which they prefer."
+                ),
             }
 
         alternatives = await calendar.get_next_available(
@@ -130,7 +133,10 @@ def _make_book_consultation(calendar: CalendarService):
             "status": "booked",
             "booking_id": booking["id"],
             "details": booking,
-            "instruction": "Confirm all booking details back to the caller and end the call warmly.",
+            "instruction": (
+                "Confirm all booking details back to the caller"
+                " and end the call warmly."
+            ),
         }
 
     return book_consultation
@@ -142,12 +148,19 @@ def register_booking_tools(
     registry.register(
         name="check_availability",
         fn=_make_check_availability(calendar),
-        description="Check available consultation slots for a given date. Returns up to 3 options, or alternatives if the requested date is full.",
+        description=(
+            "Check available consultation slots for a given date."
+            " Returns up to 3 options, or alternatives if the requested date is full."
+        ),
         parameters=CHECK_SCHEMA,
     )
     registry.register(
         name="book_consultation",
         fn=_make_book_consultation(calendar),
-        description="Book a consultation slot. All caller details (name, email, phone) must be confirmed first. Confirm ALL details back to the caller before calling this.",
+        description=(
+            "Book a consultation slot. All caller details (name, email, phone)"
+            " must be confirmed first. Confirm ALL details back to the caller"
+            " before calling this."
+        ),
         parameters=BOOK_SCHEMA,
     )

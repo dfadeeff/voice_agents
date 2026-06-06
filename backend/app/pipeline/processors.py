@@ -2,7 +2,7 @@
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pipecat.frames.frames import (
@@ -23,14 +23,14 @@ class CallLogger:
 
     def __init__(self, call_id: str):
         self.call_id = call_id
-        self.start_time = datetime.now(timezone.utc).isoformat()
+        self.start_time = datetime.now(UTC).isoformat()
         self.entries: list[dict] = []
 
     def log(self, role: str, text: str):
         self.entries.append({
             "role": role,
             "text": text,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         })
 
     def save(self):
@@ -40,7 +40,7 @@ class CallLogger:
         log_data = {
             "call_id": self.call_id,
             "start_time": self.start_time,
-            "end_time": datetime.now(timezone.utc).isoformat(),
+            "end_time": datetime.now(UTC).isoformat(),
             "transcript": self.entries,
         }
         path = LOGS_DIR / f"{self.call_id}.json"

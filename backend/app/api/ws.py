@@ -2,7 +2,6 @@ import logging
 import uuid
 
 from fastapi import APIRouter, WebSocket
-
 from pipecat.frames.frames import EndFrame
 from pipecat.serializers.protobuf import ProtobufFrameSerializer
 from pipecat.transports.websocket.fastapi import (
@@ -12,7 +11,7 @@ from pipecat.transports.websocket.fastapi import (
 
 from app.conversation.manager import ConversationManager
 from app.pipeline.orchestrator import create_pipeline
-from app.pipeline.services import create_stt, create_tts, create_llm
+from app.pipeline.services import create_llm, create_stt, create_tts
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

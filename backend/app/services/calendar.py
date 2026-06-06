@@ -1,4 +1,4 @@
-import datetime
+from datetime import UTC, datetime
 
 import aiosqlite
 
@@ -107,7 +107,7 @@ class CalendarService:
         matter_type: str = "",
         matter_description: str = "",
     ) -> dict | None:
-        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
                 "SELECT * FROM slots WHERE id = ? AND is_booked = 0", [slot_id]
