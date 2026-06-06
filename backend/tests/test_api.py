@@ -1,7 +1,26 @@
 """Smoke tests: does the FastAPI app start, do endpoints respond?"""
 
+import os
+import tempfile
+
+import pytest_asyncio
 from app.main import create_app
+from app.services.calendar import CalendarService
+from app.tools.registry import build_default_registry
 from httpx import ASGITransport, AsyncClient
+
+
+@pytest_asyncio.fixture
+async def live_app():
+    """Create app with real (temp) database and tool registry — no data/ dir needed."""
+    app = create_app()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "test.db")
+        calendar = CalendarService(db_path=db_path)
+        await calendar.init_db()
+        app.state.calendar = calendar
+        app.state.tool_registry = build_default_registry(calendar)
+        yield app
 
 
 class TestHealth:
@@ -15,27 +34,23 @@ class TestHealth:
 
 
 class TestReadyWithLifespan:
-    async def test_ready_checks_pass(self):
-        app = create_app()
-        async with app.router.lifespan_context(app):
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                resp = await client.get("/ready")
-                assert resp.status_code == 200
-                data = resp.json()
-                assert data["ready"] is True
-                assert data["checks"]["database"] is True
-                assert data["checks"]["tools"] is True
+    async def test_ready_checks_pass(self, live_app):
+        async with AsyncClient(
+            transport=ASGITransport(app=live_app), base_url="http://test"
+        ) as client:
+            resp = await client.get("/ready")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["ready"] is True
+            assert data["checks"]["database"] is True
+            assert data["checks"]["tools"] is True
 
-    async def test_all_six_tools_registered(self):
-        app = create_app()
-        async with app.router.lifespan_context(app):
-            tools = app.state.tool_registry.list_tools()
-            assert len(tools) == 6
-            assert "classify_caller_intent" in tools
-            assert "book_consultation" in tools
-            assert "escalate_to_human" in tools
+    async def test_all_six_tools_registered(self, live_app):
+        tools = live_app.state.tool_registry.list_tools()
+        assert len(tools) == 6
+        assert "classify_caller_intent" in tools
+        assert "book_consultation" in tools
+        assert "escalate_to_human" in tools
 
 
 class TestFrontend:
