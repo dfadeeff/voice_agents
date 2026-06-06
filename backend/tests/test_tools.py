@@ -87,7 +87,8 @@ class TestClassifyLegalArea:
             conversation,
         )
         assert result["status"] == "unknown_area"
-        assert conversation.state.phase == CallPhase.ROUTING
+        assert conversation.state.phase == CallPhase.ESCALATION
+        assert conversation.state.escalation_requested is True
 
     @pytest.mark.asyncio
     async def test_invalid_area_becomes_unknown(self, registry, conversation):

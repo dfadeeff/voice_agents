@@ -162,8 +162,9 @@ class TestConversationManager:
 
 
 class TestPrompts:
-    def test_tools_prompt_references_tools(self):
-        assert "extract_caller_details" in SYSTEM_PROMPT_TOOLS
+    def test_tools_prompt_is_natural(self):
+        assert "warm" in SYSTEM_PROMPT_TOOLS
+        assert "ALL CAPS" in SYSTEM_PROMPT_TOOLS
 
     def test_local_prompt_has_no_tool_references(self):
         assert "extract_caller_details" not in SYSTEM_PROMPT_LOCAL

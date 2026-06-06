@@ -25,6 +25,8 @@ async def classify_legal_area(args: dict, ctx: ConversationManager) -> dict:
     ctx.set_legal_area(area)
 
     if area == LegalArea.UNKNOWN:
+        ctx.state.escalation_requested = True
+        ctx.advance_phase()
         return {"status": "unknown_area", "legal_area": area.value}
 
     return {"status": "routed", "legal_area": area.value}

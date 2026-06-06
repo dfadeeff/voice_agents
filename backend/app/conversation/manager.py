@@ -52,8 +52,8 @@ class ConversationManager:
             if ctx_messages:
                 ctx_messages[0]["content"] = prompt
             allowed = self.get_available_tools()
-            if self._tools_builder:
-                self._llm_context.tools = self._tools_builder(allowed)
+            if self._tools_builder and hasattr(self._llm_context, "set_tools"):
+                self._llm_context.set_tools(self._tools_builder(allowed))
 
     def get_available_tools(self) -> list[str]:
         return PHASE_TOOLS.get(self.state.phase, [])
