@@ -14,10 +14,6 @@ SCHEMA = {
                 " to schedule a meeting with a lawyer."
             ),
         },
-        "reasoning": {
-            "type": "string",
-            "description": "Brief explanation of why you classified this intent.",
-        },
     },
     "required": ["intent"],
 }
@@ -26,37 +22,14 @@ SCHEMA = {
 async def classify_caller_intent(args: dict, ctx: ConversationManager) -> dict:
     intent_str = args.get("intent", "")
     if not intent_str:
-        return {
-            "status": "need_more_info",
-            "message": (
-                "You haven't learned enough yet. Greet the caller warmly and ask how you can help."
-            ),
-        }
+        return {"status": "need_more_info"}
     try:
         intent = CallerIntent(intent_str)
     except ValueError:
         intent = CallerIntent.UNKNOWN
 
     ctx.set_intent(intent)
-
-    if intent == CallerIntent.BOOK_CONSULTATION:
-        return {
-            "status": "classified",
-            "intent": intent.value,
-            "message": (
-                "Caller wants to book a consultation."
-                " Identify their legal area next, then collect details."
-            ),
-        }
-
-    return {
-        "status": "classified",
-        "intent": intent.value,
-        "message": (
-            "Caller wants general information. Identify their legal area"
-            " to give relevant answers. Offer to book if appropriate."
-        ),
-    }
+    return {"status": "classified", "intent": intent.value}
 
 
 def register_intent_tools(registry: ToolRegistry) -> None:

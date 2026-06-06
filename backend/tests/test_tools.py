@@ -7,6 +7,7 @@ from app.models.schemas import CallerIntent, CallPhase, LegalArea
 class TestClassifyCallerIntent:
     @pytest.mark.asyncio
     async def test_book_consultation(self, registry, conversation):
+        conversation.add_user_message("I want to book a consultation")
         result = await registry.execute(
             "classify_caller_intent",
             {"intent": "book_consultation"},
@@ -15,9 +16,11 @@ class TestClassifyCallerIntent:
         assert result["status"] == "classified"
         assert result["intent"] == "book_consultation"
         assert conversation.state.caller_intent == CallerIntent.BOOK_CONSULTATION
+        assert conversation.state.phase == CallPhase.ROUTING
 
     @pytest.mark.asyncio
     async def test_general_info(self, registry, conversation):
+        conversation.add_user_message("I have a question")
         result = await registry.execute(
             "classify_caller_intent",
             {"intent": "general_info"},
@@ -50,6 +53,8 @@ class TestClassifyCallerIntent:
 class TestClassifyLegalArea:
     @pytest.mark.asyncio
     async def test_employment(self, registry, conversation):
+        conversation.add_user_message("I was dismissed unfairly")
+        conversation.set_intent(CallerIntent.BOOK_CONSULTATION)
         result = await registry.execute(
             "classify_legal_area",
             {"legal_area": "employment"},
@@ -58,10 +63,12 @@ class TestClassifyLegalArea:
         assert result["status"] == "routed"
         assert result["legal_area"] == "employment"
         assert conversation.state.legal_area == LegalArea.EMPLOYMENT
-        assert conversation.state.phase == CallPhase.ROUTING
+        assert conversation.state.phase == CallPhase.CAPTURE
 
     @pytest.mark.asyncio
     async def test_tenancy(self, registry, conversation):
+        conversation.add_user_message("Landlord won't return deposit")
+        conversation.set_intent(CallerIntent.BOOK_CONSULTATION)
         result = await registry.execute(
             "classify_legal_area",
             {"legal_area": "tenancy"},
@@ -71,14 +78,16 @@ class TestClassifyLegalArea:
         assert result["legal_area"] == "tenancy"
 
     @pytest.mark.asyncio
-    async def test_unknown_area_triggers_escalation(self, registry, conversation):
+    async def test_unknown_area(self, registry, conversation):
+        conversation.add_user_message("I need immigration help")
+        conversation.set_intent(CallerIntent.BOOK_CONSULTATION)
         result = await registry.execute(
             "classify_legal_area",
             {"legal_area": "unknown"},
             conversation,
         )
         assert result["status"] == "unknown_area"
-        assert conversation.state.phase == CallPhase.ESCALATION
+        assert conversation.state.phase == CallPhase.ROUTING
 
     @pytest.mark.asyncio
     async def test_invalid_area_becomes_unknown(self, registry, conversation):
@@ -147,6 +156,39 @@ class TestExtractCallerDetails:
         )
         assert "name" in result["stored"]
         assert "debug_mode" not in result["stored"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_email_format_rejected(self, registry, conversation):
+        conversation.add_user_message("my email is not-an-email")
+        result = await registry.execute(
+            "extract_caller_details",
+            {"email": "not-an-email"},
+            conversation,
+        )
+        assert "email" not in result["stored"]
+        assert len(result.get("format_errors", [])) == 1
+        assert result["format_errors"][0]["field"] == "email"
+
+    @pytest.mark.asyncio
+    async def test_valid_email_accepted(self, registry, conversation):
+        conversation.add_user_message("fadejeff at gmail dot com")
+        result = await registry.execute(
+            "extract_caller_details",
+            {"email": "fadejeff@gmail.com"},
+            conversation,
+        )
+        assert "email" in result["stored"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_phone_rejected(self, registry, conversation):
+        conversation.add_user_message("my number is abc")
+        result = await registry.execute(
+            "extract_caller_details",
+            {"phone": "abc"},
+            conversation,
+        )
+        assert "phone" not in result["stored"]
+        assert len(result.get("format_errors", [])) == 1
 
 
 class TestCheckAvailability:
@@ -271,8 +313,9 @@ class TestEscalateToHuman:
 
     @pytest.mark.asyncio
     async def test_escalation_includes_context(self, registry, conversation):
+        conversation.add_user_message("I was dismissed")
+        conversation.set_intent(CallerIntent.BOOK_CONSULTATION)
         conversation.set_legal_area(LegalArea.EMPLOYMENT)
-        conversation.add_user_message("I need a human")
         conversation.store_entity("name", "Jane Doe", 0.9)
 
         result = await registry.execute(

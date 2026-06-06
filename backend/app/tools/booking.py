@@ -1,5 +1,4 @@
 from app.conversation.manager import ConversationManager
-from app.models.schemas import CallPhase
 from app.services.calendar import CalendarService
 from app.tools.registry import ToolRegistry
 
@@ -62,9 +61,6 @@ def _make_check_availability(calendar: CalendarService):
                     }
                     for s in slots[:3]
                 ],
-                "message": (
-                    "Found available slots. Present them to the caller and ask which they prefer."
-                ),
             }
 
         alternatives = await calendar.get_next_available(
@@ -72,7 +68,6 @@ def _make_check_availability(calendar: CalendarService):
         )
         return {
             "available": False,
-            "message": "Requested date/time is not available.",
             "alternatives": [
                 {
                     "id": s["id"],
@@ -82,7 +77,6 @@ def _make_check_availability(calendar: CalendarService):
                 }
                 for s in alternatives
             ],
-            "instruction": "Inform the caller the slot is taken and offer these alternatives.",
         }
 
     return check_availability
@@ -98,7 +92,7 @@ def _make_book_consultation(calendar: CalendarService):
         if unconfirmed:
             return {
                 "status": "blocked",
-                "message": f"Cannot book yet. These fields need confirmation: {unconfirmed}",
+                "unconfirmed_fields": unconfirmed,
             }
 
         slot_id = args.get("slot_id")
@@ -118,19 +112,16 @@ def _make_book_consultation(calendar: CalendarService):
         if booking is None:
             return {
                 "status": "error",
-                "message": "That slot is no longer available. Please check availability again.",
+                "message": "That slot is no longer available.",
             }
 
         ctx.state.booking_confirmed = True
-        ctx.state.phase = CallPhase.CONFIRMATION
+        ctx.advance_phase()
 
         return {
             "status": "booked",
             "booking_id": booking["id"],
             "details": booking,
-            "instruction": (
-                "Confirm all booking details back to the caller and end the call warmly."
-            ),
         }
 
     return book_consultation
@@ -151,8 +142,7 @@ def register_booking_tools(registry: ToolRegistry, calendar: CalendarService) ->
         fn=_make_book_consultation(calendar),
         description=(
             "Book a consultation slot. All caller details (name, email, phone)"
-            " must be confirmed first. Confirm ALL details back to the caller"
-            " before calling this."
+            " must be confirmed first."
         ),
         parameters=BOOK_SCHEMA,
     )

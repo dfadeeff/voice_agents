@@ -1,5 +1,5 @@
 from app.conversation.manager import ConversationManager
-from app.models.schemas import CallPhase, LegalArea
+from app.models.schemas import LegalArea
 from app.tools.registry import ToolRegistry
 
 SCHEMA = {
@@ -9,10 +9,6 @@ SCHEMA = {
             "type": "string",
             "enum": ["employment", "tenancy", "unknown"],
             "description": "The area of law the caller's issue falls under.",
-        },
-        "reasoning": {
-            "type": "string",
-            "description": "Brief explanation of the classification.",
         },
     },
     "required": ["legal_area"],
@@ -29,17 +25,9 @@ async def classify_legal_area(args: dict, ctx: ConversationManager) -> dict:
     ctx.set_legal_area(area)
 
     if area == LegalArea.UNKNOWN:
-        ctx.state.phase = CallPhase.ESCALATION
-        return {
-            "status": "unknown_area",
-            "message": "This legal area is not handled by our team. Please escalate to a human.",
-        }
+        return {"status": "unknown_area", "legal_area": area.value}
 
-    return {
-        "status": "routed",
-        "legal_area": area.value,
-        "message": f"Routed to {area.value} law. Ask relevant follow-up questions.",
-    }
+    return {"status": "routed", "legal_area": area.value}
 
 
 def register_routing_tools(registry: ToolRegistry) -> None:

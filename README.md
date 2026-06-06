@@ -306,13 +306,13 @@ This flows into `orchestrator.py` which either registers tool handlers + tool-aw
 
 **Why:** The hardest problem in voice agents: getting "Siobhan" right when the STT hears "Shivan." When faster-whisper reports confidence < 0.7 for any word in a name, email, or phone number, the `extract_caller_details` tool flags it. The LLM then asks the caller to spell it back ("That's S-I-O-B-H-A-N, is that right?") before proceeding. This works at the tool level — the LLM doesn't need to understand confidence scores; it just follows the tool's instruction.
 
-### LLM-driven flow (not a rigid FSM)
+### Hybrid state machine + LLM (not pure LLM-driven)
 
-**Decision:** Guide conversation via system prompt and tool availability, not a state machine.
+**Decision:** Code controls conversation flow via a deterministic state machine (`flow.py`). The LLM handles language understanding and natural phrasing within per-phase constraints.
 
-**Trade-off:** Less predictable than a strict FSM — the LLM might ask things in a different order. But the conversation feels natural.
+**Trade-off:** More engineering effort than letting the LLM improvise, but provides testable, deterministic flow control for business-critical transitions.
 
-**Why:** A rigid FSM forces "step 1: greet, step 2: classify, step 3: route" which sounds robotic on a phone call. The LLM decides naturally when to route, when to ask for details, and when to book. Business rules are enforced at the tool level (e.g., `book_consultation` refuses if details aren't confirmed), so the LLM can't skip required steps even if it tries.
+**Why:** For a law-firm intake call, transitions like "did we confirm the email?", "is this slot available?", and "should we escalate?" must not depend on the LLM "deciding what feels right." The state machine (`next_phase()`) projects accumulated state to the correct phase. Each phase gives the LLM a narrow task via a phase-specific system prompt — not the full call flow. Tool handlers update state and trigger `advance_phase()`, which recomputes the phase and updates the prompt. The LLM never sees the overall flow; it only sees its current task. This makes the agent predictable while still sounding natural — the LLM phrases responses freely, but code decides what to ask and when to move on.
 
 ### Provider abstraction via env vars
 
@@ -365,3 +365,29 @@ You can mix freely — e.g., local Whisper STT + cloud OpenAI LLM + local Piper 
 - **Local tool calling**: Only works reliably with Qwen 2.5 models. llama3.1:8b outputs raw JSON text instead of using the tool calling API. This is a model limitation, not a code issue.
 - **No streaming STT**: faster-whisper waits for a complete utterance before transcribing. The user sees nothing in the UI while speaking — the transcript appears all at once after they stop. Cloud Deepgram provides interim results that show words appearing as you speak.
 - **Single-process**: One Uvicorn worker handles all calls. Under load, calls would queue. Production would use multiple workers behind a load balancer, with Redis for shared state.
+
+## Outlook
+
+The current architecture (STT → LLM → TTS) is the industry standard for voice agents, but the field is evolving fast. Three directions worth watching:
+
+### Real-time Audio LLMs
+
+Models like [Ultravox](https://github.com/fixie-ai/ultravox) and Qwen-Audio accept raw audio as input alongside text, eliminating the STT stage entirely. The LLM "hears" the caller directly — it can pick up on tone, hesitation, and emphasis that STT flattens into text. For a law-firm intake agent, this means better detection of caller distress (an escalation signal) and more natural turn-taking since the model processes speech without waiting for a complete utterance.
+
+**Architecture shift:** STT is removed. Audio frames go directly to the LLM, which outputs text for TTS. The pipeline shrinks from 3 stages to 2, cutting ~300ms of latency. Pipecat already supports Ultravox as a provider, so the migration path is swapping one service.
+
+### Speech-to-Speech models
+
+Models like [Moshi](https://github.com/kyutai-labs/moshi) and Qwen2.5-Omni generate audio output directly — no TTS stage. The model controls prosody, pacing, and emphasis natively. Both STT and TTS are eliminated, collapsing the pipeline to a single model.
+
+**What this enables:** The agent could emphasize key details ("Your consultation is on **Tuesday at 2pm**"), pause naturally before important information, and match the caller's speaking pace. Current TTS (especially local Piper) sounds robotic precisely because it has no semantic understanding of what it's reading.
+
+**Trade-off:** These models are early-stage. They can't yet match the quality of a tuned LLM (for reasoning) + ElevenLabs (for voice quality) combination. But the gap is closing fast.
+
+### Transport: WebRTC over WebSocket
+
+The current WebSocket transport adds buffering latency that WebRTC avoids. [Daily](https://www.daily.co/) and LiveKit provide WebRTC transports for Pipecat with sub-100ms audio delivery. For phone calls, Twilio Media Streams already uses WebSocket, but a Twilio → WebRTC bridge (via Daily) can reduce perceived latency.
+
+### Smart turn detection
+
+Current VAD (Voice Activity Detection) uses simple energy thresholds — it can't distinguish a mid-sentence pause from "I'm done talking." Models like [smart-turn](https://huggingface.co/livekit/smart-turn-v2) classify whether a pause is a turn boundary using linguistic context, reducing both premature interruptions and awkward silences. This is especially valuable for legal intake where callers often pause to think about sensitive details.

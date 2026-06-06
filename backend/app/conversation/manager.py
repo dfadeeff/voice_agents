@@ -1,6 +1,7 @@
 import json
 
-from app.conversation.prompts import FRAGMENTS, SYSTEM_PROMPT_BASE
+from app.conversation.flow import PHASE_TOOLS, next_phase
+from app.conversation.prompts import SYSTEM_PROMPT_BASE, build_system_prompt
 from app.conversation.state import ConversationState
 from app.models.schemas import (
     CallerIntent,
@@ -16,12 +17,36 @@ class ConversationManager:
         self.state = ConversationState(call_id=call_id)
         self.state.messages = [{"role": "system", "content": SYSTEM_PROMPT_BASE}]
         self._word_infos_by_turn: dict[int, list[WordInfo]] = {}
+        self._llm_context = None
+
+    def set_llm_context(self, context) -> None:
+        self._llm_context = context
+
+    def advance_phase(self) -> CallPhase:
+        new_phase = next_phase(self.state)
+        if new_phase != self.state.phase:
+            self.state.phase = new_phase
+            self._update_system_prompt()
+        return self.state.phase
+
+    def _update_system_prompt(self) -> None:
+        prompt = build_system_prompt(self.state)
+        if self.state.messages:
+            self.state.messages[0]["content"] = prompt
+        if self._llm_context and hasattr(self._llm_context, "messages"):
+            ctx_messages = self._llm_context.messages
+            if ctx_messages:
+                ctx_messages[0]["content"] = prompt
+
+    def get_available_tools(self) -> list[str]:
+        return PHASE_TOOLS.get(self.state.phase, [])
 
     def add_user_message(self, text: str, word_infos: list[WordInfo] | None = None) -> None:
         self.state.turn_count += 1
         self.state.messages.append({"role": "user", "content": text})
         if word_infos:
             self._word_infos_by_turn[self.state.turn_count] = word_infos
+        self.advance_phase()
 
     def add_assistant_message(self, text: str) -> None:
         self.state.messages.append({"role": "assistant", "content": text})
@@ -50,15 +75,11 @@ class ConversationManager:
 
     def set_intent(self, intent: CallerIntent) -> None:
         self.state.caller_intent = intent
-        self.state.phase = CallPhase.INTENT_DETECTION
+        self.advance_phase()
 
     def set_legal_area(self, area: LegalArea) -> None:
         self.state.legal_area = area
-        self.state.phase = CallPhase.ROUTING
-        fragment = FRAGMENTS.get(area.value, "")
-        if fragment:
-            system_msg = self.state.messages[0]
-            system_msg["content"] = SYSTEM_PROMPT_BASE + "\n" + fragment
+        self.advance_phase()
 
     def store_entity(self, field_name: str, value: str, confidence: float) -> ExtractedEntity:
         entity = ExtractedEntity(
@@ -68,12 +89,13 @@ class ConversationManager:
             source_turn=self.state.turn_count,
         )
         self.state.entities[field_name] = entity
-        self.state.phase = CallPhase.CAPTURE
+        self.advance_phase()
         return entity
 
     def confirm_entity(self, field_name: str) -> None:
         if field_name in self.state.entities:
             self.state.entities[field_name].confirmed = True
+            self.advance_phase()
 
     def get_word_confidence_for_value(self, value: str) -> float:
         value_words = value.lower().split()

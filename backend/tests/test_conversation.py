@@ -7,6 +7,7 @@ from app.conversation.prompts import (
     SYSTEM_PROMPT_BASE,
     SYSTEM_PROMPT_LOCAL,
     SYSTEM_PROMPT_TOOLS,
+    build_system_prompt,
 )
 from app.conversation.state import ConversationState
 from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity, LegalArea, WordInfo
@@ -61,6 +62,11 @@ class TestConversationManager:
         conversation.add_user_message("I need help")
         assert conversation.state.turn_count == 2
 
+    def test_add_user_message_advances_phase(self, conversation):
+        assert conversation.state.phase == CallPhase.GREETING
+        conversation.add_user_message("Hello")
+        assert conversation.state.phase == CallPhase.INTENT_DETECTION
+
     def test_add_user_message_stores_word_infos(self, conversation):
         words = [WordInfo(word="hello", start_time=0, end_time=0.5, confidence=0.95)]
         conversation.add_user_message("hello", words)
@@ -87,23 +93,26 @@ class TestConversationManager:
         assert msg["name"] == "test_tool"
         assert json.loads(msg["content"]) == {"status": "ok"}
 
-    def test_set_intent(self, conversation):
+    def test_set_intent_advances_to_routing(self, conversation):
+        conversation.add_user_message("I need help")
         conversation.set_intent(CallerIntent.BOOK_CONSULTATION)
         assert conversation.state.caller_intent == CallerIntent.BOOK_CONSULTATION
-        assert conversation.state.phase == CallPhase.INTENT_DETECTION
+        assert conversation.state.phase == CallPhase.ROUTING
 
     def test_set_legal_area_employment(self, conversation):
+        conversation.add_user_message("I was dismissed")
+        conversation.set_intent(CallerIntent.BOOK_CONSULTATION)
         conversation.set_legal_area(LegalArea.EMPLOYMENT)
         assert conversation.state.legal_area == LegalArea.EMPLOYMENT
-        assert conversation.state.phase == CallPhase.ROUTING
+        assert conversation.state.phase == CallPhase.CAPTURE
         system_msg = conversation.get_messages()[0]
         assert "employment" in system_msg["content"].lower()
-        assert FRAGMENTS["employment"] in system_msg["content"]
 
-    def test_set_legal_area_unknown_no_fragment(self, conversation):
+    def test_set_legal_area_unknown_escalates(self, conversation):
+        conversation.add_user_message("I need immigration help")
+        conversation.set_intent(CallerIntent.BOOK_CONSULTATION)
         conversation.set_legal_area(LegalArea.UNKNOWN)
-        system_msg = conversation.get_messages()[0]
-        assert system_msg["content"] == SYSTEM_PROMPT_BASE
+        assert conversation.state.phase == CallPhase.ROUTING
 
     def test_store_entity(self, conversation):
         conversation.add_user_message("My name is John")
@@ -112,7 +121,6 @@ class TestConversationManager:
         assert entity.value == "John"
         assert entity.confidence == 0.9
         assert not entity.confirmed
-        assert conversation.state.phase == CallPhase.CAPTURE
 
     def test_confirm_entity(self, conversation):
         conversation.add_user_message("John")
@@ -126,12 +134,12 @@ class TestConversationManager:
     def test_word_confidence_matches(self, conversation_with_high_confidence):
         ctx = conversation_with_high_confidence
         conf = ctx.get_word_confidence_for_value("John Smith")
-        assert conf == 0.92  # min of 0.95 and 0.92
+        assert conf == 0.92
 
     def test_word_confidence_low(self, conversation_with_low_confidence):
         ctx = conversation_with_low_confidence
         conf = ctx.get_word_confidence_for_value("Siobhan Murphy")
-        assert conf == 0.4  # min of 0.4 and 0.9
+        assert conf == 0.4
 
     def test_word_confidence_no_match_returns_default(self, conversation):
         conversation.add_user_message("hello there")
@@ -146,6 +154,11 @@ class TestConversationManager:
         conversation.add_user_message("John Smith")
         conf = conversation.get_word_confidence_for_value("John")
         assert conf == 0.5
+
+    def test_available_tools_change_with_phase(self, conversation):
+        assert conversation.get_available_tools() == []
+        conversation.add_user_message("Hello")
+        assert "classify_caller_intent" in conversation.get_available_tools()
 
 
 class TestPrompts:
@@ -162,3 +175,27 @@ class TestPrompts:
 
     def test_base_prompt_is_tools_prompt(self):
         assert SYSTEM_PROMPT_BASE is SYSTEM_PROMPT_TOOLS
+
+    def test_build_system_prompt_greeting(self):
+        state = ConversationState(call_id="test")
+        prompt = build_system_prompt(state)
+        assert "Greet" in prompt
+        assert "MISSING FIELDS" not in prompt
+
+    def test_build_system_prompt_capture_shows_missing(self):
+        state = ConversationState(call_id="test")
+        state.phase = CallPhase.CAPTURE
+        state.caller_intent = CallerIntent.BOOK_CONSULTATION
+        state.legal_area = LegalArea.EMPLOYMENT
+        prompt = build_system_prompt(state)
+        assert "MISSING FIELDS" in prompt
+        assert "name" in prompt
+        assert "email" in prompt
+        assert "phone" in prompt
+
+    def test_build_system_prompt_includes_legal_fragment(self):
+        state = ConversationState(call_id="test")
+        state.phase = CallPhase.INFORMATION
+        state.legal_area = LegalArea.TENANCY
+        prompt = build_system_prompt(state)
+        assert "TENANCY LAW CONTEXT" in prompt

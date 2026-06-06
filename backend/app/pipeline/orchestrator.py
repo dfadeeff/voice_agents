@@ -2,7 +2,7 @@
 Pipecat pipeline factory.
 
 Pipecat handles: VAD, turn-taking, interruptions, streaming TTS, transport.
-We handle: system prompt, tool registration, conversation state.
+We handle: state machine, system prompt per phase, tool registration + phase guards.
 """
 
 import json
@@ -20,7 +20,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.workers.runner import WorkerRunner
 
 from app.conversation.manager import ConversationManager
-from app.conversation.prompts import SYSTEM_PROMPT_LOCAL, SYSTEM_PROMPT_TOOLS
+from app.conversation.prompts import SYSTEM_PROMPT_LOCAL, build_system_prompt
 from app.pipeline.processors import AgentTextProcessor, CallLogger, TranscriptProcessor
 from app.tools.registry import ToolRegistry
 
@@ -44,11 +44,20 @@ def _build_tools_schema(registry: ToolRegistry) -> ToolsSchema:
 
 
 def register_tools_on_llm(llm_service, registry: ToolRegistry, conversation: ConversationManager):
-    """Register our tool handlers with Pipecat's LLM service."""
+    """Register tool handlers with phase guards."""
     for tool_name in registry.list_tools():
 
         def _make_handler(name):
             async def handler(params):
+                allowed = conversation.get_available_tools()
+                if name not in allowed:
+                    result = {
+                        "error": "This action is not available right now.",
+                        "current_phase": conversation.state.phase.value,
+                    }
+                    await params.result_callback(json.dumps(result))
+                    return
+
                 args = params.arguments
                 result = await registry.execute(name, dict(args), conversation)
                 await params.result_callback(json.dumps(result))
@@ -72,7 +81,7 @@ async def create_pipeline(
 
     if use_tools:
         register_tools_on_llm(llm_service, tools, conversation)
-        system_prompt = SYSTEM_PROMPT_TOOLS
+        system_prompt = build_system_prompt(conversation.state)
         tools_schema = _build_tools_schema(tools)
     else:
         system_prompt = SYSTEM_PROMPT_LOCAL
@@ -85,6 +94,10 @@ async def create_pipeline(
         ],
         tools=tools_schema,
     )
+
+    if use_tools:
+        conversation.set_llm_context(context)
+
     context_aggregator = LLMContextAggregatorPair(context)
 
     call_logger = CallLogger(conversation.state.call_id)
