@@ -10,6 +10,7 @@ import logging
 
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
+from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import LLMContextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -17,6 +18,7 @@ from pipecat.processors.aggregators.llm_context import NOT_GIVEN, LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
+from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.workers.runner import WorkerRunner
 
 from app.conversation.manager import ConversationManager
@@ -27,19 +29,28 @@ from app.tools.registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 
-def _build_tools_schema(registry: ToolRegistry) -> ToolsSchema:
-    schemas = []
+def _build_tools_index(registry: ToolRegistry) -> dict[str, FunctionSchema]:
+    """Build a name→FunctionSchema index from the registry."""
+    index: dict[str, FunctionSchema] = {}
     for raw in registry.get_schemas():
         fn = raw["function"]
         params = fn.get("parameters", {})
-        schemas.append(
-            FunctionSchema(
-                name=fn["name"],
-                description=fn["description"],
-                properties=params.get("properties", {}),
-                required=params.get("required", []),
-            )
+        index[fn["name"]] = FunctionSchema(
+            name=fn["name"],
+            description=fn["description"],
+            properties=params.get("properties", {}),
+            required=params.get("required", []),
         )
+    return index
+
+
+def _build_tools_schema_from_names(
+    names: list[str], index: dict[str, FunctionSchema]
+) -> ToolsSchema | object:
+    """Build a ToolsSchema containing only the named tools. Returns NOT_GIVEN if empty."""
+    schemas = [index[n] for n in names if n in index]
+    if not schemas:
+        return NOT_GIVEN
     return ToolsSchema(standard_tools=schemas)
 
 
@@ -51,6 +62,12 @@ def register_tools_on_llm(llm_service, registry: ToolRegistry, conversation: Con
             async def handler(params):
                 allowed = conversation.get_available_tools()
                 if name not in allowed:
+                    logger.warning(
+                        "Tool %s blocked (phase=%s, allowed=%s)",
+                        name,
+                        conversation.state.phase.value,
+                        allowed,
+                    )
                     result = {
                         "error": "This action is not available right now.",
                         "current_phase": conversation.state.phase.value,
@@ -59,7 +76,9 @@ def register_tools_on_llm(llm_service, registry: ToolRegistry, conversation: Con
                     return
 
                 args = params.arguments
+                logger.info("Tool call: %s(%s)", name, dict(args))
                 result = await registry.execute(name, dict(args), conversation)
+                logger.info("Tool result: %s → %s", name, result)
                 await params.result_callback(json.dumps(result))
 
             return handler
@@ -82,9 +101,12 @@ async def create_pipeline(
     if use_tools:
         register_tools_on_llm(llm_service, tools, conversation)
         system_prompt = build_system_prompt(conversation.state)
-        tools_schema = _build_tools_schema(tools)
+        tools_index = _build_tools_index(tools)
+        initial_tools = conversation.get_available_tools()
+        tools_schema = _build_tools_schema_from_names(initial_tools, tools_index)
     else:
         system_prompt = SYSTEM_PROMPT_LOCAL
+        tools_index = {}
         tools_schema = NOT_GIVEN
 
     context = LLMContext(
@@ -97,16 +119,22 @@ async def create_pipeline(
 
     if use_tools:
         conversation.set_llm_context(context)
+        conversation.set_tools_builder(
+            lambda names: _build_tools_schema_from_names(names, tools_index)
+        )
 
     context_aggregator = LLMContextAggregatorPair(context)
 
     call_logger = CallLogger(conversation.state.call_id)
-    transcript_proc = TranscriptProcessor(websocket, call_logger)
+    transcript_proc = TranscriptProcessor(websocket, call_logger, conversation)
     agent_text_proc = AgentTextProcessor(websocket, call_logger)
+
+    vad = VADProcessor(vad_analyzer=SileroVADAnalyzer())
 
     pipeline = Pipeline(
         [
             transport.input(),
+            vad,
             stt_service,
             transcript_proc,
             context_aggregator.user(),

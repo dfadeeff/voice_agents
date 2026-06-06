@@ -179,7 +179,7 @@ class TestPrompts:
     def test_build_system_prompt_greeting(self):
         state = ConversationState(call_id="test")
         prompt = build_system_prompt(state)
-        assert "Greet" in prompt
+        assert "Thank you for calling" in prompt
         assert "MISSING FIELDS" not in prompt
 
     def test_build_system_prompt_capture_shows_missing(self):

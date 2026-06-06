@@ -34,7 +34,6 @@ async def websocket_call(websocket: WebSocket, call_id: str = "new"):
             audio_in_sample_rate=16000,
             audio_out_sample_rate=16000,
             add_wav_header=False,
-            vad_enabled=True,
             serializer=ProtobufFrameSerializer(),
         ),
     )

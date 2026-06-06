@@ -1,9 +1,12 @@
 """Custom Pipecat processors for the voice agent pipeline."""
 
+from __future__ import annotations
+
 import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pipecat.frames.frames import (
     AggregatedTextFrame,
@@ -12,6 +15,9 @@ from pipecat.frames.frames import (
     TTSTextFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+
+if TYPE_CHECKING:
+    from app.conversation.manager import ConversationManager
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +58,20 @@ class CallLogger:
 
 class TranscriptProcessor(FrameProcessor):
     """Sits between STT and UserAggregator. Sends user transcriptions to
-    the frontend via the websocket (the output transport only serializes audio)."""
+    the frontend via the websocket (the output transport only serializes audio).
+    Also advances the conversation state machine on each user turn."""
 
-    def __init__(self, websocket, call_logger: CallLogger, **kwargs):
+    def __init__(
+        self,
+        websocket,
+        call_logger: CallLogger,
+        conversation: ConversationManager,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self._ws = websocket
         self._logger = call_logger
+        self._conversation = conversation
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -66,6 +80,13 @@ class TranscriptProcessor(FrameProcessor):
             text = frame.text.strip()
             logger.info("USER: %s", text)
             self._logger.log("user", text)
+
+            old_phase = self._conversation.state.phase
+            self._conversation.add_user_message(text)
+            new_phase = self._conversation.state.phase
+            if new_phase != old_phase:
+                logger.info("Phase: %s → %s", old_phase.value, new_phase.value)
+
             try:
                 await self._ws.send_json({"type": "user_transcript", "text": text})
             except Exception:

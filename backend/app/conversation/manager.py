@@ -1,4 +1,9 @@
+from __future__ import annotations
+
 import json
+import logging
+from collections.abc import Callable
+from typing import Any
 
 from app.conversation.flow import PHASE_TOOLS, next_phase
 from app.conversation.prompts import SYSTEM_PROMPT_BASE, build_system_prompt
@@ -11,6 +16,8 @@ from app.models.schemas import (
     WordInfo,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class ConversationManager:
     def __init__(self, call_id: str):
@@ -18,18 +25,25 @@ class ConversationManager:
         self.state.messages = [{"role": "system", "content": SYSTEM_PROMPT_BASE}]
         self._word_infos_by_turn: dict[int, list[WordInfo]] = {}
         self._llm_context = None
+        self._tools_builder: Callable[[list[str]], Any] | None = None
 
     def set_llm_context(self, context) -> None:
         self._llm_context = context
 
+    def set_tools_builder(self, builder: Callable[[list[str]], Any]) -> None:
+        """Set callback that builds a ToolsSchema from a list of tool names."""
+        self._tools_builder = builder
+
     def advance_phase(self) -> CallPhase:
         new_phase = next_phase(self.state)
         if new_phase != self.state.phase:
+            old_phase = self.state.phase
             self.state.phase = new_phase
-            self._update_system_prompt()
+            self._update_llm_context()
+            logger.info("Phase advanced: %s → %s", old_phase.value, new_phase.value)
         return self.state.phase
 
-    def _update_system_prompt(self) -> None:
+    def _update_llm_context(self) -> None:
         prompt = build_system_prompt(self.state)
         if self.state.messages:
             self.state.messages[0]["content"] = prompt
@@ -37,6 +51,9 @@ class ConversationManager:
             ctx_messages = self._llm_context.messages
             if ctx_messages:
                 ctx_messages[0]["content"] = prompt
+            allowed = self.get_available_tools()
+            if self._tools_builder:
+                self._llm_context.tools = self._tools_builder(allowed)
 
     def get_available_tools(self) -> list[str]:
         return PHASE_TOOLS.get(self.state.phase, [])
