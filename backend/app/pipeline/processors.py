@@ -13,9 +13,11 @@ from typing import TYPE_CHECKING
 from pipecat.frames.frames import (
     AggregatedTextFrame,
     Frame,
+    MetricsFrame,
     TranscriptionFrame,
     TTSTextFrame,
 )
+from pipecat.metrics.metrics import TTFBMetricsData
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 if TYPE_CHECKING:
@@ -63,6 +65,7 @@ class CallLogger:
         self.entries: list[dict] = []
         self.ttfa_samples: list[float] = []
         self.last_user_speech_end: float | None = None
+        self.component_ttfb: dict[str, list[float]] = {}
 
     def record_user_speech_end(self) -> None:
         self.last_user_speech_end = time.monotonic()
@@ -73,6 +76,10 @@ class CallLogger:
             self.ttfa_samples.append(ttfa)
             logger.info("TTFA: %.0fms", ttfa * 1000)
             self.last_user_speech_end = None
+
+    def record_component_ttfb(self, component: str, ttfb_ms: float) -> None:
+        self.component_ttfb.setdefault(component, []).append(ttfb_ms)
+        logger.info("%s TTFB: %.0fms", component, ttfb_ms)
 
     def log(self, role: str, text: str):
         self.entries.append(
@@ -102,6 +109,30 @@ class CallLogger:
                 metrics["ttfa_samples"],
             )
 
+        if self.component_ttfb:
+            components = {}
+            for name, samples in self.component_ttfb.items():
+                sorted_s = sorted(samples)
+                comp = {
+                    "avg_ms": round(sum(sorted_s) / len(sorted_s)),
+                    "p50_ms": round(sorted_s[len(sorted_s) // 2]),
+                    "min_ms": round(min(sorted_s)),
+                    "max_ms": round(max(sorted_s)),
+                    "samples": len(sorted_s),
+                }
+                components[name] = comp
+                logger.info(
+                    "Call %s %s: avg=%dms p50=%dms min=%dms max=%dms (%d samples)",
+                    self.call_id,
+                    name,
+                    comp["avg_ms"],
+                    comp["p50_ms"],
+                    comp["min_ms"],
+                    comp["max_ms"],
+                    comp["samples"],
+                )
+            metrics["component_ttfb"] = components
+
         log_data = {
             "call_id": self.call_id,
             "start_time": self.start_time,
@@ -112,6 +143,24 @@ class CallLogger:
         path = LOGS_DIR / f"{self.call_id}.json"
         path.write_text(json.dumps(log_data, indent=2))
         logger.info("Call log saved: %s (%d entries)", path, len(self.entries))
+
+
+class MetricsProcessor(FrameProcessor):
+    """Captures Pipecat's per-component TTFB metrics (STT, LLM, TTS)."""
+
+    def __init__(self, call_logger: CallLogger, **kwargs):
+        super().__init__(**kwargs)
+        self._logger = call_logger
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+
+        if isinstance(frame, MetricsFrame):
+            for datum in frame.data:
+                if isinstance(datum, TTFBMetricsData):
+                    self._logger.record_component_ttfb(datum.processor, datum.value)
+
+        await self.push_frame(frame, direction)
 
 
 class TranscriptProcessor(FrameProcessor):

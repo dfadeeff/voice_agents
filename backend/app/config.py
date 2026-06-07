@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     deepgram_api_key: str = ""
 
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen3:4b"
+    ollama_model: str = "qwen3:8b"
 
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"

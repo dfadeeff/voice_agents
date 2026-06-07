@@ -24,7 +24,12 @@ from pipecat.workers.runner import WorkerRunner
 from app.conversation.locales import get_locale
 from app.conversation.manager import ConversationManager
 from app.conversation.prompts import build_system_prompt
-from app.pipeline.processors import AgentTextProcessor, CallLogger, TranscriptProcessor
+from app.pipeline.processors import (
+    AgentTextProcessor,
+    CallLogger,
+    MetricsProcessor,
+    TranscriptProcessor,
+)
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -140,6 +145,7 @@ async def create_pipeline(
     context_aggregator = LLMContextAggregatorPair(context)
 
     call_logger = CallLogger(conversation.state.call_id)
+    metrics_proc = MetricsProcessor(call_logger)
     transcript_proc = TranscriptProcessor(websocket, call_logger, conversation)
     agent_text_proc = AgentTextProcessor(websocket, call_logger, lang=lang)
 
@@ -157,10 +163,14 @@ async def create_pipeline(
             agent_text_proc,
             transport.output(),
             context_aggregator.assistant(),
+            metrics_proc,
         ]
     )
 
-    task = PipelineTask(pipeline, params=PipelineParams())
+    task = PipelineTask(
+        pipeline,
+        params=PipelineParams(enable_metrics=True, enable_usage_metrics=True),
+    )
     runner = WorkerRunner()
 
     @transport.event_handler("on_client_connected")
