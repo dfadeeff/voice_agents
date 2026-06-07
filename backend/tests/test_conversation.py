@@ -178,7 +178,7 @@ class TestPrompts:
     def test_build_system_prompt_greeting_de(self):
         state = ConversationState(call_id="test")
         prompt = build_system_prompt(state, lang="de")
-        assert "Guten Tag" in prompt
+        assert "Claudia" in prompt
         assert "FEHLENDE FELDER" not in prompt
 
     def test_build_system_prompt_capture_shows_missing(self):

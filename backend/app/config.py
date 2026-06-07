@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     llm_provider: str = "ollama"
     tts_provider: str = "piper"
 
-    whisper_model_size: str = "large-v3-turbo"
+    whisper_model_size: str = "medium"
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
 

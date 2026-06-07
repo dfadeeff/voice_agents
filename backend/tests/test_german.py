@@ -36,9 +36,9 @@ class TestGermanPrompts:
     def test_greeting_prompt(self):
         state = ConversationState(call_id="t")
         prompt = build_system_prompt(state, lang="de")
-        assert "Guten Tag" in prompt
+        assert "Claudia" in prompt
+        assert "KI-Anrufannahme" in prompt
         assert "Kanzlei" in prompt
-        assert "Anliegen" in prompt
 
     def test_routing_prompt(self):
         state = ConversationState(call_id="t")
@@ -104,7 +104,7 @@ class TestGermanPrompts:
         state = ConversationState(call_id="t")
         state.phase = CallPhase.ESCALATION
         prompt = build_system_prompt(state, lang="de")
-        assert "Kanzleiteam" in prompt
+        assert "Anliegen" in prompt
         assert "NICHT live verbinden" in prompt
 
     def test_information_prompt(self):
