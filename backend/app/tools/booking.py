@@ -99,14 +99,19 @@ def _make_book_consultation(calendar: CalendarService):
         if not slot_id:
             return {"status": "error", "message": "slot_id is required."}
 
+        entities = ctx.state.entities
         booking = await calendar.create_booking(
             slot_id=slot_id,
             call_id=ctx.state.call_id,
-            caller_name=args.get("caller_name", ""),
-            caller_email=args.get("caller_email", ""),
-            caller_phone=args.get("caller_phone", ""),
-            matter_type=args.get("matter_type", ""),
-            matter_description=args.get("matter_description", ""),
+            caller_name=args.get("caller_name", "")
+            or (entities["name"].value if "name" in entities else ""),
+            caller_email=args.get("caller_email", "")
+            or (entities["email"].value if "email" in entities else ""),
+            caller_phone=args.get("caller_phone", "")
+            or (entities["phone"].value if "phone" in entities else ""),
+            matter_type=args.get("matter_type", "") or ctx.state.legal_area.value,
+            matter_description=args.get("matter_description", "")
+            or (entities["matter_description"].value if "matter_description" in entities else ""),
         )
 
         if booking is None:
