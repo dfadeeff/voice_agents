@@ -104,6 +104,26 @@ PHASE_PROMPTS: dict[CallPhase, str] = {
     ),
 }
 
+CALLBACK_PROMPTS: dict[CallPhase, str] = {
+    CallPhase.CAPTURE: (
+        "The caller wants to speak with {target_person}.\n"
+        "You CANNOT transfer directly. You are recording a callback request.\n"
+        "Collect ONLY: name and phone number. No email needed.\n"
+        "- If name is missing: ask ONLY for the name.\n"
+        "- If phone is missing: ask ONLY for the phone number.\n"
+        "- Use capture_caller_details for each piece of information.\n"
+        "- Phone: ALWAYS read it back digit by digit, "
+        "then use confirm_caller_detail.\n"
+        "- Maximum 1-2 short sentences."
+    ),
+    CallPhase.CONFIRMATION: (
+        "All details for the callback request have been captured.\n"
+        "Say: 'Thank you. I've recorded your callback request. "
+        "{target_person} or the team will get back to you shortly. "
+        "Thank you for calling!'"
+    ),
+}
+
 EMPLOYMENT_FRAGMENT = (
     "\nEMPLOYMENT LAW:\n"
     "The firm handles: unfair dismissal, redundancy, workplace discrimination, "

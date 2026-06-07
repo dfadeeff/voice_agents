@@ -47,4 +47,4 @@ class Settings(BaseSettings):
     evaluator_model: str = "qwen3:4b"
     admin_api_key: str = ""
 
-    model_config = {"env_file": ".env", "env_prefix": ""}
+    model_config = {"env_file": ".env", "env_prefix": "", "extra": "ignore"}

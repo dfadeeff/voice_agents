@@ -1,6 +1,7 @@
 import re
 
 from app.conversation.manager import ConversationManager
+from app.conversation.phone import normalize_phone_text
 from app.tools.registry import ToolRegistry
 
 CAPTURE_SCHEMA = {
@@ -87,6 +88,11 @@ async def capture_caller_details(args: dict, ctx: ConversationManager) -> dict:
     for field_name, value in args.items():
         if not value or not isinstance(value, str):
             continue
+
+        if field_name == "phone":
+            normalized = normalize_phone_text(value)
+            if normalized:
+                value = normalized
 
         validation_error = _validate_format(field_name, value)
         if validation_error:

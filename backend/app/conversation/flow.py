@@ -8,6 +8,7 @@ transitions; the LLM handles language understanding and natural phrasing.
 from app.models.schemas import CallerIntent, CallPhase, LegalArea
 
 CONTACT_FIELDS = ("name", "email", "phone")
+CALLBACK_REQUIRED_FIELDS = ("name", "phone")
 
 PHASE_TOOLS: dict[CallPhase, list[str]] = {
     CallPhase.GREETING: [],
@@ -29,6 +30,14 @@ def all_contacts_confirmed(entities: dict) -> bool:
     return True
 
 
+def callback_contacts_confirmed(entities: dict) -> bool:
+    for f in CALLBACK_REQUIRED_FIELDS:
+        entity = entities.get(f)
+        if not entity or not entity.confirmed:
+            return False
+    return True
+
+
 def next_phase(state) -> CallPhase:
     """Compute the correct phase from accumulated state.
 
@@ -36,11 +45,19 @@ def next_phase(state) -> CallPhase:
     only what data exists. Makes it idempotent and robust to out-of-order
     tool calls (e.g. caller gives name + email + legal issue in one sentence).
     """
-    if state.escalation_requested or state.misunderstanding_streak >= 3:
+    if state.misunderstanding_streak >= 3:
+        return CallPhase.ESCALATION
+
+    if state.escalation_requested:
         return CallPhase.ESCALATION
 
     if state.booking_confirmed:
         return CallPhase.CONFIRMATION
+
+    if state.callback_requested:
+        if callback_contacts_confirmed(state.entities):
+            return CallPhase.CONFIRMATION
+        return CallPhase.CAPTURE
 
     if state.caller_intent == CallerIntent.UNKNOWN:
         if state.turn_count < 1:

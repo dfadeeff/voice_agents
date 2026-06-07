@@ -128,6 +128,26 @@ PHASE_PROMPTS: dict[CallPhase, str] = {
     ),
 }
 
+CALLBACK_PROMPTS: dict[CallPhase, str] = {
+    CallPhase.CAPTURE: (
+        "Der Anrufer möchte {target_person} sprechen.\n"
+        "Du kannst NICHT direkt verbinden. Du nimmst einen Rückrufwunsch auf.\n"
+        "Erfasse NUR: Name und Telefonnummer. Keine E-Mail nötig.\n"
+        "- Wenn Name fehlt: frage NUR nach dem Namen.\n"
+        "- Wenn Telefonnummer fehlt: frage NUR nach der Telefonnummer.\n"
+        "- Nutze capture_caller_details für jede Information.\n"
+        "- Telefon: IMMER Ziffer für Ziffer vorlesen, "
+        "dann confirm_caller_detail aufrufen.\n"
+        "- Maximal 1-2 kurze Sätze."
+    ),
+    CallPhase.CONFIRMATION: (
+        "Alle Daten für den Rückrufwunsch sind erfasst.\n"
+        "Sage: 'Vielen Dank. Ich habe Ihren Rückrufwunsch aufgenommen. "
+        "{target_person} oder das Kanzleiteam wird sich zeitnah bei Ihnen melden. "
+        "Vielen Dank für Ihren Anruf!'"
+    ),
+}
+
 EMPLOYMENT_FRAGMENT = (
     "\nARBEITSRECHT:\n"
     "Die Kanzlei bearbeitet: Kündigungsschutz, Abfindungen, Diskriminierung, "

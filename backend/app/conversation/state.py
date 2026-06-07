@@ -15,6 +15,8 @@ class ConversationState:
     entities: dict[str, ExtractedEntity] = field(default_factory=dict)
     messages: list[dict] = field(default_factory=list)
     turn_count: int = 0
+    callback_requested: bool = False
+    target_person: str | None = None
     escalation_requested: bool = False
     escalation_reason: str | None = None
     escalation_summary: str | None = None
@@ -41,6 +43,8 @@ class ConversationState:
                 for k, v in self.entities.items()
             },
             "turn_count": self.turn_count,
+            "callback_requested": self.callback_requested,
+            "target_person": self.target_person,
             "escalation_requested": self.escalation_requested,
             "booking_confirmed": self.booking_confirmed,
             "offered_slot_ids": self.offered_slot_ids,

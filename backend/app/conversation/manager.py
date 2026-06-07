@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 from app.conversation.flow import PHASE_TOOLS, next_phase
-from app.conversation.policy import is_explicit_handoff_request
+from app.conversation.policy import extract_target_person, is_explicit_handoff_request
 from app.conversation.prompts import build_system_prompt, get_system_prompt_base
 from app.conversation.state import ConversationState
 from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity, LegalArea
@@ -56,9 +56,11 @@ class ConversationManager:
         self.state.turn_count += 1
         self.state.messages.append({"role": "user", "content": text})
         if is_explicit_handoff_request(text, self.lang):
-            self.request_handoff("caller_requested_human", text)
-        else:
-            self.advance_phase()
+            self.state.callback_requested = True
+            target = extract_target_person(text, self.lang)
+            if target:
+                self.state.target_person = target
+        self.advance_phase()
 
     def set_transcription_confidence(self, confidence: float | None) -> None:
         self.state.last_transcription_confidence = confidence
