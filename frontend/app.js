@@ -101,7 +101,9 @@ function appendAssistantText(text) {
   if (!currentBubble) {
     currentBubble = addBubble("assistant", text);
   } else {
-    currentBubble.textContent += text;
+    const current = currentBubble.textContent;
+    const separator = current && !/\s$/.test(current) && !/^[,.;:!?]/.test(text) ? " " : "";
+    currentBubble.textContent += separator + text;
     transcriptEl.scrollTop = transcriptEl.scrollHeight;
   }
 }
@@ -146,7 +148,7 @@ async function startCall() {
     if (!(ev.data instanceof ArrayBuffer)) return;
     const f = PipecatProto.decodeFrame(ev.data);
     if (f && f.type === "audio" && f.audio) AudioManager.playAudio(f.audio, f.sampleRate);
-    if (f && f.type === "interruption") { AudioManager.clearPlayback(); finalizeAssistant(); }
+    if (f && f.type === "interruption") { AudioManager.interruptPlayback(); finalizeAssistant(); }
   };
 
   ws.onclose  = () => { if (callActive) { setStatus("idle", "Beendet"); resetUI(); } };

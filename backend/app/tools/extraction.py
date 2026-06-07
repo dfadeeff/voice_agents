@@ -68,6 +68,7 @@ EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
 PHONE_RE = re.compile(r"^[\d\s\-+()]{7,20}$")
 
 ALWAYS_CONFIRM = ("email", "phone")
+LOW_CONFIDENCE_THRESHOLD = 0.75
 
 
 def _validate_format(field_name: str, value: str) -> str | None:
@@ -92,16 +93,29 @@ async def capture_caller_details(args: dict, ctx: ConversationManager) -> dict:
             format_errors.append({"field": field_name, "error": validation_error})
             continue
 
-        ctx.store_entity(field_name, value, 0.9)
+        confidence = ctx.state.last_transcription_confidence
+        if confidence is None:
+            confidence = 0.9
+        ctx.store_entity(field_name, value, confidence)
         stored.append(field_name)
 
-        if field_name in ALWAYS_CONFIRM:
+        low_confidence_contact = (
+            field_name in ("name", "email", "phone") and confidence < LOW_CONFIDENCE_THRESHOLD
+        )
+        if field_name in ALWAYS_CONFIRM or low_confidence_contact:
             if field_name == "email":
                 suggestion = f"Spell back the email address letter by letter: '{value}'"
-            else:
+            elif field_name == "phone":
                 suggestion = f"Read back the phone number digit by digit: '{value}'"
+            else:
+                suggestion = f"Read back the caller's name and ask them to confirm: '{value}'"
             needs_confirmation.append(
-                {"field": field_name, "value": value, "suggestion": suggestion}
+                {
+                    "field": field_name,
+                    "value": value,
+                    "confidence": confidence,
+                    "suggestion": suggestion,
+                }
             )
         else:
             ctx.confirm_entity(field_name)

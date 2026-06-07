@@ -64,7 +64,7 @@ PHASE_PROMPTS: dict[CallPhase, str] = {
         "The caller wants general information.\n"
         "- Briefly explain what the firm handles in this area.\n"
         "- Do NOT give legal advice.\n"
-        "- Offer to connect with a lawyer or book an appointment.\n"
+        "- Offer a callback from the team or an appointment.\n"
         "- If they want to book, call route_call again with intent='book_consultation'."
     ),
     CallPhase.CAPTURE: (
@@ -97,10 +97,10 @@ PHASE_PROMPTS: dict[CallPhase, str] = {
         "Thank you for calling and all the best!'"
     ),
     CallPhase.ESCALATION: (
-        "The caller's enquiry is being passed to a team member. "
-        "Say: 'I can pass your enquiry to a team member who can help directly. "
-        "I've noted the information from our conversation for the callback.' "
-        "Be honest — do not pretend you are transferring live."
+        "The caller wants to speak with a person or needs human help. "
+        "You CANNOT transfer live. Say exactly: "
+        "'Of course. I can record your callback request and pass it to the team. "
+        "May I take your name and phone number?'"
     ),
 }
 

@@ -36,7 +36,14 @@ async def lifespan(app: FastAPI):
     logger.info("Building tool registry...")
     app.state.tool_registry = build_default_registry(calendar)
 
-    logger.info("Voice agent ready (providers created per-call by Pipecat)")
+    if settings.stt_provider == "whisper":
+        from app.pipeline.local_whisper import preload_whisper
+
+        preload_whisper(
+            settings.whisper_model_size, settings.whisper_device, settings.whisper_compute_type
+        )
+
+    logger.info("Voice agent ready")
     yield
     logger.info("Shutting down...")
 

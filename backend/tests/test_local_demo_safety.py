@@ -8,7 +8,17 @@ import pytest
 from app.conversation.flow import CONTACT_FIELDS
 from app.conversation.manager import ConversationManager
 from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity, LegalArea
-from app.pipeline.processors import _guard_false_booking
+from app.pipeline.orchestrator import register_tools_on_llm
+from app.pipeline.processors import _guard_false_booking, _guard_impossible_handoff
+from app.tools.registry import ToolRegistry
+from pipecat.frames.frames import (
+    AggregatedTextFrame,
+    InterruptionFrame,
+    LLMFullResponseEndFrame,
+    TextFrame,
+    TTSTextFrame,
+)
+from pipecat.processors.frame_processor import FrameDirection
 
 
 def _confirmed(field, value="test"):
@@ -92,6 +102,18 @@ class TestFalseBookingGuard:
         assert _guard_false_booking(ok) == ok
 
 
+class TestTruthfulHandoffGuard:
+    def test_blocks_impossible_german_live_transfer(self):
+        bad = "Moment bitte, ich verbinde Sie direkt zu Frau Landau."
+        cleaned = _guard_impossible_handoff(bad, "de")
+        assert "verbinde" not in cleaned.lower()
+        assert "Rückrufwunsch" in cleaned
+
+    def test_preserves_truthful_callback(self):
+        text = "Ich kann Ihren Rückrufwunsch an das Kanzleiteam weitergeben."
+        assert _guard_impossible_handoff(text, "de") == text
+
+
 class TestToolNameSanitizer:
     @pytest.fixture()
     def _make_processor(self):
@@ -171,3 +193,147 @@ class TestPreTTSSanitizer:
     def test_no_tool_regex_when_empty(self):
         san = self._make_sanitizer()
         assert san._tool_re is None
+
+    def test_drops_empty_internal_array(self):
+        san = self._make_sanitizer()
+        assert san._sanitize("[]") == ""
+
+    def test_drops_internal_json_object(self):
+        san = self._make_sanitizer()
+        assert san._sanitize('{"status": "handoff_requested"}') == ""
+
+    def test_rewrites_impossible_transfer_before_tts(self):
+        san = self._make_sanitizer()
+        cleaned = san._sanitize("Moment bitte, ich verbinde Sie direkt zu Frau Landau.")
+        assert "verbinde" not in cleaned.lower()
+        assert "Rückrufwunsch" in cleaned
+
+    @pytest.mark.asyncio
+    async def test_strips_tool_name_split_across_streamed_chunks(self):
+        san = self._make_sanitizer(["classify_legal_area"])
+        pushed = []
+
+        async def capture(frame, direction=FrameDirection.DOWNSTREAM):
+            pushed.append(frame)
+
+        san.push_frame = capture
+        await san.process_frame(TextFrame("Moment bitte.-Classify"), FrameDirection.DOWNSTREAM)
+        assert pushed == []
+
+        await san.process_frame(TextFrame(" legal area."), FrameDirection.DOWNSTREAM)
+        assert [frame.text for frame in pushed] == ["Moment bitte."]
+
+    @pytest.mark.asyncio
+    async def test_discards_partial_sentence_on_interruption(self):
+        san = self._make_sanitizer(["classify_legal_area"])
+        pushed = []
+
+        async def capture(frame, direction=FrameDirection.DOWNSTREAM):
+            pushed.append(frame)
+
+        san.push_frame = capture
+        await san.process_frame(TextFrame("Old booking details"), FrameDirection.DOWNSTREAM)
+        await san.process_frame(InterruptionFrame(), FrameDirection.DOWNSTREAM)
+        await san.process_frame(TextFrame("Wie kann ich helfen?"), FrameDirection.DOWNSTREAM)
+
+        spoken = [frame.text for frame in pushed if isinstance(frame, TextFrame)]
+        assert spoken == ["Wie kann ich helfen?"]
+
+    @pytest.mark.asyncio
+    async def test_exact_named_person_failure_is_safe_before_tts(self):
+        san = self._make_sanitizer(["request_handoff"])
+        pushed = []
+
+        async def capture(frame, direction=FrameDirection.DOWNSTREAM):
+            pushed.append(frame)
+
+        san.push_frame = capture
+        await san.process_frame(
+            TextFrame("Vielen Dank für Ihren Anruf.Moment bitte, "),
+            FrameDirection.DOWNSTREAM,
+        )
+        await san.process_frame(
+            TextFrame("ich verbinde Sie direkt zu Frau Landau. []"),
+            FrameDirection.DOWNSTREAM,
+        )
+        await san.process_frame(LLMFullResponseEndFrame(), FrameDirection.DOWNSTREAM)
+
+        spoken = [frame.text for frame in pushed if type(frame) is TextFrame]
+        assert spoken == [
+            "Vielen Dank für Ihren Anruf.",
+            "Ich kann Ihren Rückrufwunsch aufnehmen und an das Kanzleiteam weitergeben.",
+        ]
+
+
+class TestSpokenTranscript:
+    @pytest.mark.asyncio
+    async def test_frontend_receives_text_actually_submitted_to_tts(self):
+        from app.pipeline.processors import AgentTextProcessor, CallLogger
+
+        class FakeWS:
+            def __init__(self):
+                self.messages = []
+
+            async def send_json(self, data):
+                self.messages.append(data)
+
+        ws = FakeWS()
+        logger = CallLogger("test")
+        proc = AgentTextProcessor(ws, logger, lang="de")
+
+        async def discard(frame, direction=FrameDirection.DOWNSTREAM):
+            pass
+
+        proc.push_frame = discard
+        await proc.process_frame(
+            TTSTextFrame("Das wurde gesprochen.", aggregated_by="sentence"),
+            FrameDirection.DOWNSTREAM,
+        )
+
+        assert ws.messages == [{"type": "agent_text", "text": "Das wurde gesprochen."}]
+        assert logger.entries[-1]["text"] == "Das wurde gesprochen."
+
+    @pytest.mark.asyncio
+    async def test_frontend_does_not_receive_generated_only_text(self):
+        from app.pipeline.processors import AgentTextProcessor, CallLogger
+
+        class FakeWS:
+            def __init__(self):
+                self.messages = []
+
+            async def send_json(self, data):
+                self.messages.append(data)
+
+        ws = FakeWS()
+        proc = AgentTextProcessor(ws, CallLogger("test"), lang="de")
+
+        async def discard(frame, direction=FrameDirection.DOWNSTREAM):
+            pass
+
+        proc.push_frame = discard
+        await proc.process_frame(
+            AggregatedTextFrame("Generated but interrupted.", aggregated_by="sentence"),
+            FrameDirection.DOWNSTREAM,
+        )
+
+        assert ws.messages == []
+
+
+def test_tool_calls_are_cancelled_when_caller_interrupts(conversation):
+    async def noop(arguments, ctx):
+        return {"status": "ok"}
+
+    registry = ToolRegistry()
+    registry.register("test_tool", noop, "Test", {"type": "object", "properties": {}})
+
+    class FakeLLM:
+        def __init__(self):
+            self.registrations = []
+
+        def register_function(self, name, handler, *, cancel_on_interruption=True):
+            self.registrations.append((name, cancel_on_interruption))
+
+    llm = FakeLLM()
+    register_tools_on_llm(llm, registry, conversation)
+
+    assert llm.registrations == [("test_tool", True)]

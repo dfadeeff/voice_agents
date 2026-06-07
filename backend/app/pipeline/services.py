@@ -16,12 +16,12 @@ def create_stt(settings: Settings):
             settings=DeepgramSTTService.Settings(language=settings.language),
         )
 
-    from pipecat.services.whisper.stt import WhisperSTTService
+    from app.pipeline.local_whisper import LocalWhisperSTTService
 
-    return WhisperSTTService(
+    return LocalWhisperSTTService(
         device=settings.whisper_device,
         compute_type=settings.whisper_compute_type,
-        settings=WhisperSTTService.Settings(
+        settings=LocalWhisperSTTService.Settings(
             model=settings.whisper_model_size,
             language=settings.language,
         ),

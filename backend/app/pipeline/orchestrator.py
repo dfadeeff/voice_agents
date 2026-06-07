@@ -66,8 +66,10 @@ def _build_tools_schema_from_names(
 def register_tools_on_llm(llm_service, registry: ToolRegistry, conversation: ConversationManager):
     """Register tool handlers with phase guards.
 
-    All tools use cancel_on_interruption=False because they mutate the
-    conversation state machine — a cancelled tool leaves state inconsistent.
+    Tool calls are cancelled when the caller interrupts. Pipecat treats
+    cancel_on_interruption=False as an asynchronous tool: the LLM continues
+    immediately and injects the result later, which can produce stale speech
+    after the caller has already moved on.
     """
     for tool_name in registry.list_tools():
 
@@ -111,7 +113,7 @@ def register_tools_on_llm(llm_service, registry: ToolRegistry, conversation: Con
         llm_service.register_function(
             tool_name,
             _make_handler(tool_name),
-            cancel_on_interruption=False,
+            cancel_on_interruption=True,
         )
 
 

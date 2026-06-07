@@ -104,7 +104,8 @@ class TestGermanPrompts:
         state = ConversationState(call_id="t")
         state.phase = CallPhase.ESCALATION
         prompt = build_system_prompt(state, lang="de")
-        assert "Teammitglied" in prompt or "weiterleite" in prompt
+        assert "Kanzleiteam" in prompt
+        assert "NICHT live verbinden" in prompt
 
     def test_information_prompt(self):
         state = ConversationState(call_id="t")
@@ -122,7 +123,12 @@ class TestGermanPrompts:
         state = ConversationState(call_id="t")
         prompt = build_system_prompt(state, lang="de")
         assert "gebucht" in prompt.lower() or "bestätigt" in prompt.lower()
-        assert "Terminwunsch" in prompt
+        assert "Termin" in prompt
+
+    def test_preamble_forbids_connection(self):
+        state = ConversationState(call_id="t")
+        prompt = build_system_prompt(state, lang="de")
+        assert "KANNST NIEMANDEN VERBINDEN" in prompt
 
     def test_preamble_forbids_tool_name_disclosure(self):
         state = ConversationState(call_id="t")
@@ -487,7 +493,8 @@ class TestGermanFullBookingScenario:
             {"reason": "caller_requested_human", "summary": "Möchte einen Anwalt sprechen"},
             ctx,
         )
-        assert result["status"] == "handing_off"
+        assert result["status"] == "handoff_requested"
+        assert result["mode"] == "callback"
         assert ctx.state.phase == CallPhase.ESCALATION
 
 

@@ -119,11 +119,16 @@ const AudioManager = (() => {
   function clearPlayback() {
     playbackQueue = [];
     if (currentPlaybackSource) {
+      currentPlaybackSource.onended = null;
       try { currentPlaybackSource.stop(); } catch (_) {}
       currentPlaybackSource = null;
     }
     isPlaying = false;
   }
 
-  return { startCapture, stopCapture, playAudio, clearPlayback };
+  function interruptPlayback() {
+    clearPlayback();
+  }
+
+  return { startCapture, stopCapture, playAudio, clearPlayback, interruptPlayback };
 })();

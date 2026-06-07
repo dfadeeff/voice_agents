@@ -17,7 +17,7 @@ PHASE_TOOLS: dict[CallPhase, list[str]] = {
     CallPhase.CAPTURE: ["capture_caller_details", "confirm_caller_detail", "request_handoff"],
     CallPhase.BOOKING: ["check_availability", "book_consultation", "request_handoff"],
     CallPhase.CONFIRMATION: [],
-    CallPhase.ESCALATION: ["request_handoff"],
+    CallPhase.ESCALATION: ["capture_caller_details", "confirm_caller_detail", "request_handoff"],
 }
 
 

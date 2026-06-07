@@ -98,6 +98,22 @@ class TestCaptureCallerDetails:
         assert conversation.state.entities["name"].confirmed is True
 
     @pytest.mark.asyncio
+    async def test_low_confidence_name_requires_confirmation(self, registry, conversation):
+        conversation.add_user_message("My name is Jane Smith")
+        conversation.state.last_transcription_confidence = 0.42
+
+        result = await registry.execute(
+            "capture_caller_details",
+            {"name": "Jane Smith"},
+            conversation,
+        )
+
+        assert conversation.state.entities["name"].confidence == 0.42
+        assert conversation.state.entities["name"].confirmed is False
+        assert result["needs_confirmation"][0]["field"] == "name"
+        assert result["needs_confirmation"][0]["confidence"] == 0.42
+
+    @pytest.mark.asyncio
     async def test_email_needs_confirmation(self, registry, conversation):
         conversation.add_user_message("john at example dot com")
         result = await registry.execute(
@@ -422,7 +438,8 @@ class TestRequestHandoff:
             {"reason": "caller_requested_human", "summary": "Wants to speak to lawyer"},
             conversation,
         )
-        assert result["status"] == "handing_off"
+        assert result["status"] == "handoff_requested"
+        assert result["mode"] == "callback"
         assert conversation.state.escalation_requested is True
         assert conversation.state.phase == CallPhase.ESCALATION
 

@@ -22,6 +22,7 @@ class ConversationState:
     booked_slot: dict | None = None
     offered_slot_ids: list[int] = field(default_factory=list)
     misunderstanding_streak: int = 0
+    last_transcription_confidence: float | None = None
     started_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
@@ -43,6 +44,7 @@ class ConversationState:
             "escalation_requested": self.escalation_requested,
             "booking_confirmed": self.booking_confirmed,
             "offered_slot_ids": self.offered_slot_ids,
+            "last_transcription_confidence": self.last_transcription_confidence,
         }
 
     def to_json(self) -> str:

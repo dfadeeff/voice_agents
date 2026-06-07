@@ -95,6 +95,16 @@ class TestUnknownAreaEscalationScenario:
 class TestHumanHandoffScenario:
     """Caller explicitly asks for a human at any point."""
 
+    def test_named_person_request_enters_handoff_without_llm_tool(self):
+        ctx = ConversationManager(call_id="named-person", lang="de")
+
+        ctx.add_user_message("Ich möchte bitte Frau Landau sprechen.")
+
+        assert ctx.state.phase == CallPhase.ESCALATION
+        assert ctx.state.escalation_requested is True
+        assert ctx.state.escalation_reason == "caller_requested_human"
+        assert "Frau Landau" in ctx.state.escalation_summary
+
     @pytest.mark.asyncio
     async def test_immediate_handoff(self, registry, ctx):
         ctx.add_user_message("I want to speak to a person.")
@@ -104,7 +114,8 @@ class TestHumanHandoffScenario:
             {"reason": "caller_requested_human", "summary": "Wants to speak to a lawyer"},
             ctx,
         )
-        assert result["status"] == "handing_off"
+        assert result["status"] == "handoff_requested"
+        assert result["mode"] == "callback"
         assert ctx.state.phase == CallPhase.ESCALATION
 
     @pytest.mark.asyncio

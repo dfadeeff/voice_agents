@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 from app.conversation.flow import PHASE_TOOLS, next_phase
+from app.conversation.policy import is_explicit_handoff_request
 from app.conversation.prompts import build_system_prompt, get_system_prompt_base
 from app.conversation.state import ConversationState
 from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity, LegalArea
@@ -54,7 +55,13 @@ class ConversationManager:
     def add_user_message(self, text: str) -> None:
         self.state.turn_count += 1
         self.state.messages.append({"role": "user", "content": text})
-        self.advance_phase()
+        if is_explicit_handoff_request(text, self.lang):
+            self.request_handoff("caller_requested_human", text)
+        else:
+            self.advance_phase()
+
+    def set_transcription_confidence(self, confidence: float | None) -> None:
+        self.state.last_transcription_confidence = confidence
 
     def add_assistant_message(self, text: str) -> None:
         self.state.messages.append({"role": "assistant", "content": text})
@@ -125,6 +132,12 @@ class ConversationManager:
     def record_misunderstanding(self) -> None:
         self.state.misunderstanding_streak += 1
         logger.info("Misunderstanding streak: %d", self.state.misunderstanding_streak)
+        self.advance_phase()
+
+    def request_handoff(self, reason: str, summary: str = "") -> None:
+        self.state.escalation_requested = True
+        self.state.escalation_reason = reason
+        self.state.escalation_summary = summary
         self.advance_phase()
 
     def reset_misunderstanding_streak(self) -> None:

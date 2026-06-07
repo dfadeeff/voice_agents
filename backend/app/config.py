@@ -8,14 +8,14 @@ class Settings(BaseSettings):
     llm_provider: str = "ollama"
     tts_provider: str = "piper"
 
-    whisper_model_size: str = "base"
+    whisper_model_size: str = "large-v3-turbo"
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
 
     deepgram_api_key: str = ""
 
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:7b"
+    ollama_model: str = "qwen3:8b-nothink"
 
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
