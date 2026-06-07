@@ -187,9 +187,7 @@ FAST_PATH_RESPONSES = {
         "damit wir Ihnen schnellstmöglich weiterhelfen können. "
         "Wobei können wir behilflich sein?"
     ),
-    "callback_ask_name": (
-        "Gerne, ich nehme den Rückrufwunsch auf. " "Darf ich Ihren Namen erfahren?"
-    ),
+    "callback_ask_name": ("Gerne, ich nehme den Rückrufwunsch auf. Darf ich Ihren Namen erfahren?"),
 }
 
 SYSTEM_PROMPT_TOOLS = (

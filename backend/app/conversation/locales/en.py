@@ -162,7 +162,7 @@ FAST_PATH_RESPONSES = {
         "I can take down your enquiry and pass it to our team. "
         "How can I help you today?"
     ),
-    "callback_ask_name": ("Of course, I'll note the callback request. " "May I have your name?"),
+    "callback_ask_name": ("Of course, I'll note the callback request. May I have your name?"),
 }
 
 SYSTEM_PROMPT_TOOLS = (
