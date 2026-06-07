@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 _PHONE_RE = re.compile(r"(?<!\w)[+]?[\d][\d\s\-]{3,}[\d](?!\w)")
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+_CJK_RE = re.compile(r"[⺀-鿿豈-﫿︰-﹏\U00020000-\U0002FA1F]+")
 
 
 def _tts_preprocess(text: str, lang: str = "de") -> str:
@@ -50,6 +51,7 @@ def _tts_preprocess(text: str, lang: str = "de") -> str:
         return email.replace("@", " at ").replace(".", " dot ")
 
     text = _THINK_RE.sub("", text).strip()
+    text = _CJK_RE.sub("", text).strip()
     text = _EMAIL_RE.sub(_expand_email, text)
     text = _PHONE_RE.sub(_expand_phone, text)
     return text
@@ -207,14 +209,44 @@ class TranscriptProcessor(FrameProcessor):
 
 class AgentTextProcessor(FrameProcessor):
     """Sits between LLM and TTS. Sends agent text to the frontend and
-    preprocesses text for better TTS pronunciation (digits, emails)."""
+    preprocesses text for better TTS pronunciation (digits, emails).
 
-    def __init__(self, websocket, call_logger: CallLogger, lang: str = "de", **kwargs):
+    Also strips hallucinated tool names from speech — when the model is
+    interrupted mid-tool-call, partial tool invocations can leak into the
+    text stream.
+    """
+
+    def __init__(
+        self,
+        websocket,
+        call_logger: CallLogger,
+        lang: str = "de",
+        tool_names: list[str] | None = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self._ws = websocket
         self._logger = call_logger
         self._lang = lang
         self._first_chunk_this_turn = True
+        if tool_names:
+            escaped = [re.escape(n) for n in tool_names]
+            self._tool_re = re.compile(
+                r"(?:" + "|".join(escaped) + r")\s*(?:\{[^}]*\}?)?",
+                re.IGNORECASE,
+            )
+        else:
+            self._tool_re = None
+
+    def _strip_tool_names(self, text: str) -> str:
+        if self._tool_re is None:
+            return text
+        cleaned = self._tool_re.sub("", text).strip()
+        if cleaned != text.strip():
+            logger.warning(
+                "Stripped hallucinated tool name from agent text: %r → %r", text, cleaned
+            )
+        return cleaned
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -225,9 +257,12 @@ class AgentTextProcessor(FrameProcessor):
                 self._first_chunk_this_turn = False
             original = frame.text
             processed = _tts_preprocess(original, self._lang)
+            processed = self._strip_tool_names(processed)
+            if not processed:
+                return
             if processed != original:
                 logger.debug("TTS preprocess: %r → %r", original, processed)
-                frame = TTSTextFrame(text=processed)
+                frame = TTSTextFrame(text=processed, aggregated_by=frame.aggregated_by)
 
         if (
             isinstance(frame, AggregatedTextFrame)
@@ -235,11 +270,12 @@ class AgentTextProcessor(FrameProcessor):
             and frame.text
         ):
             clean_text = _THINK_RE.sub("", frame.text).strip()
+            clean_text = self._strip_tool_names(clean_text)
             logger.info("AGENT: %s", clean_text)
             self._logger.log("agent", clean_text)
             self._first_chunk_this_turn = True
             try:
-                await self._ws.send_json({"type": "agent_text", "text": frame.text})
+                await self._ws.send_json({"type": "agent_text", "text": clean_text})
             except Exception:
                 pass
 

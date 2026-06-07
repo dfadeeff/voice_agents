@@ -3,7 +3,6 @@ import logging
 import uuid
 
 from fastapi import APIRouter, WebSocket
-from pipecat.frames.frames import EndFrame
 from pipecat.serializers.protobuf import ProtobufFrameSerializer
 from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
@@ -72,11 +71,6 @@ async def websocket_call(websocket: WebSocket, call_id: str = "new"):
             tools,
             use_tools=use_tools,
         )
-
-        @transport.event_handler("on_client_disconnected")
-        async def on_disconnected(transport, ws):
-            logger.info("[%s] Client disconnected", call_id)
-            await task.queue_frame(EndFrame())
 
         logger.info("[%s] Starting pipeline (tools=%s)", call_id, use_tools)
         await runner.run(task)

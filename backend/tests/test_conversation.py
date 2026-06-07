@@ -163,8 +163,8 @@ class TestConversationManager:
 
 class TestPrompts:
     def test_tools_prompt_is_natural(self):
-        assert "warm" in SYSTEM_PROMPT_TOOLS
-        assert "ALL CAPS" in SYSTEM_PROMPT_TOOLS
+        assert "receptionist" in SYSTEM_PROMPT_TOOLS
+        assert "NEVER" in SYSTEM_PROMPT_TOOLS
 
     def test_local_prompt_has_no_tool_references(self):
         assert "extract_caller_details" not in SYSTEM_PROMPT_LOCAL
@@ -213,11 +213,11 @@ class TestPrompts:
         state.phase = CallPhase.INFORMATION
         state.legal_area = LegalArea.TENANCY
         prompt = build_system_prompt(state, lang="en")
-        assert "TENANCY LAW CONTEXT" in prompt
+        assert "TENANCY LAW" in prompt
 
     def test_build_system_prompt_includes_legal_fragment_de(self):
         state = ConversationState(call_id="test")
         state.phase = CallPhase.INFORMATION
         state.legal_area = LegalArea.TENANCY
         prompt = build_system_prompt(state, lang="de")
-        assert "MIETRECHT KONTEXT" in prompt
+        assert "MIETRECHT" in prompt

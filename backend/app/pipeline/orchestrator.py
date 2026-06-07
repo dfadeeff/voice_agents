@@ -11,14 +11,14 @@ import logging
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMMessagesAppendFrame
+from pipecat.frames.frames import EndFrame, LLMMessagesAppendFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.llm_context import NOT_GIVEN, LLMContext
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
+from pipecat.processors.aggregators.llm_context import NOT_GIVEN, LLMContext, NotGiven
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
 )
-from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.workers.runner import WorkerRunner
 
 from app.conversation.locales import get_locale
@@ -52,7 +52,7 @@ def _build_tools_index(registry: ToolRegistry) -> dict[str, FunctionSchema]:
 
 def _build_tools_schema_from_names(
     names: list[str], index: dict[str, FunctionSchema]
-) -> ToolsSchema | object:
+) -> ToolsSchema | NotGiven:
     """Build a ToolsSchema containing only the named tools. Returns NOT_GIVEN if empty."""
     schemas = [index[n] for n in names if n in index]
     if not schemas:
@@ -61,7 +61,11 @@ def _build_tools_schema_from_names(
 
 
 def register_tools_on_llm(llm_service, registry: ToolRegistry, conversation: ConversationManager):
-    """Register tool handlers with phase guards."""
+    """Register tool handlers with phase guards.
+
+    All tools use cancel_on_interruption=False because they mutate the
+    conversation state machine — a cancelled tool leaves state inconsistent.
+    """
     for tool_name in registry.list_tools():
 
         def _make_handler(name):
@@ -101,7 +105,11 @@ def register_tools_on_llm(llm_service, registry: ToolRegistry, conversation: Con
 
             return handler
 
-        llm_service.register_function(tool_name, _make_handler(tool_name))
+        llm_service.register_function(
+            tool_name,
+            _make_handler(tool_name),
+            cancel_on_interruption=False,
+        )
 
 
 async def create_pipeline(
@@ -113,7 +121,7 @@ async def create_pipeline(
     conversation: ConversationManager,
     tools: ToolRegistry,
     use_tools: bool = True,
-) -> tuple[PipelineTask, WorkerRunner]:
+) -> tuple[PipelineWorker, WorkerRunner]:
     """Create a Pipecat pipeline wired with our tools."""
 
     lang = conversation.lang
@@ -139,19 +147,23 @@ async def create_pipeline(
             lambda names: _build_tools_schema_from_names(names, tools_index)
         )
 
-    context_aggregator = LLMContextAggregatorPair(context)
+    context_aggregator = LLMContextAggregatorPair(
+        context,
+        user_params=LLMUserAggregatorParams(
+            vad_analyzer=SileroVADAnalyzer(),
+        ),
+    )
+
+    tool_names = tools.list_tools() if use_tools else []
 
     call_logger = CallLogger(conversation.state.call_id)
     metrics_proc = MetricsProcessor(call_logger)
     transcript_proc = TranscriptProcessor(websocket, call_logger, conversation)
-    agent_text_proc = AgentTextProcessor(websocket, call_logger, lang=lang)
-
-    vad = VADProcessor(vad_analyzer=SileroVADAnalyzer())
+    agent_text_proc = AgentTextProcessor(websocket, call_logger, lang=lang, tool_names=tool_names)
 
     pipeline = Pipeline(
         [
             transport.input(),
-            vad,
             stt_service,
             transcript_proc,
             context_aggregator.user(),
@@ -164,7 +176,7 @@ async def create_pipeline(
         ]
     )
 
-    task = PipelineTask(
+    task = PipelineWorker(
         pipeline,
         params=PipelineParams(enable_metrics=True, enable_usage_metrics=True),
     )
@@ -185,5 +197,6 @@ async def create_pipeline(
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, websocket):
         call_logger.save()
+        await task.queue_frame(EndFrame())
 
     return task, runner
