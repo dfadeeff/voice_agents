@@ -178,6 +178,20 @@ FRAGMENTS = {
     "traffic": TRAFFIC_FRAGMENT,
 }
 
+FILLERS = ["Mhm.", "Einen Moment.", "Verstanden."]
+
+FAST_PATH_RESPONSES = {
+    "greeting": (
+        "Hallo, ich bin Claudia, die KI-Anrufannahme der Kanzlei. "
+        "Ich nehme gerne Ihr Anliegen auf und gebe es sofort an unser Team weiter, "
+        "damit wir Ihnen schnellstmöglich weiterhelfen können. "
+        "Wobei können wir behilflich sein?"
+    ),
+    "callback_ask_name": (
+        "Gerne, ich nehme den Rückrufwunsch auf. " "Darf ich Ihren Namen erfahren?"
+    ),
+}
+
 SYSTEM_PROMPT_TOOLS = (
     "Du bist die Empfangskraft einer Anwaltskanzlei am Telefon.\n\n"
     "DEIN ZIEL: Anliegen grob verstehen, Kontaktdaten aufnehmen, "

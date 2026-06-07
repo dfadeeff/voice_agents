@@ -12,7 +12,7 @@ from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
-from pipecat.frames.frames import EndFrame, LLMMessagesAppendFrame
+from pipecat.frames.frames import EndFrame, LLMMessagesAppendFrame, TextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import NOT_GIVEN, LLMContext, NotGiven
@@ -196,17 +196,37 @@ async def create_pipeline(
     )
     runner = WorkerRunner()
 
+    locale = get_locale(lang)
+    fast_paths = getattr(locale, "FAST_PATH_RESPONSES", {})
+    greeting_template = fast_paths.get("greeting")
+
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, websocket):
-        logger.info("Client connected — triggering greeting via LLMMessagesAppendFrame")
-        await task.queue_frames(
-            [
-                LLMMessagesAppendFrame(
-                    [{"role": "user", "content": "[A new caller has connected]"}],
-                    run_llm=True,
-                )
-            ]
-        )
+        if greeting_template:
+            logger.info("FAST PATH greeting (skipping LLM)")
+            call_logger.log("agent", greeting_template)
+            await task.queue_frames(
+                [
+                    LLMMessagesAppendFrame(
+                        [
+                            {"role": "user", "content": "[A new caller has connected]"},
+                            {"role": "assistant", "content": greeting_template},
+                        ],
+                        run_llm=False,
+                    ),
+                    TextFrame(text=greeting_template),
+                ]
+            )
+        else:
+            logger.info("Client connected — triggering greeting via LLM")
+            await task.queue_frames(
+                [
+                    LLMMessagesAppendFrame(
+                        [{"role": "user", "content": "[A new caller has connected]"}],
+                        run_llm=True,
+                    )
+                ]
+            )
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, websocket):

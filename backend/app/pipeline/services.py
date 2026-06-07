@@ -21,6 +21,8 @@ def create_stt(settings: Settings):
     return LocalWhisperSTTService(
         device=settings.whisper_device,
         compute_type=settings.whisper_compute_type,
+        beam_size=settings.whisper_beam_size,
+        vad_filter=settings.whisper_vad_filter,
         settings=LocalWhisperSTTService.Settings(
             model=settings.whisper_model_size,
             language=settings.language,

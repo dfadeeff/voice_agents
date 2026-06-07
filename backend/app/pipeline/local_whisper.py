@@ -39,6 +39,11 @@ class LocalWhisperSTTService(WhisperSTTService):
     Uses a shared model instance loaded at startup to avoid per-call reload.
     """
 
+    def __init__(self, *, beam_size: int = 1, vad_filter: bool = False, **kwargs):
+        super().__init__(**kwargs)
+        self._beam_size = beam_size
+        self._vad_filter = vad_filter
+
     def _load(self):
         if _shared_model is not None:
             self._model = _shared_model
@@ -54,17 +59,22 @@ class LocalWhisperSTTService(WhisperSTTService):
         audio_float = np.frombuffer(audio, dtype=np.int16).astype(np.float32) / 32768.0
         language = assert_given(self._settings.language)
 
+        beam_size = self._beam_size
+        vad_filter = self._vad_filter
+
         def transcribe():
-            segments, info = self._model.transcribe(
-                audio_float,
-                language=language,
-                beam_size=3,
-                temperature=0.0,
-                condition_on_previous_text=False,
-                vad_filter=True,
-                vad_parameters={"min_silence_duration_ms": 300},
-                hotwords=_LEGAL_HOTWORDS if str(language).lower().endswith("de") else None,
-            )
+            kwargs = {
+                "language": language,
+                "beam_size": beam_size,
+                "temperature": 0.0,
+                "condition_on_previous_text": False,
+                "vad_filter": vad_filter,
+            }
+            if vad_filter:
+                kwargs["vad_parameters"] = {"min_silence_duration_ms": 300}
+            if str(language).lower().endswith("de"):
+                kwargs["hotwords"] = _LEGAL_HOTWORDS
+            segments, info = self._model.transcribe(audio_float, **kwargs)
             return list(segments), info
 
         try:

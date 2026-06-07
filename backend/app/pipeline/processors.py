@@ -16,6 +16,7 @@ from pipecat.frames.frames import (
     InterimTranscriptionFrame,
     InterruptionFrame,
     LLMFullResponseEndFrame,
+    LLMMessagesAppendFrame,
     MetricsFrame,
     TextFrame,
     TranscriptionFrame,
@@ -24,6 +25,9 @@ from pipecat.frames.frames import (
 from pipecat.metrics.metrics import TTFBMetricsData
 from pipecat.processors.aggregators.sentence import match_endofsentence
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+
+from app.conversation.locales import get_locale
+from app.models.schemas import CallPhase
 
 if TYPE_CHECKING:
     from app.conversation.manager import ConversationManager
@@ -358,6 +362,28 @@ class TranscriptProcessor(FrameProcessor):
         self._ws = websocket
         self._logger = call_logger
         self._conversation = conversation
+        self._filler_index = 0
+
+    def _get_filler(self) -> str:
+        locale = get_locale(self._conversation.lang)
+        fillers = getattr(locale, "FILLERS", ["Mhm."])
+        filler = fillers[self._filler_index % len(fillers)]
+        self._filler_index += 1
+        return filler
+
+    def _check_fast_path(self, old_phase: CallPhase, new_phase: CallPhase) -> str | None:
+        state = self._conversation.state
+        locale = get_locale(self._conversation.lang)
+        responses = getattr(locale, "FAST_PATH_RESPONSES", {})
+
+        if (
+            state.callback_requested
+            and old_phase != CallPhase.CAPTURE
+            and new_phase == CallPhase.CAPTURE
+        ):
+            return responses.get("callback_ask_name")
+
+        return None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -387,6 +413,28 @@ class TranscriptProcessor(FrameProcessor):
                 )
             except Exception:
                 pass
+
+            fast_path = self._check_fast_path(old_phase, new_phase)
+            if fast_path:
+                logger.info("FAST PATH: %s", fast_path)
+                self._logger.log("agent", fast_path)
+                self._conversation.add_assistant_message(fast_path)
+                await self.push_frame(
+                    LLMMessagesAppendFrame(
+                        [
+                            {"role": "user", "content": text},
+                            {"role": "assistant", "content": fast_path},
+                        ],
+                        run_llm=False,
+                    ),
+                    direction,
+                )
+                await self.push_frame(TextFrame(text=fast_path), direction)
+                return
+
+            filler = self._get_filler()
+            logger.info("FILLER: %s", filler)
+            await self.push_frame(TextFrame(text=filler), direction)
 
         await self.push_frame(frame, direction)
 

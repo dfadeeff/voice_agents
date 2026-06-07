@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     whisper_model_size: str = "medium"
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
+    whisper_beam_size: int = 1
+    whisper_vad_filter: bool = False
 
     deepgram_api_key: str = ""
 
