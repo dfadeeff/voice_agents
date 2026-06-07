@@ -11,10 +11,19 @@ This prototype follows the production-standard cascaded STT → LLM → TTS arch
 - Employment/tenancy routing with unknown-area escalation
 - Structured contact capture (name, email, phone) with confidence-based confirmation
 - SQLite calendar with slot checking and alternatives for unavailable times
-- Human handoff path (caller request, out-of-scope area, repeated misunderstandings)
+- Human callback/handoff path (caller request, out-of-scope area, repeated misunderstandings)
 - Legal advice boundary enforcement — agent refuses to assess cases
 - Call transcript logging to JSON
 - TTS preprocessing for phone numbers (digit-by-digit) and emails (spoken form)
+
+### Takehome story coverage
+
+| Required story | Prototype behavior | Concrete evidence |
+|---|---|---|
+| Routing across law types | Routes employment and tenancy issues, then asks one area-specific qualification question | `conversation/flow.py`, `tools/route.py`, scenario tests |
+| Booking a consultation | Requires confirmed contact details, checks SQLite availability, offers alternatives, and only confirms a successful booking | `tools/booking.py`, `services/calendar.py`, unavailable-slot tests |
+| Reliable detail capture | Local Whisper supplies segment confidence; low-confidence names require confirmation; email and phone always require read-back confirmation | `pipeline/local_whisper.py`, `tools/extraction.py` |
+| Knowing when to hand off | Explicit person requests and unsupported/complex cases enter escalation deterministically. The local demo records a callback request and context; it does not pretend to transfer live | `conversation/policy.py`, `tools/handoff.py` |
 
 ### What is intentionally simplified
 
@@ -95,13 +104,13 @@ Set the model in `.env` via `OLLAMA_MODEL`:
 
 | Model | Size | Latency | Tool calling | Recommended for |
 |-------|------|---------|-------------|----------------|
-| **`qwen2.5:7b`** | 4.7 GB | Fast (0.8s) | Excellent | **Best default — fast + reliable tools** |
+| **`qwen2.5:7b`** | 4.7 GB | Fast (0.8s) | Good with guardrails | **Best local default** |
 | `qwen3:4b` | 2.6 GB | Fastest (0.5s) | Excellent | Speed-constrained setups |
 | `qwen3:8b` | 5.2 GB | Slow (4.3s) | Excellent | Not recommended (thinking tokens cause silence) |
 | `llama3.2:3b` | 2.0 GB | Fastest | Fair | Speed-constrained devices |
 | `llama3.1:8b` | 4.9 GB | Fast | Unreliable | Not recommended (often dumps JSON as text) |
 
-**qwen2.5:7b is the default.** In local benchmarks it averages 0.8s latency — 5x faster than qwen3:8b (4.3s) because qwen3 models generate thinking tokens that create dead air. The qwen2.5 family provides reliable tool calling without the latency penalty. Run `make benchmark` to test on your machine.
+**qwen2.5:7b is the default.** In local benchmarks it averages 0.8s latency — much faster than qwen3:8b because qwen3 emits thinking tokens that create dead air. Qwen 2.5 can still make tool or language mistakes, so business-critical transitions are code-controlled and a pre-TTS safety layer drops internal JSON/tool text. Run `make benchmark` to test on your machine.
 
 In my local tests, **llama3.1:8b was unreliable** for this project's tool-calling flow: it sometimes emitted JSON as normal text or called tools with invalid arguments.
 
@@ -143,7 +152,7 @@ You can mix local and cloud freely — e.g. keep Whisper STT local but use OpenA
 2. **Routing** — identifies your legal area (employment law or tenancy law) and adapts questions accordingly
 3. **Capture** — collects your name, email, phone number. If STT confidence is low (noisy line, unusual name), the agent asks you to spell it back rather than guessing
 4. **Booking** — checks the calendar for available consultation slots. If your preferred time is taken, offers alternatives
-5. **Escalation** — if you ask for a human, the issue is out of scope, or the agent can't understand you after 3 attempts, it hands off with context
+5. **Escalation** — if you ask for a human, the issue is out of scope, or the agent cannot understand you after 3 attempts, it records a callback/handoff request with context
 
 ## Legal Advice Boundary
 
@@ -225,9 +234,9 @@ All local, all free:
 | Layer | Technology | What it does |
 |-------|-----------|--------------|
 | **Orchestration** | [Pipecat](https://github.com/pipecat-ai/pipecat) | Pipeline wiring, VAD, turn-taking, interruptions, streaming |
-| **STT** | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (via Pipecat) | Speech-to-text with per-word confidence scores |
+| **STT** | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) + Pipecat | Speech-to-text with segment confidence and domain bias |
 | **LLM** | [Ollama](https://ollama.com) + Qwen 2.5 | Conversation, tool calling, routing decisions |
-| **TTS** | [Piper](https://github.com/rhasspy/piper) (via Pipecat) | Text-to-speech, en_US-lessac-medium voice |
+| **TTS** | [Piper](https://github.com/rhasspy/piper) (via Pipecat) | Text-to-speech, German Eva voice |
 | **VAD** | Silero (via Pipecat) | Voice activity detection, endpointing |
 | **Transport** | WebSocket + protobuf | Browser mic/speaker over FastAPI WebSocket |
 | **DB** | SQLite | Appointment calendar with 560 seeded slots |
@@ -246,19 +255,20 @@ voice_agent/
 │       │   └── health.py           # GET /health, /ready
 │       ├── pipeline/
 │       │   ├── orchestrator.py     # Pipecat pipeline + tool registration
-│       │   ├── processors.py       # Transcript display + call logging
+│       │   ├── local_whisper.py    # Local STT + confidence + domain bias
+│       │   ├── processors.py       # Safety, transcript display + logging
 │       │   └── services.py         # STT/LLM/TTS factory from config
 │       ├── conversation/
 │       │   ├── state.py            # Serializable call state
-│       │   ├── manager.py          # State management, confidence scoring
+│       │   ├── manager.py          # State management + deterministic policies
+│       │   ├── policy.py           # Safety-critical handoff detection
 │       │   └── prompts.py          # System prompt + law-area fragments
 │       ├── tools/
 │       │   ├── registry.py         # Tool name -> handler + JSON schema
-│       │   ├── intent.py           # classify_caller_intent
-│       │   ├── routing.py          # classify_legal_area
-│       │   ├── extraction.py       # extract_caller_details + confidence
+│       │   ├── route.py            # route_call: intent + legal area
+│       │   ├── extraction.py       # capture + explicit confirmation
 │       │   ├── booking.py          # check_availability, book_consultation
-│       │   └── escalation.py       # escalate_to_human
+│       │   └── handoff.py          # truthful callback/handoff request
 │       ├── services/
 │       │   └── calendar.py         # SQLite: slots, bookings
 │       └── models/
@@ -350,17 +360,17 @@ This flows into `orchestrator.py` which either registers tool handlers + tool-aw
 
 **Decision:** Use faster-whisper for local speech-to-text.
 
-**Trade-off:** Processes complete utterances (300-500ms latency) rather than streaming interim results like cloud Deepgram.
+**Trade-off:** Processes complete utterances rather than streaming interim results like cloud Deepgram. On the development laptop, an 8-second German sample took roughly 8.5 seconds with `medium`; `base` was faster but materially less accurate, while `large-v3` was more accurate but too slow for the demo.
 
-**Why:** Pipecat has a built-in `WhisperSTTService` for faster-whisper. It provides per-word confidence scores, which feed directly into our confidence-aware entity extraction (names/emails/phones with low STT confidence get flagged for verbal confirmation). Vosk streams faster but doesn't report word-level confidence. Whisper.cpp would need a custom integration.
+**Why:** `LocalWhisperSTTService` extends Pipecat's faster-whisper integration with legal-domain hotwords, internal VAD trimming, and segment confidence. That confidence feeds the confirmation policy without asking the LLM to judge audio quality.
 
 ### Confidence-aware entity extraction
 
-**Decision:** Use STT word-level confidence scores to decide when to ask callers to spell back names, emails, and phone numbers.
+**Decision:** Use STT segment confidence plus field-specific policy to decide when to confirm captured details.
 
 **Trade-off:** Adds complexity to the extraction flow (confidence threshold, confirmation loop) but prevents booking with wrong details.
 
-**Why:** The hardest problem in voice agents: getting "Siobhan" right when the STT hears "Shivan." When faster-whisper reports confidence < 0.7 for any word in a name, email, or phone number, the `extract_caller_details` tool flags it. The LLM then asks the caller to spell it back ("That's S-I-O-B-H-A-N, is that right?") before proceeding. This works at the tool level — the LLM doesn't need to understand confidence scores; it just follows the tool's instruction.
+**Why:** The hardest problem in voice agents is getting contact details right. Names below the confidence threshold require confirmation; email and phone always require explicit read-back confirmation. The LLM receives the tool instruction, but code decides whether confirmation is mandatory.
 
 ### Hybrid state machine + LLM (not pure LLM-driven)
 
@@ -465,12 +475,13 @@ Low-confidence, failed, or escalated calls would be sampled for human review and
 
 The prototype is production-shaped, not production-grade. It runs locally with zero API keys to make evaluation easy, but production would require the upgrades described in the table at the top.
 
-- **STT latency**: faster-whisper processes complete utterances (~300-500ms), not streaming. Cloud Deepgram would stream interim results during speech, showing words as the caller speaks.
+- **STT latency**: faster-whisper processes complete utterances and can take several seconds on CPU. Cloud Deepgram would stream interim results during speech.
 - **TTS quality**: Piper is functional but noticeably synthetic compared to ElevenLabs. This is the most obvious "not production" tell in a demo.
-- **End-to-end latency**: ~1-2s locally (STT + LLM inference + TTS) vs ~500-800ms with a cloud stack. The LLM inference is the bottleneck.
+- **End-to-end latency**: hardware and utterance dependent; local Whisper is currently the largest latency contributor. A cloud streaming stack would be substantially faster.
 - **Local tool calling**: Works best with Qwen models. llama3.1:8b was unreliable in my tests — outputs raw JSON text instead of using the tool calling API. Results may vary with different Ollama versions.
 - **Single-process**: One Uvicorn worker handles all calls. Production would use multiple workers behind a load balancer, with Redis for shared state.
-- **Confidence handling**: The prototype uses STT word-level confidence as one signal for uncertainty. Production would combine it with field-specific validation: email normalization, repeated-confirmation logic, and caller correction detection.
+- **Confidence handling**: The prototype uses segment confidence plus field-specific confirmation policy. Production would use richer word/alternative confidence, email normalization, and repeated-confirmation analytics.
+- **Human handoff**: The browser demo records a callback/handoff request and summary. It does not bridge a live phone call.
 
 ## Outlook
 

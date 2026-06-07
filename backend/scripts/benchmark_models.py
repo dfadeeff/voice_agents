@@ -29,45 +29,32 @@ OLLAMA_URL = "http://localhost:11434"
 BENCHMARKS_DIR = Path("benchmarks")
 
 SYSTEM_PROMPT = (
-    "You are the receptionist at a law firm. "
-    "You answer phone calls in a warm, professional manner. "
-    "The firm handles employment law and tenancy law. "
-    "Keep responses to 1-2 short sentences. "
-    "ALWAYS respond with speech. Never output JSON."
+    "Du bist die Empfangskraft einer Anwaltskanzlei. "
+    "Die Kanzlei bearbeitet Arbeitsrecht, Mietrecht und Verkehrsrecht. "
+    "Antworte auf Deutsch in höchstens zwei kurzen Sätzen. "
+    "Funktionsaufrufe und JSON dürfen niemals als gesprochener Text erscheinen."
 )
 
 TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "classify_caller_intent",
-            "description": "Classify what the caller wants: general_info or book_consultation.",
+            "name": "route_call",
+            "description": "Bestimme Anliegen und Rechtsgebiet des Anrufers in einem Schritt.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "intent": {
                         "type": "string",
                         "enum": ["general_info", "book_consultation"],
-                    }
-                },
-                "required": ["intent"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "classify_legal_area",
-            "description": "Classify the caller's legal area: employment, tenancy, or unknown.",
-            "parameters": {
-                "type": "object",
-                "properties": {
+                    },
                     "legal_area": {
                         "type": "string",
-                        "enum": ["employment", "tenancy", "unknown"],
-                    }
+                        "enum": ["employment", "tenancy", "traffic", "unknown"],
+                    },
+                    "matter_summary": {"type": "string"},
                 },
-                "required": ["legal_area"],
+                "required": ["intent", "legal_area"],
             },
         },
     },
@@ -79,7 +66,7 @@ SCENARIOS = [
         "display": "Greeting (no tools)",
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": "[A new caller has connected]"},
+            {"role": "user", "content": "[Ein neuer Anrufer hat sich verbunden]"},
         ],
         "tools": None,
         "expect": "speech",
@@ -89,7 +76,7 @@ SCENARIOS = [
         "display": "Greeting (with tools)",
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": "[A new caller has connected]"},
+            {"role": "user", "content": "[Ein neuer Anrufer hat sich verbunden]"},
         ],
         "tools": TOOLS,
         "expect": "speech",
@@ -99,15 +86,15 @@ SCENARIOS = [
         "display": "Tool call (employment)",
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": "[A new caller has connected]"},
+            {"role": "user", "content": "[Ein neuer Anrufer hat sich verbunden]"},
             {
                 "role": "assistant",
-                "content": "Hello! Thank you for calling. How can I help you today?",
+                "content": "Guten Tag. Wobei können wir Ihnen behilflich sein?",
             },
             {
                 "role": "user",
                 "content": (
-                    "I was unfairly dismissed from my job last week and I need legal advice."
+                    "Mein Arbeitgeber hat mir letzte Woche gekündigt. Ich möchte einen Termin."
                 ),
             },
         ],

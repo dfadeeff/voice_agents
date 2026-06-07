@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-07T17:12:10.294030+00:00",
+  "timestamp": "2026-06-07T20:28:48.038202+00:00",
   "system": {
     "platform": "macOS-26.5.1-arm64-arm-64bit",
     "machine": "arm64",
@@ -18,92 +18,26 @@
         {
           "scenario": "greeting_no_tools",
           "status": "PASS",
-          "latency_s": 0.781,
-          "detail": "Hello, thank you for calling [Law Firm Name]. How may I assist you today?",
-          "prompt_tokens": 69,
-          "completion_tokens": 19
+          "latency_s": 0.518,
+          "detail": "Guten Tag! Wie kann ich Ihnen heute behilflich sein?",
+          "prompt_tokens": 96,
+          "completion_tokens": 16
         },
         {
           "scenario": "greeting_with_tools",
           "status": "PASS",
-          "latency_s": 0.924,
-          "detail": "Hello, this is the receptionist from ABC Law Firm. How may I assist you today?",
-          "prompt_tokens": 267,
-          "completion_tokens": 20
+          "latency_s": 1.165,
+          "detail": "Pr\u00e4sidentin, wir sind bereit, Ihren Anruf zu entgegennehmen. K\u00f6nnen Sie bitte Ih",
+          "prompt_tokens": 265,
+          "completion_tokens": 41
         },
         {
           "scenario": "tool_call_employment",
           "status": "PASS",
-          "latency_s": 0.731,
-          "detail": "classify_caller_intent({\"intent\": \"book_consultation\"})",
-          "prompt_tokens": 306,
-          "completion_tokens": 25
-        }
-      ]
-    },
-    "qwen3:4b": {
-      "model_info": {
-        "family": "qwen3",
-        "parameter_size": "4.0B",
-        "quantization": "Q4_K_M"
-      },
-      "scenarios": [
-        {
-          "scenario": "greeting_no_tools",
-          "status": "PASS",
-          "latency_s": 31.425,
-          "detail": "Hello! We specialize in employment and tenancy law. How can I assist you today?",
-          "prompt_tokens": 71,
-          "completion_tokens": 2241
-        },
-        {
-          "scenario": "greeting_with_tools",
-          "status": "PASS",
-          "latency_s": 35.167,
-          "detail": "Hello! How can I assist you today? I specialize in employment and tenancy law.",
-          "prompt_tokens": 269,
-          "completion_tokens": 1866
-        },
-        {
-          "scenario": "tool_call_employment",
-          "status": "ERROR",
-          "latency_s": 120.002,
-          "detail": "timed out",
-          "prompt_tokens": 0,
-          "completion_tokens": 0
-        }
-      ]
-    },
-    "qwen3:14b": {
-      "model_info": {
-        "family": "qwen3",
-        "parameter_size": "14.8B",
-        "quantization": "Q4_K_M"
-      },
-      "scenarios": [
-        {
-          "scenario": "greeting_no_tools",
-          "status": "PASS",
-          "latency_s": 28.714,
-          "detail": "Hello, thank you for calling [Law Firm Name]. How can I assist you today? We spe",
-          "prompt_tokens": 71,
-          "completion_tokens": 200
-        },
-        {
-          "scenario": "greeting_with_tools",
-          "status": "PASS",
-          "latency_s": 14.04,
-          "detail": "Hello, thank you for calling [Law Firm Name]. How can I assist you today?",
-          "prompt_tokens": 269,
-          "completion_tokens": 104
-        },
-        {
-          "scenario": "tool_call_employment",
-          "status": "PASS",
-          "latency_s": 22.52,
-          "detail": "classify_caller_intent({\"intent\": \"book_consultation\"})",
-          "prompt_tokens": 308,
-          "completion_tokens": 203
+          "latency_s": 1.714,
+          "detail": "route_call({\"legal_area\": \"employment\", \"matter_summary\": \"K\\u00fcndigung von ArbeitgebergetLast Week\", \"intent\": \"book_consultation\"}) + speech",
+          "prompt_tokens": 309,
+          "completion_tokens": 90
         }
       ]
     }
