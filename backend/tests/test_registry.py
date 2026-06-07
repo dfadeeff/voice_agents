@@ -41,12 +41,12 @@ class TestToolRegistry:
 class TestBuildDefaultRegistry:
     def test_all_tools_registered(self, registry):
         tools = registry.list_tools()
-        assert "classify_caller_intent" in tools
-        assert "classify_legal_area" in tools
-        assert "extract_caller_details" in tools
+        assert "route_call" in tools
+        assert "capture_caller_details" in tools
+        assert "confirm_caller_detail" in tools
         assert "check_availability" in tools
         assert "book_consultation" in tools
-        assert "escalate_to_human" in tools
+        assert "request_handoff" in tools
         assert len(tools) == 6
 
     def test_schemas_are_valid_openai_format(self, registry):

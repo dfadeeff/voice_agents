@@ -24,6 +24,8 @@ class TestConversationState:
         assert state.turn_count == 0
         assert not state.escalation_requested
         assert not state.booking_confirmed
+        assert state.offered_slot_ids == []
+        assert state.matter_summary is None
 
     def test_to_dict_roundtrip(self, call_id):
         state = ConversationState(call_id=call_id)
@@ -65,7 +67,7 @@ class TestConversationManager:
     def test_add_user_message_advances_phase(self, conversation):
         assert conversation.state.phase == CallPhase.GREETING
         conversation.add_user_message("Hello")
-        assert conversation.state.phase == CallPhase.INTENT_DETECTION
+        assert conversation.state.phase == CallPhase.ROUTING
 
     def test_add_assistant_message(self, conversation):
         conversation.add_assistant_message("How can I help?")
@@ -88,26 +90,20 @@ class TestConversationManager:
         assert msg["name"] == "test_tool"
         assert json.loads(msg["content"]) == {"status": "ok"}
 
-    def test_set_intent_advances_to_routing(self, conversation):
-        conversation.add_user_message("I need help")
-        conversation.set_intent(CallerIntent.BOOK_CONSULTATION)
+    def test_set_route_advances_to_qualification(self, conversation):
+        conversation.add_user_message("I was fired unfairly")
+        conversation.set_route(
+            CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT, "unfair dismissal"
+        )
         assert conversation.state.caller_intent == CallerIntent.BOOK_CONSULTATION
-        assert conversation.state.phase == CallPhase.ROUTING
-
-    def test_set_legal_area_employment(self, conversation):
-        conversation.add_user_message("I was dismissed")
-        conversation.set_intent(CallerIntent.BOOK_CONSULTATION)
-        conversation.set_legal_area(LegalArea.EMPLOYMENT)
         assert conversation.state.legal_area == LegalArea.EMPLOYMENT
-        assert conversation.state.phase == CallPhase.CAPTURE
-        system_msg = conversation.get_messages()[0]
-        assert "employment" in system_msg["content"].lower()
+        assert conversation.state.matter_summary == "unfair dismissal"
+        assert conversation.state.phase == CallPhase.QUALIFICATION
 
-    def test_set_legal_area_unknown_escalates(self, conversation):
-        conversation.add_user_message("I need immigration help")
-        conversation.set_intent(CallerIntent.BOOK_CONSULTATION)
-        conversation.set_legal_area(LegalArea.UNKNOWN)
-        assert conversation.state.phase == CallPhase.ROUTING
+    def test_set_route_general_info_goes_to_information(self, conversation):
+        conversation.add_user_message("I have a question")
+        conversation.set_route(CallerIntent.GENERAL_INFO, LegalArea.EMPLOYMENT)
+        assert conversation.state.phase == CallPhase.INFORMATION
 
     def test_store_entity(self, conversation):
         conversation.add_user_message("My name is John")
@@ -126,10 +122,34 @@ class TestConversationManager:
     def test_confirm_nonexistent_entity_is_noop(self, conversation):
         conversation.confirm_entity("nonexistent")
 
+    def test_update_and_confirm_entity(self, conversation):
+        conversation.add_user_message("test@example.com")
+        conversation.store_entity("email", "tset@example.com", 0.8)
+        conversation.update_and_confirm_entity("email", "test@example.com")
+        assert conversation.state.entities["email"].value == "test@example.com"
+        assert conversation.state.entities["email"].confirmed is True
+
+    def test_update_and_confirm_entity_creates_if_missing(self, conversation):
+        conversation.update_and_confirm_entity("phone", "+1234567890")
+        assert conversation.state.entities["phone"].value == "+1234567890"
+        assert conversation.state.entities["phone"].confirmed is True
+
     def test_available_tools_change_with_phase(self, conversation):
         assert conversation.get_available_tools() == []
         conversation.add_user_message("Hello")
-        assert "classify_caller_intent" in conversation.get_available_tools()
+        assert "route_call" in conversation.get_available_tools()
+
+    def test_record_misunderstanding_increments(self, conversation):
+        conversation.record_misunderstanding()
+        assert conversation.state.misunderstanding_streak == 1
+        conversation.record_misunderstanding()
+        assert conversation.state.misunderstanding_streak == 2
+
+    def test_reset_misunderstanding_streak(self, conversation):
+        conversation.record_misunderstanding()
+        conversation.record_misunderstanding()
+        conversation.reset_misunderstanding_streak()
+        assert conversation.state.misunderstanding_streak == 0
 
 
 class TestPrompts:
@@ -138,12 +158,13 @@ class TestPrompts:
         assert "NEVER" in SYSTEM_PROMPT_TOOLS
 
     def test_local_prompt_has_no_tool_references(self):
-        assert "extract_caller_details" not in SYSTEM_PROMPT_LOCAL
-        assert "classify_caller_intent" not in SYSTEM_PROMPT_LOCAL
+        assert "capture_caller_details" not in SYSTEM_PROMPT_LOCAL
+        assert "route_call" not in SYSTEM_PROMPT_LOCAL
 
     def test_fragments_exist_for_supported_areas(self):
         assert "employment" in FRAGMENTS
         assert "tenancy" in FRAGMENTS
+        assert "traffic" in FRAGMENTS
 
     def test_base_prompt_is_tools_prompt(self):
         assert SYSTEM_PROMPT_BASE is SYSTEM_PROMPT_TOOLS

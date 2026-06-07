@@ -31,15 +31,13 @@ class ToolRegistry:
 
 def build_default_registry(calendar_service: Any) -> ToolRegistry:
     from app.tools.booking import register_booking_tools
-    from app.tools.escalation import register_escalation_tools
     from app.tools.extraction import register_extraction_tools
-    from app.tools.intent import register_intent_tools
-    from app.tools.routing import register_routing_tools
+    from app.tools.handoff import register_handoff_tools
+    from app.tools.route import register_route_tools
 
     registry = ToolRegistry()
-    register_intent_tools(registry)
-    register_routing_tools(registry)
+    register_route_tools(registry)
     register_extraction_tools(registry)
     register_booking_tools(registry, calendar_service)
-    register_escalation_tools(registry)
+    register_handoff_tools(registry)
     return registry

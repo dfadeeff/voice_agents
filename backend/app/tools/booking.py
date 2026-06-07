@@ -1,4 +1,4 @@
-from app.conversation.flow import REQUIRED_FIELDS
+from app.conversation.flow import CONTACT_FIELDS
 from app.conversation.manager import ConversationManager
 from app.services.calendar import CalendarService
 from app.tools.registry import ToolRegistry
@@ -27,7 +27,9 @@ BOOK_SCHEMA = {
     "properties": {
         "slot_id": {
             "type": "integer",
-            "description": "ID of the slot to book (from check_availability results).",
+            "description": (
+                "ID of the slot to book (must be one previously offered by check_availability)."
+            ),
         },
         "caller_name": {"type": "string"},
         "caller_email": {"type": "string"},
@@ -50,45 +52,43 @@ def _make_check_availability(calendar: CalendarService):
         )
 
         if slots:
-            return {
-                "available": True,
-                "slots": [
-                    {
-                        "id": s["id"],
-                        "date": s["date"],
-                        "time": s["time"],
-                        "lawyer": s["lawyer_name"],
-                        "duration": s["duration_minutes"],
-                    }
-                    for s in slots[:3]
-                ],
-            }
-
-        alternatives = await calendar.get_next_available(
-            after_date=date, legal_area=legal_area, limit=3
-        )
-        return {
-            "available": False,
-            "alternatives": [
+            offered = [
                 {
                     "id": s["id"],
                     "date": s["date"],
                     "time": s["time"],
                     "lawyer": s["lawyer_name"],
+                    "duration": s["duration_minutes"],
                 }
-                for s in alternatives
-            ],
-        }
+                for s in slots[:3]
+            ]
+            ctx.state.offered_slot_ids = [s["id"] for s in offered]
+            return {"available": True, "slots": offered}
+
+        alternatives = await calendar.get_next_available(
+            after_date=date, legal_area=legal_area, limit=3
+        )
+        alt_list = [
+            {
+                "id": s["id"],
+                "date": s["date"],
+                "time": s["time"],
+                "lawyer": s["lawyer_name"],
+            }
+            for s in alternatives
+        ]
+        ctx.state.offered_slot_ids = [s["id"] for s in alt_list]
+        return {"available": False, "alternatives": alt_list}
 
     return check_availability
 
 
 def _make_book_consultation(calendar: CalendarService):
     async def book_consultation(args: dict, ctx: ConversationManager) -> dict:
-        missing = [f for f in REQUIRED_FIELDS if f not in ctx.state.entities]
+        missing = [f for f in CONTACT_FIELDS if f not in ctx.state.entities]
         unconfirmed = [
             f
-            for f in REQUIRED_FIELDS
+            for f in CONTACT_FIELDS
             if f in ctx.state.entities and not ctx.state.entities[f].confirmed
         ]
         if missing or unconfirmed:
@@ -101,6 +101,12 @@ def _make_book_consultation(calendar: CalendarService):
         slot_id = args.get("slot_id")
         if not slot_id:
             return {"status": "error", "message": "slot_id is required."}
+
+        if ctx.state.offered_slot_ids and slot_id not in ctx.state.offered_slot_ids:
+            return {
+                "status": "error",
+                "message": "This slot was not offered. Use check_availability first.",
+            }
 
         slot = await calendar.get_slot_by_id(slot_id)
         if slot is None:
@@ -154,8 +160,9 @@ def register_booking_tools(registry: ToolRegistry, calendar: CalendarService) ->
         name="check_availability",
         fn=_make_check_availability(calendar),
         description=(
-            "Check available consultation slots for a given date."
-            " Returns up to 3 options, or alternatives if the requested date is full."
+            "Check available consultation slots for a given date. "
+            "Returns up to 3 options, or alternatives if the requested date is full. "
+            "Present these options to the caller and let them choose."
         ),
         parameters=CHECK_SCHEMA,
     )
@@ -163,8 +170,9 @@ def register_booking_tools(registry: ToolRegistry, calendar: CalendarService) ->
         name="book_consultation",
         fn=_make_book_consultation(calendar),
         description=(
-            "Book a consultation slot. All caller details (name, email, phone)"
-            " must be confirmed first."
+            "Book a consultation slot that was previously offered by check_availability. "
+            "All caller details (name, email, phone) must be confirmed first. "
+            "The slot_id must be one that was offered to the caller."
         ),
         parameters=BOOK_SCHEMA,
     )

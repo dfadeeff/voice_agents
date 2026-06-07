@@ -36,6 +36,8 @@ def generate_call_summary(state: ConversationState) -> dict:
         "email": _entity_value(state, "email"),
         "phone": _entity_value(state, "phone"),
         "legal_area": state.legal_area.value,
+        "matter_summary": state.matter_summary,
+        "matter_type": _entity_value(state, "matter_type"),
         "issue_summary": _entity_value(state, "matter_description"),
         "booking": booking,
         "escalation": escalation,

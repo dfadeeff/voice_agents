@@ -11,6 +11,7 @@ class ConversationState:
     phase: CallPhase = CallPhase.GREETING
     caller_intent: CallerIntent = CallerIntent.UNKNOWN
     legal_area: LegalArea = LegalArea.UNKNOWN
+    matter_summary: str | None = None
     entities: dict[str, ExtractedEntity] = field(default_factory=dict)
     messages: list[dict] = field(default_factory=list)
     turn_count: int = 0
@@ -19,6 +20,7 @@ class ConversationState:
     escalation_summary: str | None = None
     booking_confirmed: bool = False
     booked_slot: dict | None = None
+    offered_slot_ids: list[int] = field(default_factory=list)
     misunderstanding_streak: int = 0
     started_at: float = field(default_factory=time.time)
 
@@ -28,6 +30,7 @@ class ConversationState:
             "phase": self.phase.value,
             "caller_intent": self.caller_intent.value,
             "legal_area": self.legal_area.value,
+            "matter_summary": self.matter_summary,
             "entities": {
                 k: {
                     "value": v.value,
@@ -39,6 +42,7 @@ class ConversationState:
             "turn_count": self.turn_count,
             "escalation_requested": self.escalation_requested,
             "booking_confirmed": self.booking_confirmed,
+            "offered_slot_ids": self.offered_slot_ids,
         }
 
     def to_json(self) -> str:

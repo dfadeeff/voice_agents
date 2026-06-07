@@ -59,9 +59,9 @@ class TestReadyWithLifespan:
     async def test_all_tools_registered(self, live_app):
         tools = live_app.state.tool_registry.list_tools()
         assert len(tools) == 6
-        assert "classify_caller_intent" in tools
+        assert "route_call" in tools
         assert "book_consultation" in tools
-        assert "escalate_to_human" in tools
+        assert "request_handoff" in tools
 
 
 class TestFrontend:

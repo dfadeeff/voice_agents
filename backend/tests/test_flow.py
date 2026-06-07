@@ -1,6 +1,6 @@
 """Tests for the deterministic state machine (flow.py)."""
 
-from app.conversation.flow import PHASE_TOOLS, all_required_confirmed, next_phase
+from app.conversation.flow import CONTACT_FIELDS, PHASE_TOOLS, all_contacts_confirmed, next_phase
 from app.conversation.state import ConversationState
 from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity, LegalArea
 
@@ -21,12 +21,12 @@ class TestNextPhase:
     def test_greeting_when_no_turns(self):
         assert next_phase(_state()) == CallPhase.GREETING
 
-    def test_intent_detection_after_first_turn(self):
-        assert next_phase(_state(turn_count=1)) == CallPhase.INTENT_DETECTION
+    def test_routing_after_first_turn(self):
+        assert next_phase(_state(turn_count=1)) == CallPhase.ROUTING
 
-    def test_intent_detection_stays_if_unknown(self):
+    def test_routing_stays_if_intent_unknown(self):
         s = _state(turn_count=3, caller_intent=CallerIntent.UNKNOWN)
-        assert next_phase(s) == CallPhase.INTENT_DETECTION
+        assert next_phase(s) == CallPhase.ROUTING
 
     def test_routing_when_intent_known_area_unknown(self):
         s = _state(
@@ -44,20 +44,30 @@ class TestNextPhase:
         )
         assert next_phase(s) == CallPhase.INFORMATION
 
-    def test_capture_when_fields_missing(self):
+    def test_qualification_when_matter_type_missing(self):
         s = _state(
             turn_count=2,
             caller_intent=CallerIntent.BOOK_CONSULTATION,
             legal_area=LegalArea.EMPLOYMENT,
         )
+        assert next_phase(s) == CallPhase.QUALIFICATION
+
+    def test_capture_when_matter_type_set_fields_missing(self):
+        s = _state(
+            turn_count=3,
+            caller_intent=CallerIntent.BOOK_CONSULTATION,
+            legal_area=LegalArea.EMPLOYMENT,
+            entities={"matter_type": _confirmed_entity("matter_type", "dismissal")},
+        )
         assert next_phase(s) == CallPhase.CAPTURE
 
     def test_capture_when_fields_unconfirmed(self):
         s = _state(
-            turn_count=2,
+            turn_count=3,
             caller_intent=CallerIntent.BOOK_CONSULTATION,
             legal_area=LegalArea.TENANCY,
             entities={
+                "matter_type": _confirmed_entity("matter_type", "deposit"),
                 "name": _confirmed_entity("name"),
                 "phone": _unconfirmed_entity("phone"),
             },
@@ -70,6 +80,7 @@ class TestNextPhase:
             caller_intent=CallerIntent.BOOK_CONSULTATION,
             legal_area=LegalArea.EMPLOYMENT,
             entities={
+                "matter_type": _confirmed_entity("matter_type", "dismissal"),
                 "name": _confirmed_entity("name", "John Smith"),
                 "email": _confirmed_entity("email", "john@example.com"),
                 "phone": _confirmed_entity("phone", "+1234567890"),
@@ -100,6 +111,7 @@ class TestNextPhase:
             caller_intent=CallerIntent.BOOK_CONSULTATION,
             legal_area=LegalArea.EMPLOYMENT,
             entities={
+                "matter_type": _confirmed_entity("matter_type", "dismissal"),
                 "name": _confirmed_entity("name"),
                 "email": _confirmed_entity("email"),
                 "phone": _confirmed_entity("phone"),
@@ -118,6 +130,7 @@ class TestNextPhase:
             caller_intent=CallerIntent.BOOK_CONSULTATION,
             legal_area=LegalArea.EMPLOYMENT,
             entities={
+                "matter_type": _confirmed_entity("matter_type", "dismissal"),
                 "name": _confirmed_entity("name"),
                 "matter_description": _confirmed_entity("matter_description"),
             },
@@ -125,13 +138,13 @@ class TestNextPhase:
         assert next_phase(s) == CallPhase.CAPTURE
 
 
-class TestAllRequiredConfirmed:
+class TestAllContactsConfirmed:
     def test_empty_entities(self):
-        assert all_required_confirmed({}) is False
+        assert all_contacts_confirmed({}) is False
 
     def test_partial_entities(self):
         entities = {"name": _confirmed_entity("name")}
-        assert all_required_confirmed(entities) is False
+        assert all_contacts_confirmed(entities) is False
 
     def test_all_confirmed(self):
         entities = {
@@ -139,44 +152,55 @@ class TestAllRequiredConfirmed:
             "email": _confirmed_entity("email"),
             "phone": _confirmed_entity("phone"),
         }
-        assert all_required_confirmed(entities) is True
+        assert all_contacts_confirmed(entities) is True
 
     def test_one_unconfirmed(self):
         entities = {
             "name": _confirmed_entity("name"),
             "phone": _unconfirmed_entity("phone"),
         }
-        assert all_required_confirmed(entities) is False
+        assert all_contacts_confirmed(entities) is False
+
+
+class TestContactFields:
+    def test_contact_fields_are_name_email_phone(self):
+        assert CONTACT_FIELDS == ("name", "email", "phone")
 
 
 class TestPhaseTools:
     def test_greeting_has_no_tools(self):
         assert PHASE_TOOLS[CallPhase.GREETING] == []
 
-    def test_intent_detection_tools(self):
-        tools = PHASE_TOOLS[CallPhase.INTENT_DETECTION]
-        assert "classify_caller_intent" in tools
-        assert "escalate_to_human" in tools
-
     def test_routing_tools(self):
         tools = PHASE_TOOLS[CallPhase.ROUTING]
-        assert "classify_legal_area" in tools
+        assert "route_call" in tools
+        assert "request_handoff" in tools
+
+    def test_qualification_tools(self):
+        tools = PHASE_TOOLS[CallPhase.QUALIFICATION]
+        assert "capture_caller_details" in tools
+        assert "request_handoff" in tools
 
     def test_capture_tools(self):
         tools = PHASE_TOOLS[CallPhase.CAPTURE]
-        assert "extract_caller_details" in tools
+        assert "capture_caller_details" in tools
+        assert "confirm_caller_detail" in tools
+        assert "request_handoff" in tools
         assert "book_consultation" not in tools
 
     def test_booking_tools(self):
         tools = PHASE_TOOLS[CallPhase.BOOKING]
         assert "check_availability" in tools
         assert "book_consultation" in tools
+        assert "request_handoff" in tools
 
     def test_confirmation_has_no_tools(self):
         assert PHASE_TOOLS[CallPhase.CONFIRMATION] == []
 
-    def test_farewell_has_no_tools(self):
-        assert PHASE_TOOLS[CallPhase.FAREWELL] == []
+    def test_information_tools(self):
+        tools = PHASE_TOOLS[CallPhase.INFORMATION]
+        assert "route_call" in tools
+        assert "request_handoff" in tools
 
     def test_all_phases_covered(self):
         for phase in CallPhase:

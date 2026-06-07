@@ -81,13 +81,11 @@ class ConversationManager:
     def get_messages(self) -> list[dict]:
         return self.state.messages
 
-    def set_intent(self, intent: CallerIntent) -> None:
+    def set_route(self, intent: CallerIntent, area: LegalArea, summary: str | None = None) -> None:
         self.state.caller_intent = intent
-        self.reset_misunderstanding_streak()
-        self.advance_phase()
-
-    def set_legal_area(self, area: LegalArea) -> None:
         self.state.legal_area = area
+        if summary:
+            self.state.matter_summary = summary
         self.reset_misunderstanding_streak()
         self.advance_phase()
 
@@ -106,6 +104,23 @@ class ConversationManager:
         if field_name in self.state.entities:
             self.state.entities[field_name].confirmed = True
             self.advance_phase()
+
+    def update_and_confirm_entity(self, field_name: str, value: str) -> None:
+        entity = self.state.entities.get(field_name)
+        if entity:
+            entity.value = value
+            entity.confirmed = True
+            entity.source_turn = self.state.turn_count
+        else:
+            entity = ExtractedEntity(
+                field_name=field_name,
+                value=value,
+                confidence=1.0,
+                confirmed=True,
+                source_turn=self.state.turn_count,
+            )
+            self.state.entities[field_name] = entity
+        self.advance_phase()
 
     def record_misunderstanding(self) -> None:
         self.state.misunderstanding_streak += 1

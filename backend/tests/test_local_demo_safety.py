@@ -5,7 +5,7 @@ and tool name sanitization.
 """
 
 import pytest
-from app.conversation.flow import REQUIRED_FIELDS
+from app.conversation.flow import CONTACT_FIELDS
 from app.conversation.manager import ConversationManager
 from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity, LegalArea
 from app.pipeline.processors import _guard_false_booking
@@ -25,6 +25,7 @@ class TestTrafficArea:
         ctx.state.caller_intent = CallerIntent.BOOK_CONSULTATION
         ctx.state.legal_area = LegalArea.TRAFFIC
         ctx.state.entities = {
+            "matter_type": _confirmed("matter_type", "accident"),
             "name": _confirmed("name", "Dmitry Fadeev"),
             "email": _confirmed("email", "dima@example.com"),
             "phone": _confirmed("phone", "017612345678"),
@@ -34,8 +35,8 @@ class TestTrafficArea:
 
 
 class TestEmailRequired:
-    def test_required_fields_are_name_email_phone(self):
-        assert REQUIRED_FIELDS == ("name", "email", "phone")
+    def test_contact_fields_are_name_email_phone(self):
+        assert CONTACT_FIELDS == ("name", "email", "phone")
 
     def test_name_and_phone_without_email_stays_in_capture(self):
         ctx = ConversationManager(call_id="test", lang="de")
@@ -43,6 +44,7 @@ class TestEmailRequired:
         ctx.state.caller_intent = CallerIntent.BOOK_CONSULTATION
         ctx.state.legal_area = LegalArea.TRAFFIC
         ctx.state.entities = {
+            "matter_type": _confirmed("matter_type", "accident"),
             "name": _confirmed("name", "Dmitry Fadeev"),
             "phone": _confirmed("phone", "017612345678"),
         }
@@ -55,6 +57,7 @@ class TestEmailRequired:
         ctx.state.caller_intent = CallerIntent.BOOK_CONSULTATION
         ctx.state.legal_area = LegalArea.TRAFFIC
         ctx.state.entities = {
+            "matter_type": _confirmed("matter_type", "accident"),
             "name": _confirmed("name", "Dmitry Fadeev"),
             "email": _confirmed("email", "dima@example.com"),
             "phone": _confirmed("phone", "017612345678"),
@@ -111,28 +114,28 @@ class TestToolNameSanitizer:
         return factory
 
     def test_strips_space_separated_tool_name(self, _make_processor):
-        proc = _make_processor(["classify_legal_area"])
-        result = proc._strip_tool_names("Moment bitte.-Classify legal area.")
-        assert "Classify" not in result
-        assert "legal area" not in result
+        proc = _make_processor(["route_call"])
+        result = proc._strip_tool_names("Moment bitte.-Route call.")
+        assert "Route" not in result
+        assert "route call" not in result.lower()
 
     def test_strips_underscore_tool_name(self, _make_processor):
-        proc = _make_processor(["classify_legal_area"])
-        result = proc._strip_tool_names("classify_legal_area")
+        proc = _make_processor(["route_call"])
+        result = proc._strip_tool_names("route_call")
         assert result == ""
 
     def test_strips_with_json_payload(self, _make_processor):
-        proc = _make_processor(["classify_legal_area"])
-        result = proc._strip_tool_names('classify_legal_area{"area":"traffic"}')
+        proc = _make_processor(["route_call"])
+        result = proc._strip_tool_names('route_call{"area":"traffic"}')
         assert result == ""
 
-    def test_strips_escalate_to_human(self, _make_processor):
-        proc = _make_processor(["escalate_to_human"])
-        result = proc._strip_tool_names("Escalate to human")
+    def test_strips_request_handoff(self, _make_processor):
+        proc = _make_processor(["request_handoff"])
+        result = proc._strip_tool_names("Request handoff")
         assert result == ""
 
     def test_preserves_normal_text(self, _make_processor):
-        proc = _make_processor(["classify_legal_area"])
+        proc = _make_processor(["route_call"])
         text = "Verstanden, es geht um einen Unfall."
         result = proc._strip_tool_names(text)
         assert result == text
@@ -161,9 +164,9 @@ class TestPreTTSSanitizer:
         assert "Hallo" in result
 
     def test_tool_name_regex_built(self):
-        san = self._make_sanitizer(["classify_legal_area"])
+        san = self._make_sanitizer(["route_call"])
         assert san._tool_re is not None
-        assert san._tool_re.search("classify legal area")
+        assert san._tool_re.search("route call")
 
     def test_no_tool_regex_when_empty(self):
         san = self._make_sanitizer()

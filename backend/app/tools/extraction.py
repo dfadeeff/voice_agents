@@ -3,7 +3,7 @@ import re
 from app.conversation.manager import ConversationManager
 from app.tools.registry import ToolRegistry
 
-SCHEMA = {
+CAPTURE_SCHEMA = {
     "type": "object",
     "properties": {
         "name": {
@@ -18,19 +18,50 @@ SCHEMA = {
             "type": "string",
             "description": "Caller's phone number as heard.",
         },
+        "matter_type": {
+            "type": "string",
+            "description": (
+                "Type of legal matter within the area of law. "
+                "Employment: 'dismissal', 'warning', 'wages', 'contract', 'other'. "
+                "Tenancy: 'eviction', 'deposit', 'rent_increase', 'repairs', 'other'. "
+                "Traffic: 'accident', 'damage', 'insurance', 'other'."
+            ),
+        },
         "preferred_date": {
             "type": "string",
             "description": "Preferred consultation date (YYYY-MM-DD or natural language).",
         },
         "preferred_time": {
             "type": "string",
-            "description": "Preferred time (morning/afternoon or specific time like 2pm).",
-        },
-        "matter_description": {
-            "type": "string",
-            "description": "Brief description of the legal matter.",
+            "description": "Preferred time (morning/afternoon or specific time like 14:00).",
         },
     },
+}
+
+CONFIRM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "field": {
+            "type": "string",
+            "enum": ["name", "email", "phone"],
+            "description": "Which field is being confirmed.",
+        },
+        "confirmed_value": {
+            "type": "string",
+            "description": (
+                "The value being confirmed, or the corrected value if the caller made a correction."
+            ),
+        },
+        "status": {
+            "type": "string",
+            "enum": ["accepted", "corrected"],
+            "description": (
+                "'accepted' if the caller confirmed the read-back was correct, "
+                "'corrected' if they provided a different value."
+            ),
+        },
+    },
+    "required": ["field", "confirmed_value", "status"],
 }
 
 EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
@@ -47,7 +78,7 @@ def _validate_format(field_name: str, value: str) -> str | None:
     return None
 
 
-async def extract_caller_details(args: dict, ctx: ConversationManager) -> dict:
+async def capture_caller_details(args: dict, ctx: ConversationManager) -> dict:
     stored = []
     needs_confirmation = []
     format_errors = []
@@ -61,20 +92,14 @@ async def extract_caller_details(args: dict, ctx: ConversationManager) -> dict:
             format_errors.append({"field": field_name, "error": validation_error})
             continue
 
-        existing = ctx.state.entities.get(field_name)
-        if existing and existing.value == value and not existing.confirmed:
-            ctx.confirm_entity(field_name)
-            stored.append(field_name)
-            continue
-
         ctx.store_entity(field_name, value, 0.9)
         stored.append(field_name)
 
         if field_name in ALWAYS_CONFIRM:
             if field_name == "email":
-                suggestion = f"Please read back the email address letter by letter: '{value}'"
+                suggestion = f"Spell back the email address letter by letter: '{value}'"
             else:
-                suggestion = f"Please repeat the phone number digit by digit: '{value}'"
+                suggestion = f"Read back the phone number digit by digit: '{value}'"
             needs_confirmation.append(
                 {"field": field_name, "value": value, "suggestion": suggestion}
             )
@@ -96,15 +121,55 @@ async def extract_caller_details(args: dict, ctx: ConversationManager) -> dict:
     return result
 
 
+async def confirm_caller_detail(args: dict, ctx: ConversationManager) -> dict:
+    field_name = args.get("field", "")
+    confirmed_value = args.get("confirmed_value", "")
+    status = args.get("status", "")
+
+    if not field_name or not confirmed_value or status not in ("accepted", "corrected"):
+        return {"status": "error", "message": "field, confirmed_value, and status are required."}
+
+    validation_error = _validate_format(field_name, confirmed_value)
+    if validation_error:
+        ctx.record_misunderstanding()
+        return {"status": "invalid", "error": validation_error}
+
+    if status == "accepted":
+        existing = ctx.state.entities.get(field_name)
+        if not existing:
+            return {"status": "error", "message": f"No stored value for '{field_name}' to confirm."}
+        ctx.confirm_entity(field_name)
+    else:
+        ctx.update_and_confirm_entity(field_name, confirmed_value)
+
+    ctx.reset_misunderstanding_streak()
+    return {
+        "status": "confirmed",
+        "field": field_name,
+        "value": confirmed_value,
+        "was_corrected": status == "corrected",
+    }
+
+
 def register_extraction_tools(registry: ToolRegistry) -> None:
     registry.register(
-        name="extract_caller_details",
-        fn=extract_caller_details,
+        name="capture_caller_details",
+        fn=capture_caller_details,
         description=(
-            "Store caller details extracted from conversation. "
-            "Email and phone always require verbal confirmation — "
-            "read them back and call this tool again with the same value "
-            "after the caller confirms. Names are confirmed automatically."
+            "Store caller details extracted from the conversation. "
+            "Email and phone are stored but require explicit confirmation — "
+            "read them back and use confirm_caller_detail after the caller responds. "
+            "Name and matter_type are confirmed automatically."
         ),
-        parameters=SCHEMA,
+        parameters=CAPTURE_SCHEMA,
+    )
+    registry.register(
+        name="confirm_caller_detail",
+        fn=confirm_caller_detail,
+        description=(
+            "Confirm or correct a previously captured field after reading it back to the caller. "
+            "Use 'accepted' when the caller confirms the value is correct. "
+            "Use 'corrected' with the new value when the caller provides a correction."
+        ),
+        parameters=CONFIRM_SCHEMA,
     )

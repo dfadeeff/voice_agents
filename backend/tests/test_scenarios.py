@@ -15,27 +15,32 @@ def ctx():
 
 
 class TestEmploymentRoutingScenario:
-    """Caller with an employment issue routes correctly and reaches capture."""
+    """Caller with an employment issue routes correctly through qualification."""
 
     @pytest.mark.asyncio
     async def test_employment_booking_flow(self, registry, ctx):
         ctx.add_user_message("I was fired last week and I think it was unfair.")
-        assert ctx.state.phase == CallPhase.INTENT_DETECTION
-
-        await registry.execute(
-            "classify_caller_intent",
-            {"intent": "book_consultation"},
-            ctx,
-        )
         assert ctx.state.phase == CallPhase.ROUTING
 
+        result = await registry.execute(
+            "route_call",
+            {
+                "intent": "book_consultation",
+                "legal_area": "employment",
+                "matter_summary": "unfair dismissal",
+            },
+            ctx,
+        )
+        assert result["status"] == "routed"
+        assert ctx.state.phase == CallPhase.QUALIFICATION
+        assert ctx.state.legal_area == LegalArea.EMPLOYMENT
+
         await registry.execute(
-            "classify_legal_area",
-            {"legal_area": "employment"},
+            "capture_caller_details",
+            {"matter_type": "dismissal"},
             ctx,
         )
         assert ctx.state.phase == CallPhase.CAPTURE
-        assert ctx.state.legal_area == LegalArea.EMPLOYMENT
 
 
 class TestTenancyRoutingScenario:
@@ -46,34 +51,28 @@ class TestTenancyRoutingScenario:
         ctx.add_user_message("My landlord is refusing to return my deposit.")
 
         await registry.execute(
-            "classify_caller_intent",
-            {"intent": "book_consultation"},
-            ctx,
-        )
-        await registry.execute(
-            "classify_legal_area",
-            {"legal_area": "tenancy"},
+            "route_call",
+            {
+                "intent": "book_consultation",
+                "legal_area": "tenancy",
+                "matter_summary": "deposit dispute",
+            },
             ctx,
         )
         assert ctx.state.legal_area == LegalArea.TENANCY
-        assert ctx.state.phase == CallPhase.CAPTURE
+        assert ctx.state.phase == CallPhase.QUALIFICATION
 
 
 class TestUnknownAreaEscalationScenario:
-    """Caller with an unsupported legal area (family, criminal, immigration) escalates."""
+    """Caller with an unsupported legal area escalates."""
 
     @pytest.mark.asyncio
     async def test_family_law_escalates(self, registry, ctx):
         ctx.add_user_message("I need help with child custody after my divorce.")
 
-        await registry.execute(
-            "classify_caller_intent",
-            {"intent": "book_consultation"},
-            ctx,
-        )
         result = await registry.execute(
-            "classify_legal_area",
-            {"legal_area": "unknown"},
+            "route_call",
+            {"intent": "book_consultation", "legal_area": "unknown"},
             ctx,
         )
         assert result["status"] == "unknown_area"
@@ -84,14 +83,9 @@ class TestUnknownAreaEscalationScenario:
     async def test_invalid_area_string_escalates(self, registry, ctx):
         ctx.add_user_message("I need criminal defense.")
 
-        await registry.execute(
-            "classify_caller_intent",
-            {"intent": "book_consultation"},
-            ctx,
-        )
         result = await registry.execute(
-            "classify_legal_area",
-            {"legal_area": "criminal"},
+            "route_call",
+            {"intent": "book_consultation", "legal_area": "criminal"},
             ctx,
         )
         assert result["status"] == "unknown_area"
@@ -106,26 +100,26 @@ class TestHumanHandoffScenario:
         ctx.add_user_message("I want to speak to a person.")
 
         result = await registry.execute(
-            "escalate_to_human",
+            "request_handoff",
             {"reason": "caller_requested_human", "summary": "Wants to speak to a lawyer"},
             ctx,
         )
-        assert result["status"] == "escalating"
+        assert result["status"] == "handing_off"
         assert ctx.state.phase == CallPhase.ESCALATION
 
     @pytest.mark.asyncio
     async def test_handoff_mid_flow(self, registry, ctx):
         ctx.add_user_message("I was dismissed")
         await registry.execute(
-            "classify_caller_intent",
-            {"intent": "book_consultation"},
+            "route_call",
+            {"intent": "book_consultation", "legal_area": "employment"},
             ctx,
         )
-        assert ctx.state.phase == CallPhase.ROUTING
+        assert ctx.state.phase == CallPhase.QUALIFICATION
 
         ctx.add_user_message("Actually, can I just talk to someone?")
         result = await registry.execute(
-            "escalate_to_human",
+            "request_handoff",
             {"reason": "caller_requested_human"},
             ctx,
         )
@@ -134,24 +128,54 @@ class TestHumanHandoffScenario:
 
 
 class TestEmailConfirmationScenario:
-    """Email always requires verbal confirmation via double-extraction."""
+    """Email always requires explicit confirmation via confirm_caller_detail."""
 
     @pytest.mark.asyncio
-    async def test_email_needs_confirmation(self, registry, ctx):
+    async def test_email_capture_then_confirm(self, registry, ctx):
         ctx.add_user_message("I was dismissed")
-        ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
-        ctx.set_legal_area(LegalArea.EMPLOYMENT)
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        await registry.execute("capture_caller_details", {"matter_type": "dismissal"}, ctx)
 
         result = await registry.execute(
-            "extract_caller_details",
+            "capture_caller_details",
             {"email": "fadejeff@gmail.com"},
             ctx,
         )
         assert not result["all_confirmed"]
-        assert len(result["needs_confirmation"]) == 1
-        assert result["needs_confirmation"][0]["field"] == "email"
+        assert any(c["field"] == "email" for c in result["needs_confirmation"])
         assert not ctx.state.entities["email"].confirmed
-        assert ctx.state.phase == CallPhase.CAPTURE
+
+        confirm_result = await registry.execute(
+            "confirm_caller_detail",
+            {"field": "email", "confirmed_value": "fadejeff@gmail.com", "status": "accepted"},
+            ctx,
+        )
+        assert confirm_result["status"] == "confirmed"
+        assert ctx.state.entities["email"].confirmed is True
+
+    @pytest.mark.asyncio
+    async def test_email_correction_flow(self, registry, ctx):
+        """Caller corrects a misheard email."""
+        ctx.add_user_message("details")
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        await registry.execute("capture_caller_details", {"matter_type": "dismissal"}, ctx)
+
+        await registry.execute(
+            "capture_caller_details",
+            {"email": "fade_jeff@gmail.com"},
+            ctx,
+        )
+        assert not ctx.state.entities["email"].confirmed
+
+        result = await registry.execute(
+            "confirm_caller_detail",
+            {"field": "email", "confirmed_value": "fadejeff@gmail.com", "status": "corrected"},
+            ctx,
+        )
+        assert result["status"] == "confirmed"
+        assert result["was_corrected"] is True
+        assert ctx.state.entities["email"].value == "fadejeff@gmail.com"
+        assert ctx.state.entities["email"].confirmed is True
 
 
 class TestUnavailableSlotScenario:
@@ -160,8 +184,9 @@ class TestUnavailableSlotScenario:
     @pytest.mark.asyncio
     async def test_unavailable_slot_offers_alternatives(self, registry, ctx):
         ctx.add_user_message("details")
-        ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
-        ctx.set_legal_area(LegalArea.EMPLOYMENT)
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        ctx.store_entity("matter_type", "dismissal", 1.0)
+        ctx.confirm_entity("matter_type")
         for field in ("name", "email", "phone"):
             ctx.store_entity(field, f"test_{field}", 0.9)
             ctx.confirm_entity(field)
@@ -179,54 +204,57 @@ class TestUnavailableSlotScenario:
 
 
 class TestFullBookingScenario:
-    """Complete happy path: greeting -> routing -> capture -> booking -> confirmation."""
+    """Complete happy path: greeting -> routing -> qualification
+    -> capture -> booking -> confirmation."""
 
     @pytest.mark.asyncio
     async def test_full_happy_path(self, registry, ctx):
         assert ctx.state.phase == CallPhase.GREETING
 
         ctx.add_user_message("Hi, I need help with an employment issue.")
-        assert ctx.state.phase == CallPhase.INTENT_DETECTION
-
-        await registry.execute(
-            "classify_caller_intent",
-            {"intent": "book_consultation"},
-            ctx,
-        )
         assert ctx.state.phase == CallPhase.ROUTING
 
         await registry.execute(
-            "classify_legal_area",
-            {"legal_area": "employment"},
+            "route_call",
+            {
+                "intent": "book_consultation",
+                "legal_area": "employment",
+                "matter_summary": "unfair dismissal",
+            },
+            ctx,
+        )
+        assert ctx.state.phase == CallPhase.QUALIFICATION
+
+        ctx.add_user_message("It's about a dismissal")
+        await registry.execute(
+            "capture_caller_details",
+            {"matter_type": "dismissal"},
             ctx,
         )
         assert ctx.state.phase == CallPhase.CAPTURE
 
-        # Capture contact details
         ctx.add_user_message("My name is John Smith")
-        await registry.execute(
-            "extract_caller_details",
-            {"name": "John Smith"},
-            ctx,
-        )
+        await registry.execute("capture_caller_details", {"name": "John Smith"}, ctx)
 
         ctx.add_user_message("john at example dot com")
+        await registry.execute("capture_caller_details", {"email": "john@example.com"}, ctx)
+
+        ctx.add_user_message("yes that's correct")
         await registry.execute(
-            "extract_caller_details",
-            {"email": "john@example.com"},
+            "confirm_caller_detail",
+            {"field": "email", "confirmed_value": "john@example.com", "status": "accepted"},
             ctx,
         )
 
         ctx.add_user_message("plus one two three four five six seven eight nine zero")
+        await registry.execute("capture_caller_details", {"phone": "+1234567890"}, ctx)
+
+        ctx.add_user_message("yes")
         await registry.execute(
-            "extract_caller_details",
-            {"phone": "+1234567890"},
+            "confirm_caller_detail",
+            {"field": "phone", "confirmed_value": "+1234567890", "status": "accepted"},
             ctx,
         )
-
-        # Confirm all entities (name auto-confirmed, email+phone need double-extraction)
-        for field in ("email", "phone"):
-            ctx.confirm_entity(field)
 
         assert ctx.state.phase == CallPhase.BOOKING
 
@@ -256,18 +284,11 @@ class TestGeneralInfoScenario:
         ctx.add_user_message("I just have a question about employment law.")
 
         await registry.execute(
-            "classify_caller_intent",
-            {"intent": "general_info"},
+            "route_call",
+            {"intent": "general_info", "legal_area": "employment"},
             ctx,
         )
         assert ctx.state.caller_intent == CallerIntent.GENERAL_INFO
-        assert ctx.state.phase == CallPhase.ROUTING
-
-        await registry.execute(
-            "classify_legal_area",
-            {"legal_area": "employment"},
-            ctx,
-        )
         assert ctx.state.phase == CallPhase.INFORMATION
 
 
@@ -283,13 +304,13 @@ class TestMisunderstandingEscalation:
     @pytest.mark.asyncio
     async def test_format_errors_increment_streak(self, registry, ctx):
         ctx.add_user_message("details")
-        ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
-        ctx.set_legal_area(LegalArea.EMPLOYMENT)
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        await registry.execute("capture_caller_details", {"matter_type": "dismissal"}, ctx)
 
         for i in range(3):
             ctx.add_user_message(f"bad email {i}")
             await registry.execute(
-                "extract_caller_details",
+                "capture_caller_details",
                 {"email": f"not-an-email-{i}"},
                 ctx,
             )
@@ -297,12 +318,12 @@ class TestMisunderstandingEscalation:
         assert ctx.state.misunderstanding_streak >= 3
         assert ctx.state.phase == CallPhase.ESCALATION
 
-    def test_successful_store_resets_streak(self, ctx):
+    def test_successful_route_resets_streak(self, ctx):
         ctx.add_user_message("Hello")
         ctx.record_misunderstanding()
         ctx.record_misunderstanding()
         assert ctx.state.misunderstanding_streak == 2
-        ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
         assert ctx.state.misunderstanding_streak == 0
 
 
@@ -312,13 +333,43 @@ class TestEmailValidation:
     @pytest.mark.asyncio
     async def test_invalid_email_rejected(self, registry, ctx):
         ctx.add_user_message("my email is not-an-email")
-        ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
-        ctx.set_legal_area(LegalArea.EMPLOYMENT)
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        await registry.execute("capture_caller_details", {"matter_type": "dismissal"}, ctx)
 
         result = await registry.execute(
-            "extract_caller_details",
+            "capture_caller_details",
             {"email": "not-an-email"},
             ctx,
         )
         assert "email" not in result["stored"]
         assert len(result.get("format_errors", [])) == 1
+
+
+class TestOfferedSlotSafety:
+    """book_consultation rejects slots that weren't offered by check_availability."""
+
+    @pytest.mark.asyncio
+    async def test_unoffered_slot_rejected(self, registry, ctx):
+        ctx.add_user_message("details")
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        ctx.store_entity("matter_type", "dismissal", 1.0)
+        ctx.confirm_entity("matter_type")
+        for field in ("name", "email", "phone"):
+            ctx.store_entity(field, f"test_{field}", 0.9)
+            ctx.confirm_entity(field)
+        ctx.advance_phase()
+
+        await registry.execute(
+            "check_availability",
+            {"date": "2026-06-10", "legal_area": "employment"},
+            ctx,
+        )
+        assert len(ctx.state.offered_slot_ids) > 0
+
+        result = await registry.execute(
+            "book_consultation",
+            {"slot_id": 999, "caller_name": "test_name"},
+            ctx,
+        )
+        assert result["status"] == "error"
+        assert "not offered" in result["message"]

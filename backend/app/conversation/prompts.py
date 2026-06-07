@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.config import Settings
-from app.conversation.flow import REQUIRED_FIELDS
+from app.conversation.flow import CONTACT_FIELDS
 from app.conversation.locales import get_locale
 from app.models.schemas import CallPhase
 
@@ -48,7 +48,7 @@ def build_system_prompt(state: ConversationState, lang: str = "de") -> str:
     if state.phase == CallPhase.CAPTURE:
         missing = []
         unconfirmed = []
-        for field in REQUIRED_FIELDS:
+        for field in CONTACT_FIELDS:
             entity = state.entities.get(field)
             if not entity:
                 missing.append(field)

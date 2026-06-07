@@ -1,17 +1,16 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 
 
 class CallPhase(StrEnum):
     GREETING = "greeting"
-    INTENT_DETECTION = "intent_detection"
     ROUTING = "routing"
-    INFORMATION = "information"
+    QUALIFICATION = "qualification"
     CAPTURE = "capture"
     BOOKING = "booking"
     CONFIRMATION = "confirmation"
+    INFORMATION = "information"
     ESCALATION = "escalation"
-    FAREWELL = "farewell"
 
 
 class CallerIntent(StrEnum):
@@ -25,51 +24,6 @@ class LegalArea(StrEnum):
     TENANCY = "tenancy"
     TRAFFIC = "traffic"
     UNKNOWN = "unknown"
-
-
-@dataclass
-class WordInfo:
-    word: str
-    start_time: float
-    end_time: float
-    confidence: float
-
-
-@dataclass
-class STTSegment:
-    text: str
-    is_final: bool
-    confidence: float
-    words: list[WordInfo] = field(default_factory=list)
-    language: str = "en"
-
-
-@dataclass
-class ToolCall:
-    id: str
-    name: str
-    arguments: dict
-
-
-@dataclass
-class LLMChunk:
-    text: str = ""
-    tool_calls: list[ToolCall] = field(default_factory=list)
-    finish_reason: str | None = None
-
-
-@dataclass
-class LLMResponse:
-    text: str
-    tool_calls: list[ToolCall] = field(default_factory=list)
-    usage: dict = field(default_factory=dict)
-
-
-@dataclass
-class AudioChunk:
-    data: bytes
-    sample_rate: int
-    is_last: bool = False
 
 
 @dataclass

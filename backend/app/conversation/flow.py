@@ -7,23 +7,22 @@ transitions; the LLM handles language understanding and natural phrasing.
 
 from app.models.schemas import CallerIntent, CallPhase, LegalArea
 
-REQUIRED_FIELDS = ("name", "email", "phone")
+CONTACT_FIELDS = ("name", "email", "phone")
 
 PHASE_TOOLS: dict[CallPhase, list[str]] = {
     CallPhase.GREETING: [],
-    CallPhase.INTENT_DETECTION: ["classify_caller_intent", "escalate_to_human"],
-    CallPhase.ROUTING: ["classify_legal_area", "escalate_to_human"],
-    CallPhase.INFORMATION: ["classify_caller_intent", "escalate_to_human"],
-    CallPhase.CAPTURE: ["extract_caller_details", "escalate_to_human"],
-    CallPhase.BOOKING: ["check_availability", "book_consultation", "escalate_to_human"],
+    CallPhase.ROUTING: ["route_call", "request_handoff"],
+    CallPhase.QUALIFICATION: ["capture_caller_details", "request_handoff"],
+    CallPhase.INFORMATION: ["route_call", "request_handoff"],
+    CallPhase.CAPTURE: ["capture_caller_details", "confirm_caller_detail", "request_handoff"],
+    CallPhase.BOOKING: ["check_availability", "book_consultation", "request_handoff"],
     CallPhase.CONFIRMATION: [],
-    CallPhase.ESCALATION: ["escalate_to_human"],
-    CallPhase.FAREWELL: [],
+    CallPhase.ESCALATION: ["request_handoff"],
 }
 
 
-def all_required_confirmed(entities: dict) -> bool:
-    for f in REQUIRED_FIELDS:
+def all_contacts_confirmed(entities: dict) -> bool:
+    for f in CONTACT_FIELDS:
         entity = entities.get(f)
         if not entity or not entity.confirmed:
             return False
@@ -46,7 +45,7 @@ def next_phase(state) -> CallPhase:
     if state.caller_intent == CallerIntent.UNKNOWN:
         if state.turn_count < 1:
             return CallPhase.GREETING
-        return CallPhase.INTENT_DETECTION
+        return CallPhase.ROUTING
 
     if state.legal_area == LegalArea.UNKNOWN:
         return CallPhase.ROUTING
@@ -54,7 +53,10 @@ def next_phase(state) -> CallPhase:
     if state.caller_intent == CallerIntent.GENERAL_INFO:
         return CallPhase.INFORMATION
 
-    if not all_required_confirmed(state.entities):
+    if "matter_type" not in state.entities:
+        return CallPhase.QUALIFICATION
+
+    if not all_contacts_confirmed(state.entities):
         return CallPhase.CAPTURE
 
     return CallPhase.BOOKING

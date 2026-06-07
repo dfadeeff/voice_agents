@@ -40,22 +40,20 @@ class TestGermanPrompts:
         assert "Kanzlei" in prompt
         assert "Anliegen" in prompt
 
-    def test_intent_detection_prompt(self):
-        state = ConversationState(call_id="t")
-        state.phase = CallPhase.INTENT_DETECTION
-        state.turn_count = 1
-        prompt = build_system_prompt(state, lang="de")
-        assert "classify_caller_intent" in prompt
-        assert "Empfang" in prompt
-
     def test_routing_prompt(self):
         state = ConversationState(call_id="t")
         state.phase = CallPhase.ROUTING
-        state.caller_intent = CallerIntent.BOOK_CONSULTATION
+        state.turn_count = 1
         prompt = build_system_prompt(state, lang="de")
         assert "Rechtsgebiet" in prompt
-        assert "classify_legal_area" in prompt
-        assert "employment" in prompt or "Arbeitsrecht" in prompt
+        assert "route_call" in prompt
+
+    def test_qualification_prompt(self):
+        state = ConversationState(call_id="t")
+        state.phase = CallPhase.QUALIFICATION
+        prompt = build_system_prompt(state, lang="de")
+        assert "Kündigung" in prompt
+        assert "capture_caller_details" in prompt
 
     def test_capture_prompt_shows_missing_fields(self):
         state = ConversationState(call_id="t")
@@ -86,7 +84,7 @@ class TestGermanPrompts:
         state = ConversationState(call_id="t")
         state.phase = CallPhase.CAPTURE
         prompt = build_system_prompt(state, lang="de")
-        assert "Buchstabier" in prompt or "buchstabier" in prompt
+        assert "buchstab" in prompt.lower()
 
     def test_booking_prompt(self):
         state = ConversationState(call_id="t")
@@ -108,11 +106,11 @@ class TestGermanPrompts:
         prompt = build_system_prompt(state, lang="de")
         assert "Teammitglied" in prompt or "weiterleite" in prompt
 
-    def test_farewell_prompt(self):
+    def test_information_prompt(self):
         state = ConversationState(call_id="t")
-        state.phase = CallPhase.FAREWELL
+        state.phase = CallPhase.INFORMATION
         prompt = build_system_prompt(state, lang="de")
-        assert "Gute" in prompt or "Danke" in prompt or "bedanke" in prompt
+        assert "Rechtsberatung" in prompt or "Informationen" in prompt
 
     def test_preamble_forbids_legal_advice(self):
         state = ConversationState(call_id="t")
@@ -183,7 +181,6 @@ class TestGermanTTSPreprocessing:
         result = _tts_preprocess("017612345678", lang="de")
         assert "0" in result
         assert "1" in result
-        # digits should be comma-separated
         assert "," in result
 
     def test_phone_with_plus_prefix(self):
@@ -211,7 +208,7 @@ class TestGermanTTSPreprocessing:
 
 
 # ---------------------------------------------------------------------------
-# False booking guard — state-aware (Priority 2)
+# False booking guard — state-aware
 # ---------------------------------------------------------------------------
 
 
@@ -284,9 +281,9 @@ class TestPreTTSSanitizerStreaming:
         assert result == "Ja, genau."
 
     def test_tool_name_in_chunk(self):
-        san = self._make(["classify_legal_area"])
+        san = self._make(["route_call"])
         assert san._tool_re is not None
-        assert san._tool_re.sub("", "classify legal area") == ""
+        assert san._tool_re.search("route call")
 
     def test_json_leak_stripped(self):
         from app.pipeline.processors import _JSON_LEAK_RE
@@ -294,7 +291,7 @@ class TestPreTTSSanitizerStreaming:
         assert _JSON_LEAK_RE.search('{"legal_area": "employment"}')
 
     def test_normal_german_text_passes_through(self):
-        san = self._make(["classify_legal_area", "escalate_to_human"])
+        san = self._make(["route_call", "request_handoff"])
         text = "Ich verstehe, es geht um eine Kündigung."
         assert san._strip_think(text) == text
         assert san._tool_re is not None
@@ -302,7 +299,7 @@ class TestPreTTSSanitizerStreaming:
 
 
 # ---------------------------------------------------------------------------
-# Booking validation — missing fields (Priority 3)
+# Booking validation — missing fields
 # ---------------------------------------------------------------------------
 
 
@@ -315,11 +312,9 @@ class TestBookingValidation:
     async def test_booking_blocked_when_fields_missing(self, registry, ctx_de):
         ctx = ctx_de
         ctx.add_user_message("Ich brauche einen Termin")
-        ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
-        ctx.set_legal_area(LegalArea.EMPLOYMENT)
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
         ctx.store_entity("name", "Max Müller", 0.95)
         ctx.confirm_entity("name")
-        # email and phone are missing
 
         result = await registry.execute(
             "book_consultation",
@@ -334,13 +329,11 @@ class TestBookingValidation:
     async def test_booking_blocked_when_email_unconfirmed(self, registry, ctx_de):
         ctx = ctx_de
         ctx.add_user_message("Ich brauche einen Termin")
-        ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
-        ctx.set_legal_area(LegalArea.EMPLOYMENT)
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
         for f in ("name", "email", "phone"):
             ctx.store_entity(f, f"test_{f}", 0.95)
         ctx.confirm_entity("name")
         ctx.confirm_entity("phone")
-        # email NOT confirmed
 
         result = await registry.execute(
             "book_consultation",
@@ -355,11 +348,12 @@ class TestBookingValidation:
     async def test_booking_proceeds_when_all_confirmed(self, registry, ctx_de):
         ctx = ctx_de
         ctx.add_user_message("Termin bitte")
-        ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
-        ctx.set_legal_area(LegalArea.EMPLOYMENT)
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
         for f in ("name", "email", "phone"):
             ctx.store_entity(f, f"test_{f}", 0.95)
             ctx.confirm_entity(f)
+        ctx.store_entity("matter_type", "dismissal", 1.0)
+        ctx.confirm_entity("matter_type")
         ctx.advance_phase()
 
         avail = await registry.execute(
@@ -379,7 +373,7 @@ class TestBookingValidation:
 
 
 # ---------------------------------------------------------------------------
-# Full German booking scenario — simplified flow
+# Full German booking scenario
 # ---------------------------------------------------------------------------
 
 
@@ -393,58 +387,50 @@ class TestGermanFullBookingScenario:
         ctx = ctx_de
         assert ctx.state.phase == CallPhase.GREETING
 
-        # Caller describes issue
         ctx.add_user_message("Hallo, ich wurde letzte Woche gekündigt.")
-        assert ctx.state.phase == CallPhase.INTENT_DETECTION
-
-        # Intent detected
-        await registry.execute(
-            "classify_caller_intent",
-            {"intent": "book_consultation"},
-            ctx,
-        )
         assert ctx.state.phase == CallPhase.ROUTING
 
-        # Legal area classified
         await registry.execute(
-            "classify_legal_area",
-            {"legal_area": "employment"},
+            "route_call",
+            {
+                "intent": "book_consultation",
+                "legal_area": "employment",
+                "matter_summary": "Kündigung",
+            },
             ctx,
         )
-        assert ctx.state.phase == CallPhase.CAPTURE
+        assert ctx.state.phase == CallPhase.QUALIFICATION
         assert ctx.state.legal_area == LegalArea.EMPLOYMENT
 
-        # Name capture
+        ctx.add_user_message("Es geht um eine Kündigung")
+        await registry.execute("capture_caller_details", {"matter_type": "dismissal"}, ctx)
+        assert ctx.state.phase == CallPhase.CAPTURE
+
         ctx.add_user_message("Mein Name ist Max Müller")
-        await registry.execute(
-            "extract_caller_details",
-            {"name": "Max Müller"},
-            ctx,
-        )
+        await registry.execute("capture_caller_details", {"name": "Max Müller"}, ctx)
 
-        # Email capture
         ctx.add_user_message("max punkt mueller at gmail punkt com")
+        await registry.execute("capture_caller_details", {"email": "max.mueller@gmail.com"}, ctx)
+
+        ctx.add_user_message("Ja, das stimmt")
         await registry.execute(
-            "extract_caller_details",
-            {"email": "max.mueller@gmail.com"},
+            "confirm_caller_detail",
+            {"field": "email", "confirmed_value": "max.mueller@gmail.com", "status": "accepted"},
             ctx,
         )
 
-        # Phone capture
         ctx.add_user_message("null eins sieben sechs eins zwei drei vier fünf sechs sieben acht")
+        await registry.execute("capture_caller_details", {"phone": "017612345678"}, ctx)
+
+        ctx.add_user_message("Ja")
         await registry.execute(
-            "extract_caller_details",
-            {"phone": "017612345678"},
+            "confirm_caller_detail",
+            {"field": "phone", "confirmed_value": "017612345678", "status": "accepted"},
             ctx,
         )
-
-        # Confirm email+phone (name auto-confirmed)
-        for field in ("email", "phone"):
-            ctx.confirm_entity(field)
 
         assert ctx.state.phase == CallPhase.BOOKING
 
-        # Check availability and book
         avail = await registry.execute(
             "check_availability",
             {"date": "2026-06-10", "legal_area": "employment"},
@@ -466,8 +452,14 @@ class TestGermanFullBookingScenario:
     async def test_german_tenancy_flow(self, registry, ctx_de):
         ctx = ctx_de
         ctx.add_user_message("Mein Vermieter will mich rauswerfen.")
-        await registry.execute("classify_caller_intent", {"intent": "book_consultation"}, ctx)
-        await registry.execute("classify_legal_area", {"legal_area": "tenancy"}, ctx)
+        await registry.execute(
+            "route_call",
+            {"intent": "book_consultation", "legal_area": "tenancy", "matter_summary": "Räumung"},
+            ctx,
+        )
+        assert ctx.state.phase == CallPhase.QUALIFICATION
+
+        await registry.execute("capture_caller_details", {"matter_type": "eviction"}, ctx)
         assert ctx.state.phase == CallPhase.CAPTURE
 
         for field, value in [
@@ -475,8 +467,13 @@ class TestGermanFullBookingScenario:
             ("email", "anna@example.com"),
             ("phone", "+4917612345678"),
         ]:
-            await registry.execute("extract_caller_details", {field: value}, ctx)
-            ctx.confirm_entity(field)
+            await registry.execute("capture_caller_details", {field: value}, ctx)
+            if field in ("email", "phone"):
+                await registry.execute(
+                    "confirm_caller_detail",
+                    {"field": field, "confirmed_value": value, "status": "accepted"},
+                    ctx,
+                )
 
         assert ctx.state.phase == CallPhase.BOOKING
 
@@ -486,16 +483,16 @@ class TestGermanFullBookingScenario:
         ctx.add_user_message("Ich möchte mit jemandem sprechen.")
 
         result = await registry.execute(
-            "escalate_to_human",
+            "request_handoff",
             {"reason": "caller_requested_human", "summary": "Möchte einen Anwalt sprechen"},
             ctx,
         )
-        assert result["status"] == "escalating"
+        assert result["status"] == "handing_off"
         assert ctx.state.phase == CallPhase.ESCALATION
 
 
 # ---------------------------------------------------------------------------
-# German email confirmation via double-extraction
+# German email confirmation via confirm_caller_detail
 # ---------------------------------------------------------------------------
 
 
@@ -504,11 +501,10 @@ class TestGermanEmailConfirmation:
     async def test_email_needs_confirmation_first_call(self, registry):
         ctx = ConversationManager(call_id="de-email-test", lang="de")
         ctx.add_user_message("ameliesommer at gmail punkt com")
-        ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
-        ctx.set_legal_area(LegalArea.EMPLOYMENT)
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
 
         result = await registry.execute(
-            "extract_caller_details",
+            "capture_caller_details",
             {"email": "ameliesommer@gmail.com"},
             ctx,
         )
@@ -517,25 +513,37 @@ class TestGermanEmailConfirmation:
         assert not ctx.state.entities["email"].confirmed
 
     @pytest.mark.asyncio
-    async def test_email_confirms_on_second_call(self, registry):
-        ctx = ConversationManager(call_id="de-email-hi", lang="de")
+    async def test_email_confirms_via_confirm_tool(self, registry):
+        ctx = ConversationManager(call_id="de-email-confirm", lang="de")
         ctx.add_user_message("max at example punkt com")
-        ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
-        ctx.set_legal_area(LegalArea.EMPLOYMENT)
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
 
-        await registry.execute(
-            "extract_caller_details",
-            {"email": "max@example.com"},
-            ctx,
-        )
+        await registry.execute("capture_caller_details", {"email": "max@example.com"}, ctx)
         assert not ctx.state.entities["email"].confirmed
 
-        # Second call with same value = confirmation
         ctx.add_user_message("ja, das stimmt")
         result = await registry.execute(
-            "extract_caller_details",
-            {"email": "max@example.com"},
+            "confirm_caller_detail",
+            {"field": "email", "confirmed_value": "max@example.com", "status": "accepted"},
             ctx,
         )
-        assert result["all_confirmed"]
+        assert result["status"] == "confirmed"
+        assert ctx.state.entities["email"].confirmed
+
+    @pytest.mark.asyncio
+    async def test_email_corrected_via_confirm_tool(self, registry):
+        ctx = ConversationManager(call_id="de-email-correct", lang="de")
+        ctx.add_user_message("max at example punkt com")
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+
+        await registry.execute("capture_caller_details", {"email": "mex@example.com"}, ctx)
+
+        result = await registry.execute(
+            "confirm_caller_detail",
+            {"field": "email", "confirmed_value": "max@example.com", "status": "corrected"},
+            ctx,
+        )
+        assert result["status"] == "confirmed"
+        assert result["was_corrected"] is True
+        assert ctx.state.entities["email"].value == "max@example.com"
         assert ctx.state.entities["email"].confirmed
