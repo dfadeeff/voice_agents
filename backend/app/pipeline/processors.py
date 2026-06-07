@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 _PHONE_RE = re.compile(r"(?<!\w)[+]?[\d][\d\s\-]{3,}[\d](?!\w)")
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 def _tts_preprocess(text: str, lang: str = "de") -> str:
@@ -48,6 +49,7 @@ def _tts_preprocess(text: str, lang: str = "de") -> str:
             return email.replace("@", " at ").replace(".", " Punkt ")
         return email.replace("@", " at ").replace(".", " dot ")
 
+    text = _THINK_RE.sub("", text).strip()
     text = _EMAIL_RE.sub(_expand_email, text)
     text = _PHONE_RE.sub(_expand_phone, text)
     return text
@@ -232,8 +234,9 @@ class AgentTextProcessor(FrameProcessor):
             and not isinstance(frame, TTSTextFrame)
             and frame.text
         ):
-            logger.info("AGENT: %s", frame.text)
-            self._logger.log("agent", frame.text)
+            clean_text = _THINK_RE.sub("", frame.text).strip()
+            logger.info("AGENT: %s", clean_text)
+            self._logger.log("agent", clean_text)
             self._first_chunk_this_turn = True
             try:
                 await self._ws.send_json({"type": "agent_text", "text": frame.text})

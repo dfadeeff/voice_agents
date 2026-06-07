@@ -15,13 +15,13 @@ class Settings(BaseSettings):
     deepgram_api_key: str = ""
 
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen3:14b"
+    ollama_model: str = "qwen2.5:7b"
 
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
 
-    piper_model_path: str = "models/piper/de_DE-thorsten-medium.onnx"
-    piper_data_path: str = "models/piper/de_DE-thorsten-medium.onnx.json"
+    piper_model_path: str = "models/piper/de_DE-eva_k-x_low.onnx"
+    piper_data_path: str = "models/piper/de_DE-eva_k-x_low.onnx.json"
 
     elevenlabs_api_key: str = ""
 

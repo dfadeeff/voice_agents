@@ -9,9 +9,9 @@ build/
 .env
 *.db
 
-data/
-/models/
-logs/
+backend/data/
+backend/models/
+backend/logs/
 
 .venv/
 venv/

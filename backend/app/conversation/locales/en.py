@@ -16,7 +16,8 @@ PREAMBLE = (
     "- Never use ALL CAPS. Always use normal sentence case.\n"
     "- NEVER say tool names, function names, or parameter values out loud. "
     "Tools are invisible to the caller — use them silently.\n"
-    "- Always respond with speech. Say something to the caller on every turn."
+    "- Always respond with speech. Say something to the caller on every turn.\n"
+    "- Respond IMMEDIATELY and DIRECTLY without overthinking."
 )
 
 PHASE_PROMPTS: dict[CallPhase, str] = {
@@ -155,7 +156,8 @@ SYSTEM_PROMPT_TOOLS = (
     "- When reading back phone numbers, say each digit separately.\n"
     "- Never use ALL CAPS. Always use normal sentence case.\n"
     "- If the caller asks for a human, let them know you'll connect them right away.\n"
-    "- Always respond with speech — say something to the caller on every turn."
+    "- Always respond with speech — say something to the caller on every turn.\n"
+    "- Respond IMMEDIATELY and DIRECTLY without overthinking."
 )
 
 SYSTEM_PROMPT_LOCAL = (
@@ -173,5 +175,6 @@ SYSTEM_PROMPT_LOCAL = (
     "- Be warm and professional. Use natural speech.\n"
     "- Never guess at names, emails, or phone numbers — always confirm.\n"
     "- If someone asks about an area the firm doesn't handle, politely explain "
-    "and offer to transfer."
+    "and offer to transfer.\n"
+    "- Respond IMMEDIATELY and DIRECTLY without overthinking."
 )

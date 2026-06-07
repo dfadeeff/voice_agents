@@ -11,7 +11,7 @@ import logging
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMContextFrame
+from pipecat.frames.frames import LLMMessagesAppendFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import NOT_GIVEN, LLMContext
@@ -129,10 +129,7 @@ async def create_pipeline(
         tools_schema = NOT_GIVEN
 
     context = LLMContext(
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": "[A new caller has connected]"},
-        ],
+        messages=[{"role": "system", "content": system_prompt}],
         tools=tools_schema,
     )
 
@@ -175,7 +172,15 @@ async def create_pipeline(
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, websocket):
-        await task.queue_frame(LLMContextFrame(context=context))
+        logger.info("Client connected — triggering greeting via LLMMessagesAppendFrame")
+        await task.queue_frames(
+            [
+                LLMMessagesAppendFrame(
+                    [{"role": "user", "content": "[A new caller has connected]"}],
+                    run_llm=True,
+                )
+            ]
+        )
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, websocket):

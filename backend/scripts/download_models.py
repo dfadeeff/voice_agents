@@ -8,26 +8,34 @@ from pathlib import Path
 
 ssl._create_default_https_context = ssl._create_unverified_context
 
-PIPER_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium"
-PIPER_FILES = [
-    ("en_US-lessac-medium.onnx", f"{PIPER_BASE}/en_US-lessac-medium.onnx"),
-    ("en_US-lessac-medium.onnx.json", f"{PIPER_BASE}/en_US-lessac-medium.onnx.json"),
-]
+PIPER_VOICES = {
+    "en": {
+        "base": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium",
+        "files": ["en_US-lessac-medium.onnx", "en_US-lessac-medium.onnx.json"],
+    },
+    "de": {
+        "base": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/eva_k/x_low",
+        "files": ["de_DE-eva_k-x_low.onnx", "de_DE-eva_k-x_low.onnx.json"],
+    },
+}
 PIPER_DIR = Path("models/piper")
 
-OLLAMA_MODEL = "qwen3:4b"
+OLLAMA_MODEL = "qwen2.5:7b"
 
 
 def download_piper():
     PIPER_DIR.mkdir(parents=True, exist_ok=True)
-    for filename, url in PIPER_FILES:
-        dest = PIPER_DIR / filename
-        if dest.exists():
-            print(f"  [skip] {dest} already exists")
-            continue
-        print(f"  [download] {filename}...")
-        urllib.request.urlretrieve(url, dest)
-        print(f"  [done] {dest} ({dest.stat().st_size / 1024 / 1024:.1f} MB)")
+    for lang, voice in PIPER_VOICES.items():
+        print(f"  [{lang}]")
+        for filename in voice["files"]:
+            dest = PIPER_DIR / filename
+            if dest.exists():
+                print(f"    [skip] {dest} already exists")
+                continue
+            url = f"{voice['base']}/{filename}"
+            print(f"    [download] {filename}...")
+            urllib.request.urlretrieve(url, dest)
+            print(f"    [done] {dest} ({dest.stat().st_size / 1024 / 1024:.1f} MB)")
 
 
 def pull_ollama():
@@ -55,7 +63,7 @@ def download_nltk():
 
 
 def main():
-    print("=== Downloading Piper TTS voice ===")
+    print("=== Downloading Piper TTS voices ===")
     download_piper()
     print()
     print("=== Pulling Ollama LLM model ===")
