@@ -76,6 +76,13 @@ class CalendarService:
             """)
             await db.commit()
 
+    async def get_slot_by_id(self, slot_id: int) -> dict | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT * FROM slots WHERE id = ?", [slot_id]) as cursor:
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+
     async def get_available_slots(
         self,
         date: str,

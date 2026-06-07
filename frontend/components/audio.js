@@ -10,6 +10,7 @@ const AudioManager = (() => {
   let workletNode = null;
   let playbackQueue = [];
   let isPlaying = false;
+  let currentPlaybackSource = null;
 
   async function startCapture(onAudioChunk) {
     audioContext = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
@@ -110,12 +111,18 @@ const AudioManager = (() => {
     const source = audioContext.createBufferSource();
     source.buffer = buffer;
     source.connect(audioContext.destination);
-    source.onended = drainQueue;
+    source.onended = () => { currentPlaybackSource = null; drainQueue(); };
+    currentPlaybackSource = source;
     source.start();
   }
 
   function clearPlayback() {
     playbackQueue = [];
+    if (currentPlaybackSource) {
+      try { currentPlaybackSource.stop(); } catch (_) {}
+      currentPlaybackSource = null;
+    }
+    isPlaying = false;
   }
 
   return { startCapture, stopCapture, playAudio, clearPlayback };

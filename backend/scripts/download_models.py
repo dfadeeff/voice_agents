@@ -1,12 +1,9 @@
 """Download local models for the voice agent (Piper TTS + Ollama LLM)."""
 
-import ssl
 import subprocess
 import sys
 import urllib.request
 from pathlib import Path
-
-ssl._create_default_https_context = ssl._create_unverified_context
 
 PIPER_VOICES = {
     "en": {

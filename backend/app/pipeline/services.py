@@ -19,6 +19,8 @@ def create_stt(settings: Settings):
     from pipecat.services.whisper.stt import WhisperSTTService
 
     return WhisperSTTService(
+        device=settings.whisper_device,
+        compute_type=settings.whisper_compute_type,
         settings=WhisperSTTService.Settings(
             model=settings.whisper_model_size,
             language=settings.language,
@@ -34,8 +36,12 @@ def create_llm(settings: Settings):
 
     from pipecat.services.ollama.llm import OLLamaLLMService
 
+    max_tokens = 400 if "qwen3" in settings.ollama_model else 200
     return OLLamaLLMService(
-        settings=OLLamaLLMService.Settings(model=settings.ollama_model),
+        settings=OLLamaLLMService.Settings(
+            model=settings.ollama_model,
+            max_tokens=max_tokens,
+        ),
         base_url=f"{settings.ollama_base_url}/v1",
     )
 

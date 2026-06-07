@@ -70,10 +70,11 @@ jobs:
           sleep 10
 
       - name: Pull model
-        run: ollama pull qwen3:4b
+        run: ollama pull qwen2.5:7b
 
       - name: Run benchmark
-        run: python3 scripts/benchmark_models.py qwen3:4b
+        working-directory: backend
+        run: python3 scripts/benchmark_models.py qwen2.5:7b
 
       - name: Upload benchmark results
         if: always()

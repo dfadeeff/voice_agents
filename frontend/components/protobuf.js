@@ -106,6 +106,7 @@ const PipecatProto = (() => {
     if (frameType === 2) return decodeAudioRawFrame(frameData);
     if (frameType === 3) return decodeTranscriptionFrame(frameData);
     if (frameType === 1) return decodeTextFrame(frameData);
+    if (frameType === 5) return { type: "interruption" };
     return null;
   }
 

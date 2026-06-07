@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       models:
-        description: 'Models to benchmark (space-separated, empty = qwen3:4b)'
+        description: 'Models to benchmark (space-separated, empty = qwen2.5:7b)'
         required: false
         default: ''
 
@@ -29,15 +29,16 @@ jobs:
           sleep 10
 
       - name: Pull model
-        run: ollama pull qwen3:4b
+        run: ollama pull qwen2.5:7b
 
       - name: Run benchmark
+        working-directory: backend
         run: |
           MODELS="${{ github.event.inputs.models }}"
           if [ -n "$MODELS" ]; then
             python3 scripts/benchmark_models.py $MODELS
           else
-            python3 scripts/benchmark_models.py qwen3:4b
+            python3 scripts/benchmark_models.py qwen2.5:7b
           fi
 
       - name: Upload results

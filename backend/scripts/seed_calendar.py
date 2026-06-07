@@ -14,6 +14,7 @@ DB_PATH = "data/voice_agent.db"
 LAWYERS = {
     "employment": ["Sarah Mitchell", "James Cooper"],
     "tenancy": ["Rachel Adams", "David Chen"],
+    "traffic": ["Michael Weber", "Lisa Hoffmann"],
 }
 
 TIMES = [

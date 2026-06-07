@@ -11,6 +11,7 @@ import logging
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import EndFrame, LLMMessagesAppendFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
@@ -21,6 +22,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 from pipecat.workers.runner import WorkerRunner
 
+from app.config import Settings
 from app.conversation.locales import get_locale
 from app.conversation.manager import ConversationManager
 from app.conversation.prompts import build_system_prompt
@@ -28,6 +30,7 @@ from app.pipeline.processors import (
     AgentTextProcessor,
     CallLogger,
     MetricsProcessor,
+    PreTTSSanitizer,
     TranscriptProcessor,
 )
 from app.tools.registry import ToolRegistry
@@ -147,10 +150,15 @@ async def create_pipeline(
             lambda names: _build_tools_schema_from_names(names, tools_index)
         )
 
+    settings = Settings()
+    vad_params = VADParams(
+        confidence=settings.vad_threshold,
+        stop_secs=settings.silence_timeout_ms / 1000.0,
+    )
     context_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
-            vad_analyzer=SileroVADAnalyzer(),
+            vad_analyzer=SileroVADAnalyzer(params=vad_params),
         ),
     )
 
@@ -159,7 +167,10 @@ async def create_pipeline(
     call_logger = CallLogger(conversation.state.call_id)
     metrics_proc = MetricsProcessor(call_logger)
     transcript_proc = TranscriptProcessor(websocket, call_logger, conversation)
-    agent_text_proc = AgentTextProcessor(websocket, call_logger, lang=lang, tool_names=tool_names)
+    pre_tts_sanitizer = PreTTSSanitizer(lang=lang, tool_names=tool_names, conversation=conversation)
+    agent_text_proc = AgentTextProcessor(
+        websocket, call_logger, lang=lang, tool_names=tool_names, conversation=conversation
+    )
 
     pipeline = Pipeline(
         [
@@ -168,6 +179,7 @@ async def create_pipeline(
             transcript_proc,
             context_aggregator.user(),
             llm_service,
+            pre_tts_sanitizer,
             tts_service,
             agent_text_proc,
             transport.output(),

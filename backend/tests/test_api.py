@@ -13,11 +13,21 @@ from httpx import ASGITransport, AsyncClient
 @pytest_asyncio.fixture
 async def live_app():
     """Create app with real (temp) database and tool registry — no data/ dir needed."""
+    from datetime import date
+
+    import aiosqlite
+
     app = create_app()
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "test.db")
         calendar = CalendarService(db_path=db_path)
         await calendar.init_db()
+        async with aiosqlite.connect(db_path) as db:
+            await db.execute(
+                "INSERT INTO slots (date, time, legal_area, lawyer_name) VALUES (?, ?, ?, ?)",
+                [date.today().isoformat(), "10:00", "employment", "Test Lawyer"],
+            )
+            await db.commit()
         app.state.calendar = calendar
         app.state.tool_registry = build_default_registry(calendar)
         yield app
@@ -43,6 +53,7 @@ class TestReadyWithLifespan:
             data = resp.json()
             assert data["ready"] is True
             assert data["checks"]["database"] is True
+            assert data["checks"]["slots_available"] is True
             assert data["checks"]["tools"] is True
 
     async def test_all_tools_registered(self, live_app):

@@ -13,7 +13,9 @@ from typing import TYPE_CHECKING
 from pipecat.frames.frames import (
     AggregatedTextFrame,
     Frame,
+    InterimTranscriptionFrame,
     MetricsFrame,
+    TextFrame,
     TranscriptionFrame,
     TTSTextFrame,
 )
@@ -29,6 +31,113 @@ _PHONE_RE = re.compile(r"(?<!\w)[+]?[\d][\d\s\-]{3,}[\d](?!\w)")
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _CJK_RE = re.compile(r"[⺀-鿿豈-﫿︰-﹏\U00020000-\U0002FA1F]+")
+
+
+_FALSE_BOOKING_RE = re.compile(
+    r"\b(termin\s+\w*\s*(ist\s+)?(gebucht|bestätigt|reserviert)|"
+    r"ich\s+habe\s+.*?termin.*?(gebucht|bestätigt|reserviert)|"
+    r"termin\s+steht)\b",
+    re.IGNORECASE,
+)
+_JSON_LEAK_RE = re.compile(r"\{\s*\"?(intent|legal_area|reason|summary|area|field_name)\"?\s*:")
+
+
+def _guard_false_booking(text: str, booking_confirmed: bool = False) -> str:
+    if booking_confirmed:
+        return text
+    if _FALSE_BOOKING_RE.search(text):
+        logger.warning("Blocked false booking language: %r", text)
+        return "Gerne. Ich nehme Ihren Terminwunsch auf und leite ihn an das Kanzleiteam weiter."
+    return text
+
+
+class PreTTSSanitizer(FrameProcessor):
+    """Sits between LLM and TTS. Sanitizes LLM text chunks BEFORE speech synthesis.
+
+    This is critical: without it, tool names, think tags, and CJK characters
+    would be spoken aloud by TTS before any downstream processor can strip them.
+    """
+
+    def __init__(
+        self,
+        lang: str = "de",
+        tool_names: list[str] | None = None,
+        conversation: ConversationManager | None = None,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self._lang = lang
+        self._in_think = False
+        self._conversation = conversation
+
+        if tool_names:
+            patterns = []
+            for n in tool_names:
+                parts = re.split(r"[_\s]+", n)
+                patterns.append(r"[\s_\-]*".join(re.escape(p) for p in parts))
+            self._tool_re = re.compile(
+                r"-?\s*(?:" + "|".join(patterns) + r")\s*(?:\{[^}]*\}?)?",
+                re.IGNORECASE,
+            )
+        else:
+            self._tool_re = None
+
+    def _strip_think(self, text: str) -> str:
+        result: list[str] = []
+        i = 0
+        while i < len(text):
+            if self._in_think:
+                end = text.find("</think>", i)
+                if end >= 0:
+                    self._in_think = False
+                    i = end + 8
+                else:
+                    return "".join(result)
+            else:
+                start = text.find("<think>", i)
+                if start >= 0:
+                    result.append(text[i:start])
+                    self._in_think = True
+                    i = start + 7
+                else:
+                    result.append(text[i:])
+                    break
+        return "".join(result)
+
+    @property
+    def _booking_confirmed(self) -> bool:
+        if self._conversation is None:
+            return False
+        return self._conversation.state.booking_confirmed
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+
+        if isinstance(frame, TextFrame) and not isinstance(
+            frame, TranscriptionFrame | InterimTranscriptionFrame | AggregatedTextFrame
+        ):
+            text = frame.text
+            text = self._strip_think(text)
+            if not text:
+                return
+            text = _CJK_RE.sub("", text)
+            if self._tool_re:
+                orig = text
+                text = self._tool_re.sub("", text)
+                text = _JSON_LEAK_RE.sub("", text)
+                if text != orig:
+                    text = re.sub(r"\s+", " ", text).strip(" -–—.,")
+                    if orig.strip():
+                        logger.warning("Pre-TTS stripped: %r → %r", orig, text)
+            else:
+                text = _JSON_LEAK_RE.sub("", text)
+            if not text or not text.strip():
+                return
+            text = _guard_false_booking(text, self._booking_confirmed)
+            if text != frame.text:
+                frame = TextFrame(text=text)
+
+        await self.push_frame(frame, direction)
 
 
 def _tts_preprocess(text: str, lang: str = "de") -> str:
@@ -162,7 +271,7 @@ class MetricsProcessor(FrameProcessor):
         if isinstance(frame, MetricsFrame):
             for datum in frame.data:
                 if isinstance(datum, TTFBMetricsData):
-                    self._logger.record_component_ttfb(datum.processor, datum.value)
+                    self._logger.record_component_ttfb(datum.processor, datum.value * 1000)
 
         await self.push_frame(frame, direction)
 
@@ -208,12 +317,11 @@ class TranscriptProcessor(FrameProcessor):
 
 
 class AgentTextProcessor(FrameProcessor):
-    """Sits between LLM and TTS. Sends agent text to the frontend and
-    preprocesses text for better TTS pronunciation (digits, emails).
+    """Sits after TTS. Logs agent text to frontend and call transcript.
 
-    Also strips hallucinated tool names from speech — when the model is
-    interrupted mid-tool-call, partial tool invocations can leak into the
-    text stream.
+    Primary sanitization happens in PreTTSSanitizer (before TTS). This
+    processor applies sentence-level safety nets on the aggregated text
+    and handles frontend/transcript logging.
     """
 
     def __init__(
@@ -222,31 +330,46 @@ class AgentTextProcessor(FrameProcessor):
         call_logger: CallLogger,
         lang: str = "de",
         tool_names: list[str] | None = None,
+        conversation: ConversationManager | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self._ws = websocket
         self._logger = call_logger
         self._lang = lang
+        self._conversation = conversation
         self._first_chunk_this_turn = True
         if tool_names:
-            escaped = [re.escape(n) for n in tool_names]
+            patterns = []
+            for n in tool_names:
+                parts = re.split(r"[_\s]+", n)
+                patterns.append(r"[\s_\-]*".join(re.escape(p) for p in parts))
             self._tool_re = re.compile(
-                r"(?:" + "|".join(escaped) + r")\s*(?:\{[^}]*\}?)?",
+                r"-?\s*(?:" + "|".join(patterns) + r")\s*(?:\{[^}]*\}?)?",
                 re.IGNORECASE,
             )
         else:
             self._tool_re = None
 
     def _strip_tool_names(self, text: str) -> str:
-        if self._tool_re is None:
-            return text
-        cleaned = self._tool_re.sub("", text).strip()
-        if cleaned != text.strip():
+        cleaned = text
+        if self._tool_re is not None:
+            cleaned = self._tool_re.sub("", cleaned)
+        cleaned = _JSON_LEAK_RE.sub("", cleaned)
+        if cleaned != text:
+            cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—.,")
             logger.warning(
-                "Stripped hallucinated tool name from agent text: %r → %r", text, cleaned
+                "Stripped hallucinated tool/internal text from agent text: %r → %r",
+                text,
+                cleaned,
             )
-        return cleaned
+        return cleaned.strip()
+
+    @property
+    def _booking_confirmed(self) -> bool:
+        if self._conversation is None:
+            return False
+        return self._conversation.state.booking_confirmed
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -258,10 +381,11 @@ class AgentTextProcessor(FrameProcessor):
             original = frame.text
             processed = _tts_preprocess(original, self._lang)
             processed = self._strip_tool_names(processed)
+            processed = _guard_false_booking(processed, self._booking_confirmed)
             if not processed:
                 return
             if processed != original:
-                logger.debug("TTS preprocess: %r → %r", original, processed)
+                logger.debug("Post-TTS text cleanup: %r → %r", original, processed)
                 frame = TTSTextFrame(text=processed, aggregated_by=frame.aggregated_by)
 
         if (
@@ -271,6 +395,7 @@ class AgentTextProcessor(FrameProcessor):
         ):
             clean_text = _THINK_RE.sub("", frame.text).strip()
             clean_text = self._strip_tool_names(clean_text)
+            clean_text = _guard_false_booking(clean_text, self._booking_confirmed)
             logger.info("AGENT: %s", clean_text)
             self._logger.log("agent", clean_text)
             self._first_chunk_this_turn = True

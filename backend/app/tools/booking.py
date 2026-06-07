@@ -1,3 +1,4 @@
+from app.conversation.flow import REQUIRED_FIELDS
 from app.conversation.manager import ConversationManager
 from app.services.calendar import CalendarService
 from app.tools.registry import ToolRegistry
@@ -84,20 +85,35 @@ def _make_check_availability(calendar: CalendarService):
 
 def _make_book_consultation(calendar: CalendarService):
     async def book_consultation(args: dict, ctx: ConversationManager) -> dict:
+        missing = [f for f in REQUIRED_FIELDS if f not in ctx.state.entities]
         unconfirmed = [
-            name
-            for name, e in ctx.state.entities.items()
-            if name in ("name", "email", "phone") and not e.confirmed
+            f
+            for f in REQUIRED_FIELDS
+            if f in ctx.state.entities and not ctx.state.entities[f].confirmed
         ]
-        if unconfirmed:
+        if missing or unconfirmed:
             return {
                 "status": "blocked",
+                "missing_fields": missing,
                 "unconfirmed_fields": unconfirmed,
             }
 
         slot_id = args.get("slot_id")
         if not slot_id:
             return {"status": "error", "message": "slot_id is required."}
+
+        slot = await calendar.get_slot_by_id(slot_id)
+        if slot is None:
+            return {"status": "error", "message": "Slot not found."}
+        if slot.get("is_booked"):
+            return {"status": "error", "message": "That slot is no longer available."}
+        caller_area = ctx.state.legal_area.value
+        slot_area = slot.get("legal_area")
+        if caller_area != "unknown" and slot_area and slot_area != caller_area:
+            return {
+                "status": "error",
+                "message": f"Slot is for {slot['legal_area']}, but caller needs {caller_area}.",
+            }
 
         entities = ctx.state.entities
         booking = await calendar.create_booking(
