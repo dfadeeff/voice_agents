@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 from app.conversation.flow import PHASE_TOOLS, next_phase
-from app.conversation.prompts import SYSTEM_PROMPT_BASE, build_system_prompt
+from app.conversation.prompts import build_system_prompt, get_system_prompt_base
 from app.conversation.state import ConversationState
 from app.models.schemas import (
     CallerIntent,
@@ -20,9 +20,10 @@ logger = logging.getLogger(__name__)
 
 
 class ConversationManager:
-    def __init__(self, call_id: str):
+    def __init__(self, call_id: str, lang: str = "de"):
+        self.lang = lang
         self.state = ConversationState(call_id=call_id)
-        self.state.messages = [{"role": "system", "content": SYSTEM_PROMPT_BASE}]
+        self.state.messages = [{"role": "system", "content": get_system_prompt_base(lang)}]
         self._word_infos_by_turn: dict[int, list[WordInfo]] = {}
         self._llm_context = None
         self._tools_builder: Callable[[list[str]], Any] | None = None
@@ -44,7 +45,7 @@ class ConversationManager:
         return self.state.phase
 
     def _update_llm_context(self) -> None:
-        prompt = build_system_prompt(self.state)
+        prompt = build_system_prompt(self.state, self.lang)
         if self.state.messages:
             self.state.messages[0]["content"] = prompt
         if self._llm_context and hasattr(self._llm_context, "messages"):
@@ -92,10 +93,12 @@ class ConversationManager:
 
     def set_intent(self, intent: CallerIntent) -> None:
         self.state.caller_intent = intent
+        self.reset_misunderstanding_streak()
         self.advance_phase()
 
     def set_legal_area(self, area: LegalArea) -> None:
         self.state.legal_area = area
+        self.reset_misunderstanding_streak()
         self.advance_phase()
 
     def store_entity(self, field_name: str, value: str, confidence: float) -> ExtractedEntity:
@@ -113,6 +116,15 @@ class ConversationManager:
         if field_name in self.state.entities:
             self.state.entities[field_name].confirmed = True
             self.advance_phase()
+
+    def record_misunderstanding(self) -> None:
+        self.state.misunderstanding_streak += 1
+        logger.info("Misunderstanding streak: %d", self.state.misunderstanding_streak)
+        self.advance_phase()
+
+    def reset_misunderstanding_streak(self) -> None:
+        if self.state.misunderstanding_streak > 0:
+            self.state.misunderstanding_streak = 0
 
     def get_word_confidence_for_value(self, value: str) -> float:
         value_words = value.lower().split()

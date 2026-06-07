@@ -54,7 +54,7 @@ class TestConversationManager:
         messages = conversation.get_messages()
         assert len(messages) == 1
         assert messages[0]["role"] == "system"
-        assert messages[0]["content"] == SYSTEM_PROMPT_BASE
+        assert "receptionist" in messages[0]["content"].lower()
 
     def test_add_user_message_increments_turn(self, conversation):
         conversation.add_user_message("Hello")
@@ -104,7 +104,7 @@ class TestConversationManager:
         conversation.set_intent(CallerIntent.BOOK_CONSULTATION)
         conversation.set_legal_area(LegalArea.EMPLOYMENT)
         assert conversation.state.legal_area == LegalArea.EMPLOYMENT
-        assert conversation.state.phase == CallPhase.CAPTURE
+        assert conversation.state.phase == CallPhase.INTAKE
         system_msg = conversation.get_messages()[0]
         assert "employment" in system_msg["content"].lower()
 
@@ -179,24 +179,45 @@ class TestPrompts:
 
     def test_build_system_prompt_greeting(self):
         state = ConversationState(call_id="test")
-        prompt = build_system_prompt(state)
+        prompt = build_system_prompt(state, lang="en")
         assert "Thank you for calling" in prompt
         assert "MISSING FIELDS" not in prompt
+
+    def test_build_system_prompt_greeting_de(self):
+        state = ConversationState(call_id="test")
+        prompt = build_system_prompt(state, lang="de")
+        assert "Guten Tag" in prompt
+        assert "FEHLENDE FELDER" not in prompt
 
     def test_build_system_prompt_capture_shows_missing(self):
         state = ConversationState(call_id="test")
         state.phase = CallPhase.CAPTURE
         state.caller_intent = CallerIntent.BOOK_CONSULTATION
         state.legal_area = LegalArea.EMPLOYMENT
-        prompt = build_system_prompt(state)
+        prompt = build_system_prompt(state, lang="en")
         assert "MISSING FIELDS" in prompt
         assert "name" in prompt
         assert "email" in prompt
         assert "phone" in prompt
 
+    def test_build_system_prompt_capture_shows_missing_de(self):
+        state = ConversationState(call_id="test")
+        state.phase = CallPhase.CAPTURE
+        state.caller_intent = CallerIntent.BOOK_CONSULTATION
+        state.legal_area = LegalArea.EMPLOYMENT
+        prompt = build_system_prompt(state, lang="de")
+        assert "FEHLENDE FELDER" in prompt
+
     def test_build_system_prompt_includes_legal_fragment(self):
         state = ConversationState(call_id="test")
         state.phase = CallPhase.INFORMATION
         state.legal_area = LegalArea.TENANCY
-        prompt = build_system_prompt(state)
+        prompt = build_system_prompt(state, lang="en")
         assert "TENANCY LAW CONTEXT" in prompt
+
+    def test_build_system_prompt_includes_legal_fragment_de(self):
+        state = ConversationState(call_id="test")
+        state.phase = CallPhase.INFORMATION
+        state.legal_area = LegalArea.TENANCY
+        prompt = build_system_prompt(state, lang="de")
+        assert "MIETRECHT KONTEXT" in prompt

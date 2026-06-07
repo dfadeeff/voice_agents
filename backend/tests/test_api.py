@@ -45,12 +45,15 @@ class TestReadyWithLifespan:
             assert data["checks"]["database"] is True
             assert data["checks"]["tools"] is True
 
-    async def test_all_six_tools_registered(self, live_app):
+    async def test_all_tools_registered(self, live_app):
         tools = live_app.state.tool_registry.list_tools()
-        assert len(tools) == 6
+        assert len(tools) == 9
         assert "classify_caller_intent" in tools
         assert "book_consultation" in tools
         assert "escalate_to_human" in tools
+        assert "complete_intake" in tools
+        assert "record_conflict_info" in tools
+        assert "record_additional_info" in tools
 
 
 class TestFrontend:

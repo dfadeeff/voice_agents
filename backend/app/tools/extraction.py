@@ -84,6 +84,11 @@ async def extract_caller_details(args: dict, ctx: ConversationManager) -> dict:
         elif field_name in ("name", "email", "phone"):
             ctx.confirm_entity(field_name)
 
+    if format_errors:
+        ctx.record_misunderstanding()
+    elif stored:
+        ctx.reset_misunderstanding_streak()
+
     result = {
         "stored": stored,
         "needs_confirmation": needs_confirmation,

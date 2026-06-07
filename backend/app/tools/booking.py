@@ -116,6 +116,7 @@ def _make_book_consultation(calendar: CalendarService):
             }
 
         ctx.state.booking_confirmed = True
+        ctx.state.booked_slot = booking
         ctx.advance_phase()
 
         return {

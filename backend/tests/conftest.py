@@ -16,7 +16,7 @@ def call_id():
 
 @pytest.fixture
 def conversation(call_id):
-    return ConversationManager(call_id)
+    return ConversationManager(call_id, lang="en")
 
 
 @pytest.fixture

@@ -44,11 +44,20 @@ class TestNextPhase:
         )
         assert next_phase(s) == CallPhase.INFORMATION
 
+    def test_intake_when_not_complete(self):
+        s = _state(
+            turn_count=2,
+            caller_intent=CallerIntent.BOOK_CONSULTATION,
+            legal_area=LegalArea.EMPLOYMENT,
+        )
+        assert next_phase(s) == CallPhase.INTAKE
+
     def test_capture_when_fields_missing(self):
         s = _state(
             turn_count=2,
             caller_intent=CallerIntent.BOOK_CONSULTATION,
             legal_area=LegalArea.EMPLOYMENT,
+            intake_complete=True,
         )
         assert next_phase(s) == CallPhase.CAPTURE
 
@@ -57,6 +66,7 @@ class TestNextPhase:
             turn_count=2,
             caller_intent=CallerIntent.BOOK_CONSULTATION,
             legal_area=LegalArea.TENANCY,
+            intake_complete=True,
             entities={
                 "name": _confirmed_entity("name"),
                 "email": _unconfirmed_entity("email"),
@@ -65,11 +75,45 @@ class TestNextPhase:
         )
         assert next_phase(s) == CallPhase.CAPTURE
 
-    def test_booking_when_all_confirmed(self):
+    def test_conflict_check_after_capture(self):
         s = _state(
             turn_count=5,
             caller_intent=CallerIntent.BOOK_CONSULTATION,
             legal_area=LegalArea.EMPLOYMENT,
+            intake_complete=True,
+            entities={
+                "name": _confirmed_entity("name", "John Smith"),
+                "email": _confirmed_entity("email", "john@example.com"),
+                "phone": _confirmed_entity("phone", "+1234567890"),
+            },
+        )
+        assert next_phase(s) == CallPhase.CONFLICT_CHECK
+
+    def test_additional_info_after_conflict_check(self):
+        s = _state(
+            turn_count=6,
+            caller_intent=CallerIntent.BOOK_CONSULTATION,
+            legal_area=LegalArea.EMPLOYMENT,
+            intake_complete=True,
+            employer_name="Acme Corp",
+            has_legal_insurance=False,
+            entities={
+                "name": _confirmed_entity("name", "John Smith"),
+                "email": _confirmed_entity("email", "john@example.com"),
+                "phone": _confirmed_entity("phone", "+1234567890"),
+            },
+        )
+        assert next_phase(s) == CallPhase.ADDITIONAL_INFO
+
+    def test_booking_when_all_confirmed(self):
+        s = _state(
+            turn_count=7,
+            caller_intent=CallerIntent.BOOK_CONSULTATION,
+            legal_area=LegalArea.EMPLOYMENT,
+            intake_complete=True,
+            employer_name="Acme Corp",
+            has_legal_insurance=True,
+            additional_notes="",
             entities={
                 "name": _confirmed_entity("name", "John Smith"),
                 "email": _confirmed_entity("email", "john@example.com"),
@@ -118,6 +162,7 @@ class TestNextPhase:
             turn_count=3,
             caller_intent=CallerIntent.BOOK_CONSULTATION,
             legal_area=LegalArea.EMPLOYMENT,
+            intake_complete=True,
             entities={
                 "name": _confirmed_entity("name"),
                 "matter_description": _confirmed_entity("matter_description"),
@@ -164,10 +209,25 @@ class TestPhaseTools:
         tools = PHASE_TOOLS[CallPhase.ROUTING]
         assert "classify_legal_area" in tools
 
+    def test_intake_tools(self):
+        tools = PHASE_TOOLS[CallPhase.INTAKE]
+        assert "complete_intake" in tools
+        assert "escalate_to_human" in tools
+
     def test_capture_tools(self):
         tools = PHASE_TOOLS[CallPhase.CAPTURE]
         assert "extract_caller_details" in tools
         assert "book_consultation" not in tools
+
+    def test_conflict_check_tools(self):
+        tools = PHASE_TOOLS[CallPhase.CONFLICT_CHECK]
+        assert "record_conflict_info" in tools
+        assert "escalate_to_human" in tools
+
+    def test_additional_info_tools(self):
+        tools = PHASE_TOOLS[CallPhase.ADDITIONAL_INFO]
+        assert "record_additional_info" in tools
+        assert "escalate_to_human" in tools
 
     def test_booking_tools(self):
         tools = PHASE_TOOLS[CallPhase.BOOKING]

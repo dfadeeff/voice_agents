@@ -26,6 +26,8 @@ SCHEMA = {
 
 async def escalate_to_human(args: dict, ctx: ConversationManager) -> dict:
     ctx.state.escalation_requested = True
+    ctx.state.escalation_reason = args.get("reason", "unknown")
+    ctx.state.escalation_summary = args.get("summary", "")
     ctx.advance_phase()
 
     context_for_human = {

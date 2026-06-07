@@ -2,6 +2,8 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    language: str = "de"
+
     stt_provider: str = "whisper"
     llm_provider: str = "ollama"
     tts_provider: str = "piper"
@@ -18,8 +20,8 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
 
-    piper_model_path: str = "models/piper/en_US-lessac-medium.onnx"
-    piper_data_path: str = "models/piper/en_US-lessac-medium.onnx.json"
+    piper_model_path: str = "models/piper/de_DE-thorsten-medium.onnx"
+    piper_data_path: str = "models/piper/de_DE-thorsten-medium.onnx.json"
 
     elevenlabs_api_key: str = ""
 
@@ -39,5 +41,10 @@ class Settings(BaseSettings):
     twilio_phone_number: str = ""
 
     use_tools_local: bool = True
+
+    evaluator_enabled: bool = False
+    evaluator_provider: str = "ollama"
+    evaluator_model: str = "qwen3:4b"
+    admin_api_key: str = ""
 
     model_config = {"env_file": ".env", "env_prefix": ""}

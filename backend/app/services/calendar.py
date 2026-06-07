@@ -34,6 +34,34 @@ class CalendarService:
                 )
             """)
             await db.execute("""
+                CREATE TABLE IF NOT EXISTS call_evaluations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    call_id TEXT NOT NULL,
+                    evaluator_model TEXT,
+                    completeness_score REAL,
+                    naturalness_score REAL,
+                    accuracy_score REAL,
+                    escalation_appropriateness REAL,
+                    overall_score REAL,
+                    findings TEXT,
+                    improvement_suggestions TEXT,
+                    prompt_version TEXT,
+                    evaluated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS prompt_versions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    version TEXT UNIQUE NOT NULL,
+                    prompts_snapshot TEXT NOT NULL,
+                    parent_version TEXT,
+                    change_description TEXT,
+                    performance_delta TEXT,
+                    status TEXT DEFAULT 'draft',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await db.execute("""
                 CREATE TABLE IF NOT EXISTS call_logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     call_id TEXT UNIQUE NOT NULL,
@@ -109,15 +137,11 @@ class CalendarService:
     ) -> dict | None:
         now = datetime.now(UTC).isoformat()
         async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute(
-                "SELECT * FROM slots WHERE id = ? AND is_booked = 0", [slot_id]
-            ) as cursor:
-                slot = await cursor.fetchone()
-
-            if not slot:
+            cursor = await db.execute(
+                "UPDATE slots SET is_booked = 1 WHERE id = ? AND is_booked = 0", [slot_id]
+            )
+            if cursor.rowcount == 0:
                 return None
-
-            await db.execute("UPDATE slots SET is_booked = 1 WHERE id = ?", [slot_id])
             cursor = await db.execute(
                 """INSERT INTO bookings
                    (slot_id, call_id, caller_name, caller_email, caller_phone,

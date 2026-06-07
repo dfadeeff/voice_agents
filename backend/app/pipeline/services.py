@@ -9,12 +9,18 @@ def create_stt(settings: Settings):
     if settings.stt_provider == "deepgram":
         from pipecat.services.deepgram.stt import DeepgramSTTService
 
-        return DeepgramSTTService(api_key=settings.deepgram_api_key)
+        return DeepgramSTTService(
+            api_key=settings.deepgram_api_key,
+            settings=DeepgramSTTService.Settings(language=settings.language),
+        )
 
     from pipecat.services.whisper.stt import WhisperSTTService
 
     return WhisperSTTService(
-        settings=WhisperSTTService.Settings(model=settings.whisper_model_size),
+        settings=WhisperSTTService.Settings(
+            model=settings.whisper_model_size,
+            language=settings.language,
+        ),
     )
 
 

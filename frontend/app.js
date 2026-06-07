@@ -29,7 +29,7 @@ function addMessage(role, text) {
 
   const label = document.createElement("div");
   label.className = "label";
-  label.textContent = role === "user" ? "You" : "Agent";
+  label.textContent = role === "user" ? "Anrufer" : "Empfang";
   div.appendChild(label);
 
   const content = document.createElement("div");
@@ -58,8 +58,8 @@ async function startCall() {
   callActive = true;
   callBtn.classList.add("active");
   btnIcon.textContent = "🔴";
-  btnLabel.textContent = "End Call";
-  setStatus("connecting", "Connecting...");
+  btnLabel.textContent = "Anruf beenden";
+  setStatus("connecting", "Verbindung wird aufgebaut...");
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const wsUrl = `${proto}//${location.host}/ws/call/new`;
@@ -68,7 +68,7 @@ async function startCall() {
   ws.binaryType = "arraybuffer";
 
   ws.onopen = async () => {
-    setStatus("active", "Call Active");
+    setStatus("active", "Anruf aktiv");
     try {
       await AudioManager.startCapture((pcmBuffer) => {
         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -77,7 +77,7 @@ async function startCall() {
         }
       });
     } catch (err) {
-      setStatus("error", "Microphone access denied");
+      setStatus("error", "Mikrofonzugriff verweigert");
       endCall();
     }
   };
@@ -110,13 +110,13 @@ async function startCall() {
 
   ws.onclose = () => {
     if (callActive) {
-      setStatus("idle", "Call Ended");
+      setStatus("idle", "Anruf beendet");
       resetUI();
     }
   };
 
   ws.onerror = () => {
-    setStatus("error", "Connection Failed");
+    setStatus("error", "Verbindung fehlgeschlagen");
     resetUI();
   };
 }
@@ -128,7 +128,7 @@ function endCall() {
     ws.close();
     ws = null;
   }
-  setStatus("idle", "Call Ended");
+  setStatus("idle", "Anruf beendet");
   resetUI();
 }
 
@@ -136,7 +136,7 @@ function resetUI() {
   callActive = false;
   callBtn.classList.remove("active");
   btnIcon.textContent = "📞";
-  btnLabel.textContent = "Start Call";
+  btnLabel.textContent = "Anruf starten";
   finalizeAssistantMessage();
 }
 

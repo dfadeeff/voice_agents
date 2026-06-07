@@ -21,8 +21,9 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.workers.runner import WorkerRunner
 
+from app.conversation.locales import get_locale
 from app.conversation.manager import ConversationManager
-from app.conversation.prompts import SYSTEM_PROMPT_LOCAL, build_system_prompt
+from app.conversation.prompts import build_system_prompt
 from app.pipeline.processors import AgentTextProcessor, CallLogger, TranscriptProcessor
 from app.tools.registry import ToolRegistry
 
@@ -76,9 +77,21 @@ def register_tools_on_llm(llm_service, registry: ToolRegistry, conversation: Con
                     return
 
                 args = params.arguments
-                logger.info("Tool call: %s(%s)", name, dict(args))
-                result = await registry.execute(name, dict(args), conversation)
+                args_dict = dict(args)
+                logger.info("Tool call: %s(%s)", name, args_dict)
+                tool_call_id = getattr(params, "tool_call_id", f"tc_{name}")
+                conversation.add_tool_call(
+                    "",
+                    [
+                        {
+                            "id": tool_call_id,
+                            "function": {"name": name, "arguments": json.dumps(args_dict)},
+                        }
+                    ],
+                )
+                result = await registry.execute(name, args_dict, conversation)
                 logger.info("Tool result: %s → %s", name, result)
+                conversation.add_tool_result(tool_call_id, name, result)
                 await params.result_callback(json.dumps(result))
 
             return handler
@@ -98,14 +111,15 @@ async def create_pipeline(
 ) -> tuple[PipelineTask, WorkerRunner]:
     """Create a Pipecat pipeline wired with our tools."""
 
+    lang = conversation.lang
     if use_tools:
         register_tools_on_llm(llm_service, tools, conversation)
-        system_prompt = build_system_prompt(conversation.state)
+        system_prompt = build_system_prompt(conversation.state, lang)
         tools_index = _build_tools_index(tools)
         initial_tools = conversation.get_available_tools()
         tools_schema = _build_tools_schema_from_names(initial_tools, tools_index)
     else:
-        system_prompt = SYSTEM_PROMPT_LOCAL
+        system_prompt = get_locale(lang).SYSTEM_PROMPT_LOCAL
         tools_index = {}
         tools_schema = NOT_GIVEN
 
@@ -127,7 +141,7 @@ async def create_pipeline(
 
     call_logger = CallLogger(conversation.state.call_id)
     transcript_proc = TranscriptProcessor(websocket, call_logger, conversation)
-    agent_text_proc = AgentTextProcessor(websocket, call_logger)
+    agent_text_proc = AgentTextProcessor(websocket, call_logger, lang=lang)
 
     vad = VADProcessor(vad_analyzer=SileroVADAnalyzer())
 

@@ -11,11 +11,11 @@ from app.models.schemas import CallerIntent, CallPhase, LegalArea
 
 @pytest.fixture
 def ctx():
-    return ConversationManager(call_id="scenario-test")
+    return ConversationManager(call_id="scenario-test", lang="en")
 
 
 class TestEmploymentRoutingScenario:
-    """Caller with an employment issue routes correctly and reaches capture."""
+    """Caller with an employment issue routes correctly and reaches intake."""
 
     @pytest.mark.asyncio
     async def test_employment_booking_flow(self, registry, ctx):
@@ -34,7 +34,7 @@ class TestEmploymentRoutingScenario:
             {"legal_area": "employment"},
             ctx,
         )
-        assert ctx.state.phase == CallPhase.CAPTURE
+        assert ctx.state.phase == CallPhase.INTAKE
         assert ctx.state.legal_area == LegalArea.EMPLOYMENT
 
 
@@ -56,7 +56,7 @@ class TestTenancyRoutingScenario:
             ctx,
         )
         assert ctx.state.legal_area == LegalArea.TENANCY
-        assert ctx.state.phase == CallPhase.CAPTURE
+        assert ctx.state.phase == CallPhase.INTAKE
 
 
 class TestUnknownAreaEscalationScenario:
@@ -143,6 +143,7 @@ class TestLowConfidenceEmailScenario:
         ctx = conversation_with_low_confidence
         ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
         ctx.set_legal_area(LegalArea.EMPLOYMENT)
+        ctx.state.intake_complete = True
 
         result = await registry.execute(
             "extract_caller_details",
@@ -164,9 +165,14 @@ class TestUnavailableSlotScenario:
         ctx.add_user_message("details")
         ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
         ctx.set_legal_area(LegalArea.EMPLOYMENT)
+        ctx.state.intake_complete = True
         for field in ("name", "email", "phone"):
             ctx.store_entity(field, f"test_{field}", 0.9)
             ctx.confirm_entity(field)
+        ctx.state.employer_name = "Test Corp"
+        ctx.state.has_legal_insurance = False
+        ctx.state.additional_notes = ""
+        ctx.advance_phase()
 
         assert ctx.state.phase == CallPhase.BOOKING
 
@@ -180,7 +186,8 @@ class TestUnavailableSlotScenario:
 
 
 class TestFullBookingScenario:
-    """Complete happy path: greeting → routing → capture → booking → confirmation."""
+    """Complete happy path: greeting → routing → intake → capture →
+    conflict → additional → booking → confirmation."""
 
     @pytest.mark.asyncio
     async def test_full_happy_path(self, registry, ctx):
@@ -201,6 +208,15 @@ class TestFullBookingScenario:
             {"legal_area": "employment"},
             ctx,
         )
+        assert ctx.state.phase == CallPhase.INTAKE
+
+        ctx.add_user_message("I was dismissed without warning after 5 years.")
+        result = await registry.execute(
+            "complete_intake",
+            {"summary": "Unfair dismissal after 5 years, no warning given"},
+            ctx,
+        )
+        assert result["status"] == "intake_complete"
         assert ctx.state.phase == CallPhase.CAPTURE
 
         ctx.add_user_message("My name is John Smith")
@@ -227,6 +243,24 @@ class TestFullBookingScenario:
         for field in ("name", "email", "phone"):
             ctx.confirm_entity(field)
 
+        assert ctx.state.phase == CallPhase.CONFLICT_CHECK
+
+        ctx.add_user_message("I work at Acme Corp and I have legal insurance")
+        result = await registry.execute(
+            "record_conflict_info",
+            {"employer_name": "Acme Corp", "has_legal_insurance": True},
+            ctx,
+        )
+        assert result["status"] == "recorded"
+        assert ctx.state.phase == CallPhase.ADDITIONAL_INFO
+
+        ctx.add_user_message("Nothing else to add")
+        result = await registry.execute(
+            "record_additional_info",
+            {"notes": ""},
+            ctx,
+        )
+        assert result["status"] == "recorded"
         assert ctx.state.phase == CallPhase.BOOKING
 
         avail = await registry.execute(
@@ -278,6 +312,32 @@ class TestMisunderstandingEscalation:
         ctx.state.misunderstanding_streak = 3
         ctx.advance_phase()
         assert ctx.state.phase == CallPhase.ESCALATION
+
+    @pytest.mark.asyncio
+    async def test_format_errors_increment_streak(self, registry, ctx):
+        ctx.add_user_message("details")
+        ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
+        ctx.set_legal_area(LegalArea.EMPLOYMENT)
+        ctx.state.intake_complete = True
+
+        for i in range(3):
+            ctx.add_user_message(f"bad email {i}")
+            await registry.execute(
+                "extract_caller_details",
+                {"email": f"not-an-email-{i}"},
+                ctx,
+            )
+
+        assert ctx.state.misunderstanding_streak >= 3
+        assert ctx.state.phase == CallPhase.ESCALATION
+
+    def test_successful_store_resets_streak(self, ctx):
+        ctx.add_user_message("Hello")
+        ctx.record_misunderstanding()
+        ctx.record_misunderstanding()
+        assert ctx.state.misunderstanding_streak == 2
+        ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
+        assert ctx.state.misunderstanding_streak == 0
 
 
 class TestEmailValidation:
