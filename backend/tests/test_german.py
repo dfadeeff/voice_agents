@@ -57,14 +57,6 @@ class TestGermanPrompts:
         assert "classify_legal_area" in prompt
         assert "employment" in prompt or "Arbeitsrecht" in prompt
 
-    def test_intake_prompt(self):
-        state = ConversationState(call_id="t")
-        state.phase = CallPhase.INTAKE
-        state.legal_area = LegalArea.EMPLOYMENT
-        prompt = build_system_prompt(state, lang="de")
-        assert "complete_intake" in prompt
-        assert "Zusammenfassung" in prompt or "Sachverhalt" in prompt
-
     def test_capture_prompt_shows_missing_fields(self):
         state = ConversationState(call_id="t")
         state.phase = CallPhase.CAPTURE
@@ -95,20 +87,6 @@ class TestGermanPrompts:
         state.phase = CallPhase.CAPTURE
         prompt = build_system_prompt(state, lang="de")
         assert "Buchstabier" in prompt or "buchstabier" in prompt
-
-    def test_conflict_check_prompt(self):
-        state = ConversationState(call_id="t")
-        state.phase = CallPhase.CONFLICT_CHECK
-        prompt = build_system_prompt(state, lang="de")
-        assert "Unternehmen" in prompt or "Arbeitgeber" in prompt
-        assert "Rechtsschutzversicherung" in prompt
-        assert "record_conflict_info" in prompt
-
-    def test_additional_info_prompt(self):
-        state = ConversationState(call_id="t")
-        state.phase = CallPhase.ADDITIONAL_INFO
-        prompt = build_system_prompt(state, lang="de")
-        assert "record_additional_info" in prompt
 
     def test_booking_prompt(self):
         state = ConversationState(call_id="t")
@@ -339,7 +317,6 @@ class TestBookingValidation:
         ctx.add_user_message("Ich brauche einen Termin")
         ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
         ctx.set_legal_area(LegalArea.EMPLOYMENT)
-        ctx.state.intake_complete = True
         ctx.store_entity("name", "Max Müller", 0.95)
         ctx.confirm_entity("name")
         # email and phone are missing
@@ -359,7 +336,6 @@ class TestBookingValidation:
         ctx.add_user_message("Ich brauche einen Termin")
         ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
         ctx.set_legal_area(LegalArea.EMPLOYMENT)
-        ctx.state.intake_complete = True
         for f in ("name", "email", "phone"):
             ctx.store_entity(f, f"test_{f}", 0.95)
         ctx.confirm_entity("name")
@@ -381,13 +357,9 @@ class TestBookingValidation:
         ctx.add_user_message("Termin bitte")
         ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
         ctx.set_legal_area(LegalArea.EMPLOYMENT)
-        ctx.state.intake_complete = True
         for f in ("name", "email", "phone"):
             ctx.store_entity(f, f"test_{f}", 0.95)
             ctx.confirm_entity(f)
-        ctx.state.employer_name = "TestCorp"
-        ctx.state.has_legal_insurance = False
-        ctx.state.additional_notes = ""
         ctx.advance_phase()
 
         avail = await registry.execute(
@@ -407,7 +379,7 @@ class TestBookingValidation:
 
 
 # ---------------------------------------------------------------------------
-# Full German booking scenario — mirrors TestFullBookingScenario in English
+# Full German booking scenario — simplified flow
 # ---------------------------------------------------------------------------
 
 
@@ -439,18 +411,8 @@ class TestGermanFullBookingScenario:
             {"legal_area": "employment"},
             ctx,
         )
-        assert ctx.state.phase == CallPhase.INTAKE
-        assert ctx.state.legal_area == LegalArea.EMPLOYMENT
-
-        # Intake summary
-        ctx.add_user_message("Fristlose Kündigung nach 5 Jahren ohne Abmahnung.")
-        result = await registry.execute(
-            "complete_intake",
-            {"summary": "Fristlose Kündigung nach 5 Jahren, keine vorherige Abmahnung"},
-            ctx,
-        )
-        assert result["status"] == "intake_complete"
         assert ctx.state.phase == CallPhase.CAPTURE
+        assert ctx.state.legal_area == LegalArea.EMPLOYMENT
 
         # Name capture
         ctx.add_user_message("Mein Name ist Max Müller")
@@ -476,30 +438,10 @@ class TestGermanFullBookingScenario:
             ctx,
         )
 
-        # Confirm all entities
-        for field in ("name", "email", "phone"):
+        # Confirm email+phone (name auto-confirmed)
+        for field in ("email", "phone"):
             ctx.confirm_entity(field)
 
-        assert ctx.state.phase == CallPhase.CONFLICT_CHECK
-
-        # Conflict check
-        ctx.add_user_message("Ich arbeite bei Siemens und habe Rechtsschutz")
-        result = await registry.execute(
-            "record_conflict_info",
-            {"employer_name": "Siemens", "has_legal_insurance": True},
-            ctx,
-        )
-        assert result["status"] == "recorded"
-        assert ctx.state.phase == CallPhase.ADDITIONAL_INFO
-
-        # Additional info
-        ctx.add_user_message("Nichts weiter.")
-        result = await registry.execute(
-            "record_additional_info",
-            {"notes": ""},
-            ctx,
-        )
-        assert result["status"] == "recorded"
         assert ctx.state.phase == CallPhase.BOOKING
 
         # Check availability and book
@@ -521,19 +463,11 @@ class TestGermanFullBookingScenario:
         assert ctx.state.phase == CallPhase.CONFIRMATION
 
     @pytest.mark.asyncio
-    async def test_german_tenancy_flow_skips_conflict_check(self, registry, ctx_de):
+    async def test_german_tenancy_flow(self, registry, ctx_de):
         ctx = ctx_de
         ctx.add_user_message("Mein Vermieter will mich rauswerfen.")
         await registry.execute("classify_caller_intent", {"intent": "book_consultation"}, ctx)
         await registry.execute("classify_legal_area", {"legal_area": "tenancy"}, ctx)
-        assert ctx.state.phase == CallPhase.INTAKE
-
-        ctx.add_user_message("Kündigung wegen Eigenbedarf.")
-        await registry.execute(
-            "complete_intake",
-            {"summary": "Kündigung wegen Eigenbedarf"},
-            ctx,
-        )
         assert ctx.state.phase == CallPhase.CAPTURE
 
         for field, value in [
@@ -544,8 +478,7 @@ class TestGermanFullBookingScenario:
             await registry.execute("extract_caller_details", {field: value}, ctx)
             ctx.confirm_entity(field)
 
-        # Tenancy skips conflict check, goes to additional_info
-        assert ctx.state.phase == CallPhase.ADDITIONAL_INFO
+        assert ctx.state.phase == CallPhase.BOOKING
 
     @pytest.mark.asyncio
     async def test_german_escalation_mid_flow(self, registry, ctx_de):
@@ -562,23 +495,17 @@ class TestGermanFullBookingScenario:
 
 
 # ---------------------------------------------------------------------------
-# German email low-confidence scenario — the uncertainty path
+# German email confirmation via double-extraction
 # ---------------------------------------------------------------------------
 
 
-class TestGermanEmailUncertaintyPath:
+class TestGermanEmailConfirmation:
     @pytest.mark.asyncio
-    async def test_low_confidence_email_needs_confirmation(self, registry):
-        word_infos = [
-            _make_word_info("ameliesommer", 0.0, 1.0, 0.4),
-            _make_word_info("gmail", 1.0, 1.5, 0.6),
-            _make_word_info("com", 1.5, 2.0, 0.8),
-        ]
+    async def test_email_needs_confirmation_first_call(self, registry):
         ctx = ConversationManager(call_id="de-email-test", lang="de")
-        ctx.add_user_message("ameliesommer gmail com", word_infos)
+        ctx.add_user_message("ameliesommer at gmail punkt com")
         ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
         ctx.set_legal_area(LegalArea.EMPLOYMENT)
-        ctx.state.intake_complete = True
 
         result = await registry.execute(
             "extract_caller_details",
@@ -590,16 +517,21 @@ class TestGermanEmailUncertaintyPath:
         assert not ctx.state.entities["email"].confirmed
 
     @pytest.mark.asyncio
-    async def test_high_confidence_email_auto_confirms(self, registry):
-        word_infos = [
-            _make_word_info("max@example.com", 0.0, 1.2, 0.95),
-        ]
+    async def test_email_confirms_on_second_call(self, registry):
         ctx = ConversationManager(call_id="de-email-hi", lang="de")
-        ctx.add_user_message("max@example.com", word_infos)
+        ctx.add_user_message("max at example punkt com")
         ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
         ctx.set_legal_area(LegalArea.EMPLOYMENT)
-        ctx.state.intake_complete = True
 
+        await registry.execute(
+            "extract_caller_details",
+            {"email": "max@example.com"},
+            ctx,
+        )
+        assert not ctx.state.entities["email"].confirmed
+
+        # Second call with same value = confirmation
+        ctx.add_user_message("ja, das stimmt")
         result = await registry.execute(
             "extract_caller_details",
             {"email": "max@example.com"},
@@ -607,9 +539,3 @@ class TestGermanEmailUncertaintyPath:
         )
         assert result["all_confirmed"]
         assert ctx.state.entities["email"].confirmed
-
-
-def _make_word_info(word, start, end, confidence):
-    from app.models.schemas import WordInfo
-
-    return WordInfo(word=word, start_time=start, end_time=end, confidence=confidence)

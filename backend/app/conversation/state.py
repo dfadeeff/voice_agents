@@ -20,10 +20,6 @@ class ConversationState:
     booking_confirmed: bool = False
     booked_slot: dict | None = None
     misunderstanding_streak: int = 0
-    intake_complete: bool = False
-    employer_name: str | None = None
-    has_legal_insurance: bool | None = None
-    additional_notes: str | None = None
     started_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
@@ -43,10 +39,6 @@ class ConversationState:
             "turn_count": self.turn_count,
             "escalation_requested": self.escalation_requested,
             "booking_confirmed": self.booking_confirmed,
-            "intake_complete": self.intake_complete,
-            "employer_name": self.employer_name,
-            "has_legal_insurance": self.has_legal_insurance,
-            "additional_notes": self.additional_notes,
         }
 
     def to_json(self) -> str:

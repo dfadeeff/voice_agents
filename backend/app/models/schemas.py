@@ -6,11 +6,8 @@ class CallPhase(StrEnum):
     GREETING = "greeting"
     INTENT_DETECTION = "intent_detection"
     ROUTING = "routing"
-    INTAKE = "intake"
     INFORMATION = "information"
     CAPTURE = "capture"
-    CONFLICT_CHECK = "conflict_check"
-    ADDITIONAL_INFO = "additional_info"
     BOOKING = "booking"
     CONFIRMATION = "confirmation"
     ESCALATION = "escalation"
@@ -26,6 +23,7 @@ class CallerIntent(StrEnum):
 class LegalArea(StrEnum):
     EMPLOYMENT = "employment"
     TENANCY = "tenancy"
+    TRAFFIC = "traffic"
     UNKNOWN = "unknown"
 
 

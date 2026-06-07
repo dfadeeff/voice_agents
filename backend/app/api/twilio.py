@@ -83,7 +83,7 @@ async def twilio_media_stream(websocket: WebSocket):
     conversation = ConversationManager(call_id=call_id)
     tools = websocket.app.state.tool_registry
 
-    task, runner = await create_pipeline(stt, llm, tts, transport, conversation, tools)
+    task, runner = await create_pipeline(stt, llm, tts, transport, websocket, conversation, tools)
 
     @transport.event_handler("on_client_disconnected")
     async def on_disconnected(transport, ws):

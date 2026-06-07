@@ -33,10 +33,10 @@ SCHEMA = {
     },
 }
 
-CONFIDENCE_THRESHOLD = 0.7
-
 EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
 PHONE_RE = re.compile(r"^[\d\s\-+()]{7,20}$")
+
+ALWAYS_CONFIRM = ("email", "phone")
 
 
 def _validate_format(field_name: str, value: str) -> str | None:
@@ -61,27 +61,24 @@ async def extract_caller_details(args: dict, ctx: ConversationManager) -> dict:
             format_errors.append({"field": field_name, "error": validation_error})
             continue
 
-        confidence = ctx.get_word_confidence_for_value(value)
-        ctx.store_entity(field_name, value, confidence)
+        existing = ctx.state.entities.get(field_name)
+        if existing and existing.value == value and not existing.confirmed:
+            ctx.confirm_entity(field_name)
+            stored.append(field_name)
+            continue
+
+        ctx.store_entity(field_name, value, 0.9)
         stored.append(field_name)
 
-        if confidence < CONFIDENCE_THRESHOLD and field_name in ("name", "email", "phone"):
-            if field_name == "name":
-                suggestion = f"Please confirm the caller's name by spelling it back: '{value}'"
-            elif field_name == "email":
+        if field_name in ALWAYS_CONFIRM:
+            if field_name == "email":
                 suggestion = f"Please read back the email address letter by letter: '{value}'"
             else:
                 suggestion = f"Please repeat the phone number digit by digit: '{value}'"
-
             needs_confirmation.append(
-                {
-                    "field": field_name,
-                    "value": value,
-                    "confidence": round(confidence, 2),
-                    "suggestion": suggestion,
-                }
+                {"field": field_name, "value": value, "suggestion": suggestion}
             )
-        elif field_name in ("name", "email", "phone"):
+        else:
             ctx.confirm_entity(field_name)
 
     if format_errors:
@@ -105,9 +102,9 @@ def register_extraction_tools(registry: ToolRegistry) -> None:
         fn=extract_caller_details,
         description=(
             "Store caller details extracted from conversation. "
-            "The system will check STT confidence and format validity, "
-            "and tell you which fields need verbal confirmation. "
-            "You MUST confirm any low-confidence fields before booking."
+            "Email and phone always require verbal confirmation — "
+            "read them back and call this tool again with the same value "
+            "after the caller confirms. Names are confirmed automatically."
         ),
         parameters=SCHEMA,
     )

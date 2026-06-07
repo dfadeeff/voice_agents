@@ -47,10 +47,7 @@ class TestBuildDefaultRegistry:
         assert "check_availability" in tools
         assert "book_consultation" in tools
         assert "escalate_to_human" in tools
-        assert "complete_intake" in tools
-        assert "record_conflict_info" in tools
-        assert "record_additional_info" in tools
-        assert len(tools) == 9
+        assert len(tools) == 6
 
     def test_schemas_are_valid_openai_format(self, registry):
         schemas = registry.get_schemas()

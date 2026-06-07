@@ -15,7 +15,7 @@ def ctx():
 
 
 class TestEmploymentRoutingScenario:
-    """Caller with an employment issue routes correctly and reaches intake."""
+    """Caller with an employment issue routes correctly and reaches capture."""
 
     @pytest.mark.asyncio
     async def test_employment_booking_flow(self, registry, ctx):
@@ -34,7 +34,7 @@ class TestEmploymentRoutingScenario:
             {"legal_area": "employment"},
             ctx,
         )
-        assert ctx.state.phase == CallPhase.INTAKE
+        assert ctx.state.phase == CallPhase.CAPTURE
         assert ctx.state.legal_area == LegalArea.EMPLOYMENT
 
 
@@ -56,7 +56,7 @@ class TestTenancyRoutingScenario:
             ctx,
         )
         assert ctx.state.legal_area == LegalArea.TENANCY
-        assert ctx.state.phase == CallPhase.INTAKE
+        assert ctx.state.phase == CallPhase.CAPTURE
 
 
 class TestUnknownAreaEscalationScenario:
@@ -133,17 +133,14 @@ class TestHumanHandoffScenario:
         assert result["context_for_human"]["caller_details"] == {}
 
 
-class TestLowConfidenceEmailScenario:
-    """Email with low STT confidence requires verbal confirmation."""
+class TestEmailConfirmationScenario:
+    """Email always requires verbal confirmation via double-extraction."""
 
     @pytest.mark.asyncio
-    async def test_low_confidence_email_needs_confirmation(
-        self, registry, conversation_with_low_confidence
-    ):
-        ctx = conversation_with_low_confidence
+    async def test_email_needs_confirmation(self, registry, ctx):
+        ctx.add_user_message("I was dismissed")
         ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
         ctx.set_legal_area(LegalArea.EMPLOYMENT)
-        ctx.state.intake_complete = True
 
         result = await registry.execute(
             "extract_caller_details",
@@ -165,13 +162,9 @@ class TestUnavailableSlotScenario:
         ctx.add_user_message("details")
         ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
         ctx.set_legal_area(LegalArea.EMPLOYMENT)
-        ctx.state.intake_complete = True
         for field in ("name", "email", "phone"):
             ctx.store_entity(field, f"test_{field}", 0.9)
             ctx.confirm_entity(field)
-        ctx.state.employer_name = "Test Corp"
-        ctx.state.has_legal_insurance = False
-        ctx.state.additional_notes = ""
         ctx.advance_phase()
 
         assert ctx.state.phase == CallPhase.BOOKING
@@ -186,8 +179,7 @@ class TestUnavailableSlotScenario:
 
 
 class TestFullBookingScenario:
-    """Complete happy path: greeting → routing → intake → capture →
-    conflict → additional → booking → confirmation."""
+    """Complete happy path: greeting -> routing -> capture -> booking -> confirmation."""
 
     @pytest.mark.asyncio
     async def test_full_happy_path(self, registry, ctx):
@@ -208,17 +200,9 @@ class TestFullBookingScenario:
             {"legal_area": "employment"},
             ctx,
         )
-        assert ctx.state.phase == CallPhase.INTAKE
-
-        ctx.add_user_message("I was dismissed without warning after 5 years.")
-        result = await registry.execute(
-            "complete_intake",
-            {"summary": "Unfair dismissal after 5 years, no warning given"},
-            ctx,
-        )
-        assert result["status"] == "intake_complete"
         assert ctx.state.phase == CallPhase.CAPTURE
 
+        # Capture contact details
         ctx.add_user_message("My name is John Smith")
         await registry.execute(
             "extract_caller_details",
@@ -240,27 +224,10 @@ class TestFullBookingScenario:
             ctx,
         )
 
-        for field in ("name", "email", "phone"):
+        # Confirm all entities (name auto-confirmed, email+phone need double-extraction)
+        for field in ("email", "phone"):
             ctx.confirm_entity(field)
 
-        assert ctx.state.phase == CallPhase.CONFLICT_CHECK
-
-        ctx.add_user_message("I work at Acme Corp and I have legal insurance")
-        result = await registry.execute(
-            "record_conflict_info",
-            {"employer_name": "Acme Corp", "has_legal_insurance": True},
-            ctx,
-        )
-        assert result["status"] == "recorded"
-        assert ctx.state.phase == CallPhase.ADDITIONAL_INFO
-
-        ctx.add_user_message("Nothing else to add")
-        result = await registry.execute(
-            "record_additional_info",
-            {"notes": ""},
-            ctx,
-        )
-        assert result["status"] == "recorded"
         assert ctx.state.phase == CallPhase.BOOKING
 
         avail = await registry.execute(
@@ -318,7 +285,6 @@ class TestMisunderstandingEscalation:
         ctx.add_user_message("details")
         ctx.set_intent(CallerIntent.BOOK_CONSULTATION)
         ctx.set_legal_area(LegalArea.EMPLOYMENT)
-        ctx.state.intake_complete = True
 
         for i in range(3):
             ctx.add_user_message(f"bad email {i}")

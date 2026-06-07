@@ -16,11 +16,15 @@ async def ready(request: Request):
     has_slots = False
     if has_calendar:
         try:
-            from datetime import date
+            from datetime import date, timedelta
 
-            today = date.today().isoformat()
-            slots = await calendar.get_available_slots(date=today)
-            has_slots = len(slots) > 0
+            # Check today + next 7 days (seed script skips weekends)
+            for offset in range(8):
+                day = (date.today() + timedelta(days=offset)).isoformat()
+                slots = await calendar.get_available_slots(date=day)
+                if len(slots) > 0:
+                    has_slots = True
+                    break
         except Exception:
             pass
     checks = {

@@ -1,7 +1,7 @@
 """Tests covering the exact failures observed in the live local demo.
 
 These verify: traffic area support, email required, false booking guard,
-conflict check gating, and tool name sanitization.
+and tool name sanitization.
 """
 
 import pytest
@@ -19,47 +19,18 @@ class TestTrafficArea:
     def test_traffic_area_exists(self):
         assert LegalArea.TRAFFIC.value == "traffic"
 
-    def test_traffic_skips_conflict_check(self):
+    def test_traffic_goes_to_booking_when_all_confirmed(self):
         ctx = ConversationManager(call_id="test", lang="de")
         ctx.state.turn_count = 3
         ctx.state.caller_intent = CallerIntent.BOOK_CONSULTATION
         ctx.state.legal_area = LegalArea.TRAFFIC
-        ctx.state.intake_complete = True
         ctx.state.entities = {
             "name": _confirmed("name", "Dmitry Fadeev"),
             "email": _confirmed("email", "dima@example.com"),
             "phone": _confirmed("phone", "017612345678"),
         }
         ctx.advance_phase()
-        assert ctx.state.phase != CallPhase.CONFLICT_CHECK
-
-    def test_employment_still_requires_conflict_check(self):
-        ctx = ConversationManager(call_id="test", lang="de")
-        ctx.state.turn_count = 3
-        ctx.state.caller_intent = CallerIntent.BOOK_CONSULTATION
-        ctx.state.legal_area = LegalArea.EMPLOYMENT
-        ctx.state.intake_complete = True
-        ctx.state.entities = {
-            "name": _confirmed("name", "Dmitry Fadeev"),
-            "email": _confirmed("email", "dima@example.com"),
-            "phone": _confirmed("phone", "017612345678"),
-        }
-        ctx.advance_phase()
-        assert ctx.state.phase == CallPhase.CONFLICT_CHECK
-
-    def test_tenancy_skips_conflict_check(self):
-        ctx = ConversationManager(call_id="test", lang="de")
-        ctx.state.turn_count = 3
-        ctx.state.caller_intent = CallerIntent.BOOK_CONSULTATION
-        ctx.state.legal_area = LegalArea.TENANCY
-        ctx.state.intake_complete = True
-        ctx.state.entities = {
-            "name": _confirmed("name"),
-            "email": _confirmed("email"),
-            "phone": _confirmed("phone"),
-        }
-        ctx.advance_phase()
-        assert ctx.state.phase != CallPhase.CONFLICT_CHECK
+        assert ctx.state.phase == CallPhase.BOOKING
 
 
 class TestEmailRequired:
@@ -71,7 +42,6 @@ class TestEmailRequired:
         ctx.state.turn_count = 3
         ctx.state.caller_intent = CallerIntent.BOOK_CONSULTATION
         ctx.state.legal_area = LegalArea.TRAFFIC
-        ctx.state.intake_complete = True
         ctx.state.entities = {
             "name": _confirmed("name", "Dmitry Fadeev"),
             "phone": _confirmed("phone", "017612345678"),
@@ -84,7 +54,6 @@ class TestEmailRequired:
         ctx.state.turn_count = 3
         ctx.state.caller_intent = CallerIntent.BOOK_CONSULTATION
         ctx.state.legal_area = LegalArea.TRAFFIC
-        ctx.state.intake_complete = True
         ctx.state.entities = {
             "name": _confirmed("name", "Dmitry Fadeev"),
             "email": _confirmed("email", "dima@example.com"),

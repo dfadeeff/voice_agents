@@ -8,12 +8,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from app.config import Settings
 from app.conversation.flow import REQUIRED_FIELDS
 from app.conversation.locales import get_locale
 from app.models.schemas import CallPhase
 
 if TYPE_CHECKING:
     from app.conversation.state import ConversationState
+
+_settings = Settings()
+_is_qwen3 = "qwen3" in _settings.ollama_model
 
 # Backward-compat aliases — English constants for existing imports/tests
 _en = get_locale("en")
@@ -60,11 +64,13 @@ def build_system_prompt(state: ConversationState, lang: str = "de") -> str:
     fragment = locale.FRAGMENTS.get(state.legal_area.value, "")
     if fragment and state.phase in (
         CallPhase.ROUTING,
-        CallPhase.INTAKE,
         CallPhase.INFORMATION,
         CallPhase.CAPTURE,
         CallPhase.BOOKING,
     ):
         parts.append(fragment)
 
-    return "\n".join(parts)
+    prompt = "\n".join(parts)
+    if _is_qwen3:
+        prompt += "\n/no_think"
+    return prompt

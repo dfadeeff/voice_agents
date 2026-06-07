@@ -8,13 +8,7 @@ from typing import Any
 from app.conversation.flow import PHASE_TOOLS, next_phase
 from app.conversation.prompts import build_system_prompt, get_system_prompt_base
 from app.conversation.state import ConversationState
-from app.models.schemas import (
-    CallerIntent,
-    CallPhase,
-    ExtractedEntity,
-    LegalArea,
-    WordInfo,
-)
+from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity, LegalArea
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +18,6 @@ class ConversationManager:
         self.lang = lang
         self.state = ConversationState(call_id=call_id)
         self.state.messages = [{"role": "system", "content": get_system_prompt_base(lang)}]
-        self._word_infos_by_turn: dict[int, list[WordInfo]] = {}
         self._llm_context = None
         self._tools_builder: Callable[[list[str]], Any] | None = None
 
@@ -32,7 +25,6 @@ class ConversationManager:
         self._llm_context = context
 
     def set_tools_builder(self, builder: Callable[[list[str]], Any]) -> None:
-        """Set callback that builds a ToolsSchema from a list of tool names."""
         self._tools_builder = builder
 
     def advance_phase(self) -> CallPhase:
@@ -59,11 +51,9 @@ class ConversationManager:
     def get_available_tools(self) -> list[str]:
         return PHASE_TOOLS.get(self.state.phase, [])
 
-    def add_user_message(self, text: str, word_infos: list[WordInfo] | None = None) -> None:
+    def add_user_message(self, text: str) -> None:
         self.state.turn_count += 1
         self.state.messages.append({"role": "user", "content": text})
-        if word_infos:
-            self._word_infos_by_turn[self.state.turn_count] = word_infos
         self.advance_phase()
 
     def add_assistant_message(self, text: str) -> None:
@@ -125,28 +115,3 @@ class ConversationManager:
     def reset_misunderstanding_streak(self) -> None:
         if self.state.misunderstanding_streak > 0:
             self.state.misunderstanding_streak = 0
-
-    def get_word_confidence_for_value(self, value: str) -> float:
-        value_words = value.lower().split()
-        if not value_words:
-            return 0.5
-
-        current_turn = self.state.turn_count
-        word_infos = self._word_infos_by_turn.get(current_turn, [])
-        if not word_infos:
-            return 0.5
-
-        matched_confidences = []
-        for vw in value_words:
-            best_match = None
-            for wi in word_infos:
-                if wi.word.lower().strip(".,!?") == vw:
-                    best_match = wi.confidence
-                    break
-            if best_match is not None:
-                matched_confidences.append(best_match)
-
-        if not matched_confidences:
-            return 0.5
-
-        return min(matched_confidences)

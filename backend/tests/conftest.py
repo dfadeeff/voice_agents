@@ -4,7 +4,6 @@ import tempfile
 import pytest
 import pytest_asyncio
 from app.conversation.manager import ConversationManager
-from app.models.schemas import WordInfo
 from app.services.calendar import CalendarService
 from app.tools.registry import build_default_registry
 
@@ -17,28 +16,6 @@ def call_id():
 @pytest.fixture
 def conversation(call_id):
     return ConversationManager(call_id, lang="en")
-
-
-@pytest.fixture
-def conversation_with_low_confidence(conversation):
-    """Conversation where the current turn has low-confidence words."""
-    word_infos = [
-        WordInfo(word="Siobhan", start_time=0.0, end_time=0.5, confidence=0.4),
-        WordInfo(word="Murphy", start_time=0.5, end_time=1.0, confidence=0.9),
-    ]
-    conversation.add_user_message("My name is Siobhan Murphy", word_infos)
-    return conversation
-
-
-@pytest.fixture
-def conversation_with_high_confidence(conversation):
-    """Conversation where the current turn has high-confidence words."""
-    word_infos = [
-        WordInfo(word="John", start_time=0.0, end_time=0.3, confidence=0.95),
-        WordInfo(word="Smith", start_time=0.3, end_time=0.6, confidence=0.92),
-    ]
-    conversation.add_user_message("My name is John Smith", word_infos)
-    return conversation
 
 
 @pytest_asyncio.fixture

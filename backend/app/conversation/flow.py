@@ -13,11 +13,8 @@ PHASE_TOOLS: dict[CallPhase, list[str]] = {
     CallPhase.GREETING: [],
     CallPhase.INTENT_DETECTION: ["classify_caller_intent", "escalate_to_human"],
     CallPhase.ROUTING: ["classify_legal_area", "escalate_to_human"],
-    CallPhase.INTAKE: ["complete_intake", "escalate_to_human"],
     CallPhase.INFORMATION: ["classify_caller_intent", "escalate_to_human"],
     CallPhase.CAPTURE: ["extract_caller_details", "escalate_to_human"],
-    CallPhase.CONFLICT_CHECK: ["record_conflict_info", "escalate_to_human"],
-    CallPhase.ADDITIONAL_INFO: ["record_additional_info", "escalate_to_human"],
     CallPhase.BOOKING: ["check_availability", "book_consultation", "escalate_to_human"],
     CallPhase.CONFIRMATION: [],
     CallPhase.ESCALATION: ["escalate_to_human"],
@@ -26,8 +23,8 @@ PHASE_TOOLS: dict[CallPhase, list[str]] = {
 
 
 def all_required_confirmed(entities: dict) -> bool:
-    for field in REQUIRED_FIELDS:
-        entity = entities.get(field)
+    for f in REQUIRED_FIELDS:
+        entity = entities.get(f)
         if not entity or not entity.confirmed:
             return False
     return True
@@ -57,16 +54,7 @@ def next_phase(state) -> CallPhase:
     if state.caller_intent == CallerIntent.GENERAL_INFO:
         return CallPhase.INFORMATION
 
-    if not state.intake_complete:
-        return CallPhase.INTAKE
-
     if not all_required_confirmed(state.entities):
         return CallPhase.CAPTURE
-
-    if state.employer_name is None or state.has_legal_insurance is None:
-        return CallPhase.CONFLICT_CHECK
-
-    if state.additional_notes is None:
-        return CallPhase.ADDITIONAL_INFO
 
     return CallPhase.BOOKING

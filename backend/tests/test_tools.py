@@ -63,7 +63,7 @@ class TestClassifyLegalArea:
         assert result["status"] == "routed"
         assert result["legal_area"] == "employment"
         assert conversation.state.legal_area == LegalArea.EMPLOYMENT
-        assert conversation.state.phase == CallPhase.INTAKE
+        assert conversation.state.phase == CallPhase.CAPTURE
 
     @pytest.mark.asyncio
     async def test_tenancy(self, registry, conversation):
@@ -103,40 +103,68 @@ class TestClassifyLegalArea:
 
 class TestExtractCallerDetails:
     @pytest.mark.asyncio
-    async def test_high_confidence_auto_confirms(self, registry, conversation_with_high_confidence):
-        ctx = conversation_with_high_confidence
+    async def test_name_auto_confirms(self, registry, conversation):
+        conversation.add_user_message("My name is John Smith")
         result = await registry.execute(
             "extract_caller_details",
-            {"name": "John Smith", "email": "john@example.com"},
-            ctx,
+            {"name": "John Smith"},
+            conversation,
         )
         assert "name" in result["stored"]
-        assert ctx.state.entities["name"].confirmed is True
+        assert conversation.state.entities["name"].confirmed is True
 
     @pytest.mark.asyncio
-    async def test_low_confidence_needs_confirmation(
-        self, registry, conversation_with_low_confidence
-    ):
-        ctx = conversation_with_low_confidence
+    async def test_email_needs_confirmation(self, registry, conversation):
+        conversation.add_user_message("john at example dot com")
         result = await registry.execute(
             "extract_caller_details",
-            {"name": "Siobhan Murphy"},
-            ctx,
+            {"email": "john@example.com"},
+            conversation,
         )
+        assert "email" in result["stored"]
         assert not result["all_confirmed"]
-        assert len(result["needs_confirmation"]) == 1
-        assert result["needs_confirmation"][0]["field"] == "name"
-        assert not ctx.state.entities["name"].confirmed
+        assert any(c["field"] == "email" for c in result["needs_confirmation"])
+        assert not conversation.state.entities["email"].confirmed
 
     @pytest.mark.asyncio
-    async def test_non_contact_fields_skip_confirmation(
-        self, registry, conversation_with_low_confidence
-    ):
-        ctx = conversation_with_low_confidence
+    async def test_email_double_extraction_confirms(self, registry, conversation):
+        """Second call with same value confirms the entity."""
+        conversation.add_user_message("john at example dot com")
+        await registry.execute(
+            "extract_caller_details",
+            {"email": "john@example.com"},
+            conversation,
+        )
+        assert not conversation.state.entities["email"].confirmed
+
+        conversation.add_user_message("yes that's correct")
+        result = await registry.execute(
+            "extract_caller_details",
+            {"email": "john@example.com"},
+            conversation,
+        )
+        assert conversation.state.entities["email"].confirmed is True
+        assert result["all_confirmed"]
+
+    @pytest.mark.asyncio
+    async def test_phone_needs_confirmation(self, registry, conversation):
+        conversation.add_user_message("+1234567890")
+        result = await registry.execute(
+            "extract_caller_details",
+            {"phone": "+1234567890"},
+            conversation,
+        )
+        assert "phone" in result["stored"]
+        assert not result["all_confirmed"]
+        assert any(c["field"] == "phone" for c in result["needs_confirmation"])
+
+    @pytest.mark.asyncio
+    async def test_non_contact_fields_auto_confirm(self, registry, conversation):
+        conversation.add_user_message("unfair dismissal")
         result = await registry.execute(
             "extract_caller_details",
             {"matter_description": "unfair dismissal"},
-            ctx,
+            conversation,
         )
         assert result["all_confirmed"]
         assert "matter_description" in result["stored"]
@@ -298,112 +326,6 @@ class TestBookConsultation:
 
         result = await registry.execute("book_consultation", {"caller_name": "test"}, conversation)
         assert result["status"] == "error"
-
-
-class TestCompleteIntake:
-    @pytest.mark.asyncio
-    async def test_intake_complete(self, registry, conversation):
-        conversation.add_user_message("I was dismissed unfairly")
-        conversation.set_intent(CallerIntent.BOOK_CONSULTATION)
-        conversation.set_legal_area(LegalArea.EMPLOYMENT)
-        assert conversation.state.phase == CallPhase.INTAKE
-
-        result = await registry.execute(
-            "complete_intake",
-            {"summary": "Unfair dismissal after 5 years"},
-            conversation,
-        )
-        assert result["status"] == "intake_complete"
-        assert conversation.state.intake_complete is True
-        assert conversation.state.phase == CallPhase.CAPTURE
-
-    @pytest.mark.asyncio
-    async def test_intake_empty_summary(self, registry, conversation):
-        result = await registry.execute(
-            "complete_intake",
-            {"summary": ""},
-            conversation,
-        )
-        assert result["status"] == "need_more_info"
-
-
-class TestRecordConflictInfo:
-    @pytest.mark.asyncio
-    async def test_conflict_info_recorded(self, registry, conversation):
-        conversation.add_user_message("details")
-        conversation.set_intent(CallerIntent.BOOK_CONSULTATION)
-        conversation.set_legal_area(LegalArea.EMPLOYMENT)
-        conversation.state.intake_complete = True
-        for field in ("name", "email", "phone"):
-            conversation.store_entity(field, f"test_{field}", 0.9)
-            conversation.confirm_entity(field)
-        assert conversation.state.phase == CallPhase.CONFLICT_CHECK
-
-        result = await registry.execute(
-            "record_conflict_info",
-            {"employer_name": "Acme Corp", "has_legal_insurance": True},
-            conversation,
-        )
-        assert result["status"] == "recorded"
-        assert conversation.state.employer_name == "Acme Corp"
-        assert conversation.state.has_legal_insurance is True
-        assert conversation.state.phase == CallPhase.ADDITIONAL_INFO
-
-    @pytest.mark.asyncio
-    async def test_conflict_info_missing_fields(self, registry, conversation):
-        result = await registry.execute(
-            "record_conflict_info",
-            {"employer_name": "", "has_legal_insurance": None},
-            conversation,
-        )
-        assert result["status"] == "need_more_info"
-
-
-class TestRecordAdditionalInfo:
-    @pytest.mark.asyncio
-    async def test_additional_info_recorded(self, registry, conversation):
-        conversation.add_user_message("details")
-        conversation.set_intent(CallerIntent.BOOK_CONSULTATION)
-        conversation.set_legal_area(LegalArea.EMPLOYMENT)
-        conversation.state.intake_complete = True
-        for field in ("name", "email", "phone"):
-            conversation.store_entity(field, f"test_{field}", 0.9)
-            conversation.confirm_entity(field)
-        conversation.state.employer_name = "Acme Corp"
-        conversation.state.has_legal_insurance = False
-        conversation.advance_phase()
-        assert conversation.state.phase == CallPhase.ADDITIONAL_INFO
-
-        result = await registry.execute(
-            "record_additional_info",
-            {"notes": "The dismissal letter mentioned restructuring"},
-            conversation,
-        )
-        assert result["status"] == "recorded"
-        assert conversation.state.additional_notes == "The dismissal letter mentioned restructuring"
-        assert conversation.state.phase == CallPhase.BOOKING
-
-    @pytest.mark.asyncio
-    async def test_additional_info_empty(self, registry, conversation):
-        conversation.add_user_message("details")
-        conversation.set_intent(CallerIntent.BOOK_CONSULTATION)
-        conversation.set_legal_area(LegalArea.EMPLOYMENT)
-        conversation.state.intake_complete = True
-        for field in ("name", "email", "phone"):
-            conversation.store_entity(field, f"test_{field}", 0.9)
-            conversation.confirm_entity(field)
-        conversation.state.employer_name = "Acme Corp"
-        conversation.state.has_legal_insurance = False
-        conversation.advance_phase()
-
-        result = await registry.execute(
-            "record_additional_info",
-            {"notes": ""},
-            conversation,
-        )
-        assert result["status"] == "recorded"
-        assert conversation.state.additional_notes == ""
-        assert conversation.state.phase == CallPhase.BOOKING
 
 
 class TestEscalateToHuman:

@@ -10,7 +10,7 @@ from app.conversation.prompts import (
     build_system_prompt,
 )
 from app.conversation.state import ConversationState
-from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity, LegalArea, WordInfo
+from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity, LegalArea
 
 
 class TestConversationState:
@@ -67,11 +67,6 @@ class TestConversationManager:
         conversation.add_user_message("Hello")
         assert conversation.state.phase == CallPhase.INTENT_DETECTION
 
-    def test_add_user_message_stores_word_infos(self, conversation):
-        words = [WordInfo(word="hello", start_time=0, end_time=0.5, confidence=0.95)]
-        conversation.add_user_message("hello", words)
-        assert conversation._word_infos_by_turn[1] == words
-
     def test_add_assistant_message(self, conversation):
         conversation.add_assistant_message("How can I help?")
         messages = conversation.get_messages()
@@ -104,7 +99,7 @@ class TestConversationManager:
         conversation.set_intent(CallerIntent.BOOK_CONSULTATION)
         conversation.set_legal_area(LegalArea.EMPLOYMENT)
         assert conversation.state.legal_area == LegalArea.EMPLOYMENT
-        assert conversation.state.phase == CallPhase.INTAKE
+        assert conversation.state.phase == CallPhase.CAPTURE
         system_msg = conversation.get_messages()[0]
         assert "employment" in system_msg["content"].lower()
 
@@ -130,30 +125,6 @@ class TestConversationManager:
 
     def test_confirm_nonexistent_entity_is_noop(self, conversation):
         conversation.confirm_entity("nonexistent")
-
-    def test_word_confidence_matches(self, conversation_with_high_confidence):
-        ctx = conversation_with_high_confidence
-        conf = ctx.get_word_confidence_for_value("John Smith")
-        assert conf == 0.92
-
-    def test_word_confidence_low(self, conversation_with_low_confidence):
-        ctx = conversation_with_low_confidence
-        conf = ctx.get_word_confidence_for_value("Siobhan Murphy")
-        assert conf == 0.4
-
-    def test_word_confidence_no_match_returns_default(self, conversation):
-        conversation.add_user_message("hello there")
-        conf = conversation.get_word_confidence_for_value("John")
-        assert conf == 0.5
-
-    def test_word_confidence_empty_value(self, conversation):
-        conf = conversation.get_word_confidence_for_value("")
-        assert conf == 0.5
-
-    def test_word_confidence_no_word_infos(self, conversation):
-        conversation.add_user_message("John Smith")
-        conf = conversation.get_word_confidence_for_value("John")
-        assert conf == 0.5
 
     def test_available_tools_change_with_phase(self, conversation):
         assert conversation.get_available_tools() == []
