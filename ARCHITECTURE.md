@@ -8,9 +8,9 @@ Inbound voice agent for a law firm. Handles calls end-to-end: greeting, routing 
 
 | Layer | Local (default) | Cloud (production) |
 |-------|----------------|---------------------|
-| **STT** | faster-whisper (base model) | Deepgram Nova-2 (streaming) |
-| **LLM** | Ollama Qwen3-4B | OpenAI GPT-4o-mini |
-| **TTS** | Piper (en_US-lessac-medium) | ElevenLabs (streaming) |
+| **STT** | faster-whisper (medium, CPU int8) | Deepgram Nova-2 (streaming) |
+| **LLM** | Ollama Qwen2.5-7B | OpenAI GPT-4o-mini |
+| **TTS** | Piper (de_DE-eva_k-x_low) | ElevenLabs (streaming) |
 | **VAD** | Silero VAD | same |
 | **Transport** | Browser WebSocket | + Twilio Media Streams |
 | **DB** | SQLite (aiosqlite) | Postgres (same SQLAlchemy models) |
@@ -45,13 +45,19 @@ voice_agent/
 │   │   │   ├── flow.py              # Deterministic state machine (next_phase, phase tools)
 │   │   │   ├── state.py             # ConversationState dataclass (serializable)
 │   │   │   ├── manager.py           # Manages state per call, phase transitions
-│   │   │   └── prompts.py           # Per-phase system prompts + law-area fragments
+│   │   │   ├── prompts.py           # System prompt builder (locale-aware)
+│   │   │   └── locales/             # Per-language prompt constants
+│   │   │       ├── de.py            # German (default) — preamble, phase prompts, fragments
+│   │   │       └── en.py            # English
 │   │   │
 │   │   ├── tools/
 │   │   │   ├── registry.py          # Tool name -> callable + JSON schema
 │   │   │   ├── intent.py            # classify_caller_intent
 │   │   │   ├── routing.py           # classify_legal_area
+│   │   │   ├── intake.py            # complete_intake
 │   │   │   ├── extraction.py        # extract_caller_details + confidence + regex validation
+│   │   │   ├── conflict.py          # record_conflict_info (employer + insurance)
+│   │   │   ├── additional.py        # record_additional_info
 │   │   │   ├── booking.py           # check_availability, book_consultation
 │   │   │   └── escalation.py        # escalate_to_human
 │   │   │
@@ -107,17 +113,16 @@ voice_agent/
 ┌────────────────────────────────────────────────────────────────────┐
 │                   PIPECAT PIPELINE (orchestrator.py)                │
 │                                                                    │
-│  ┌──────────┐   ┌──────────────┐   ┌──────────────┐   ┌────────┐ │
-│  │ Silero   │──>│ Whisper STT  │──>│ Ollama LLM   │──>│ Piper  │ │
-│  │ VAD      │   │ (Pipecat     │   │ (Pipecat     │   │  TTS   │ │
-│  │ (built-  │   │  service)    │   │  service)    │   │(Pipecat│ │
-│  │  in)     │   │              │   │              │   │service)│ │
-│  │          │   │ or Deepgram  │   │ or OpenAI    │   │        │ │
-│  │ speech   │   │ (cloud)      │   │ (cloud)      │   │or 11L  │ │
-│  │ detect + │   │              │   │              │   │(cloud) │ │
-│  │ endpoint │   │ -> text      │   │ -> text +    │   │->audio │ │
-│  │          │   │              │   │    tool calls│   │  chunks│ │
-│  └──────────┘   └──────────────┘   └──────┬───────┘   └────────┘ │
+│  ┌──────────┐  ┌────────────┐  ┌────────────┐  ┌───────────┐  ┌────────┐ │
+│  │ Silero   │─>│Whisper STT │─>│ Ollama LLM │─>│ PreTTS    │─>│ Piper  │ │
+│  │ VAD      │  │(or Deepgram│  │(or OpenAI) │  │ Sanitizer │  │  TTS   │ │
+│  │          │  │  cloud)    │  │            │  │           │  │(or 11L)│ │
+│  │ speech   │  │            │  │ -> text +  │  │ strip:    │  │        │ │
+│  │ detect + │  │ -> text +  │  │  tool calls│  │ think tags│  │->audio │ │
+│  │ endpoint │  │  word conf │  │            │  │ tool names│  │  chunks│ │
+│  │          │  │            │  │            │  │ CJK/JSON  │  │        │ │
+│  │          │  │            │  │            │  │ false book│  │        │ │
+│  └──────────┘  └────────────┘  └──────┬─────┘  └───────────┘  └────────┘ │
 │                                           │                       │
 │                                     tool calls                    │
 │                                           │                       │
@@ -131,9 +136,9 @@ voice_agent/
 │              │           │         │+ STT conf │     │consult.  ││
 │              │employment │         │           │     │          ││
 │              │tenancy    │         │name: 0.92 │     │  SQLite  ││
-│              │unknown    │         │email: 0.45│     │  calendar││
-│              └─────┬─────┘         │  -> SPELL │     │          ││
-│                    │               └─────┬─────┘     └────┬─────┘│
+│              │traffic    │         │email: 0.45│     │  calendar││
+│              │unknown    │         │  -> SPELL │     │          ││
+│              └─────┬─────┘         └─────┬─────┘     └────┬─────┘│
 │                    │                     │                 │      │
 │                    └─────────┬───────────┘                 │      │
 │                              │                             │      │
@@ -241,14 +246,44 @@ Real callers give multiple details at once ("Hi, I'm Dmitry, I need help with my
                                      │           │              │                 │
                                      │ hand off  │              ▼                 ▼
                                      │ to human  │        ┌───────────┐    ┌───────────┐
-                                     └───────────┘        │INFORMATION│    │ CAPTURE   │
+                                     └───────────┘        │INFORMATION│    │ INTAKE    │
                                            ▲              │           │    │           │
-                                           │              │ answer Qs │    │ name ✓?   │◄─┐
-                                 at ANY point:            │ offer to  │    │ email ✓?  │  │
-                                 - caller asks            │ book      │    │ phone ✓?  │──┘
-                                 - 3+ misunderstandings   └───────────┘    └─────┬─────┘
-                                 - escalation_requested                         │
+                                           │              │ answer Qs │    │ follow-up │
+                                 at ANY point:            │ offer to  │    │ questions │
+                                 - caller asks            │ book      │    │ complete_ │
+                                 - 3+ misunderstandings   └───────────┘    │ intake    │
+                                 - escalation_requested                    └─────┬─────┘
+                                                                                │
+                                                                     intake complete
+                                                                                │
+                                                                                ▼
+                                                                          ┌───────────┐
+                                                                          │ CAPTURE   │
+                                                                          │           │
+                                                                          │ name ✓?   │◄─┐
+                                                                          │ email ✓?  │  │
+                                                                          │ phone ✓?  │──┘
+                                                                          └─────┬─────┘
+                                                                                │
                                                                      all confirmed
+                                                                                │
+                                                                                ▼
+                                                                          ┌───────────┐
+                                                                          │ CONFLICT  │
+                                                                          │ CHECK     │
+                                                                          │           │
+                                                                          │ employer? │
+                                                                          │ insurance?│
+                                                                          └─────┬─────┘
+                                                                                │
+                                                                                ▼
+                                                                          ┌───────────┐
+                                                                          │ADDITIONAL │
+                                                                          │   INFO    │
+                                                                          │           │
+                                                                          │"anything  │
+                                                                          │ else?"    │
+                                                                          └─────┬─────┘
                                                                                 │
                                                                                 ▼
                                                                           ┌───────────┐
@@ -285,9 +320,12 @@ Each phase gives the LLM a narrow, specific task — not the full call flow:
 |-------|-----------|-----------------|
 | GREETING | Greet warmly, ask how to help | none |
 | INTENT_DETECTION | Classify: general info or consultation? | classify_caller_intent |
-| ROUTING | Classify legal area | classify_legal_area |
+| ROUTING | Classify legal area (employment/tenancy/traffic) | classify_legal_area |
+| INTAKE | Area-specific follow-up questions, summarize issue | complete_intake |
 | INFORMATION | Answer questions about the legal area | classify_caller_intent (to switch to booking) |
 | CAPTURE | Extract caller details, confirm uncertain ones | extract_caller_details |
+| CONFLICT_CHECK | Ask about employer and legal insurance | record_conflict_info |
+| ADDITIONAL_INFO | "Anything else?" before booking | record_additional_info |
 | BOOKING | Help caller find and book a slot | check_availability, book_consultation |
 | CONFIRMATION | Read back all booking details | none |
 | ESCALATION | Explain handoff, be reassuring | escalate_to_human |
@@ -314,11 +352,11 @@ LLM calls classify_legal_area(legal_area="employment")
   │
   ▼
 Tool handler stores area → advance_phase() computes:
-  intent=book, area=employment, no confirmed fields → CAPTURE
+  intent=book, area=employment, intake not complete → INTAKE
   │
   ▼
-System prompt updates to CAPTURE phase:
-  "Collect caller details. Missing: name, email, phone."
+System prompt updates to INTAKE phase:
+  "Capture a brief summary of the caller's employment issue."
 ```
 
 ### Confidence-Aware Entity Extraction
@@ -361,7 +399,7 @@ Caller speaks: "My email is d fadeev at gmail maybe no wait fadejeff at gmail"
            ▼
     ┌──────────────┐
     │ LLM          │  phase: CAPTURE → constrained to extraction task
-    │ (Qwen3-4B)   │  calls: extract_caller_details(email="fadejeff@gmail.com")
+    │ (Qwen2.5-7B) │  calls: extract_caller_details(email="fadejeff@gmail.com")
     └──────┬───────┘
            │
            ▼
@@ -471,7 +509,7 @@ The Pipecat pipeline doesn't know or care whether audio comes from a browser Web
 
 ```
 GET /health  -> {"status": "ok"}
-GET /ready   -> {"ready": true, "checks": {"database": true, "tools": true}}
+GET /ready   -> {"ready": true, "checks": {"database": true, "slots_available": true, "tools": true}}
 ```
 
 ## Escalation Triggers
@@ -513,13 +551,22 @@ The `escalate_to_human` tool already builds `context_for_human` with all collect
 
 ## TTS Preprocessing
 
-Raw structured data sounds wrong when read aloud. The `AgentTextProcessor` in `processors.py` reformats agent text before TTS:
+Two layers of text sanitization in the pipeline:
 
-- **Phone numbers**: regex detects digit sequences and expands to comma-separated digits (`+49 151 9823` → `plus 4, 9, 1, 5, 1, 9, 8, 2, 3`)
-- **Email addresses**: `@` → `at`, `.` → `dot` (`john@gmail.com` → `john at gmail dot com`)
+**Layer 1: PreTTSSanitizer** (between LLM and TTS, chunk-level)
+- Strips `<think>` tags (stateful across chunks — handles tags split across frames)
+- Removes CJK characters (Qwen sometimes emits Chinese)
+- Strips tool names and JSON leaks from LLM output
+- Blocks false booking language ("Termin gebucht") unless `booking_confirmed` is true
+
+**Layer 2: AgentTextProcessor** (after TTS, sentence-level safety net)
+- **Phone numbers**: digit-by-digit expansion (`+49 151 9823` → `plus 4, 9, 1, 5, 1, 9, 8, 2, 3`)
+- **Email addresses**: locale-aware expansion (`@` → `at`, `.` → `Punkt` in German, `dot` in English)
+- Second pass of tool name stripping and false booking guard
+- Logs cleaned text to transcript and sends to frontend
 
 Production improvements would add:
-- Date/time formatting (`2026-06-09T14:00` → `Tuesday, June ninth at 2 PM`)
+- Date/time formatting (`2026-06-09T14:00` → `Dienstag, 9. Juni um 14 Uhr`)
 - Name spelling normalization (NATO alphabet for confirmation)
 - Legal term pronunciation hints
 
