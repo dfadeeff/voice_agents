@@ -74,7 +74,7 @@ class PromptOptimizer:
             return {
                 "status": "insufficient_data",
                 "message": (
-                    f"Need at least {min_calls} low-scoring calls, " f"found {len(low_scoring)}."
+                    f"Need at least {min_calls} low-scoring calls, found {len(low_scoring)}."
                 ),
             }
 

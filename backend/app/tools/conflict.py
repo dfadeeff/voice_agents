@@ -11,7 +11,7 @@ SCHEMA = {
         "has_legal_insurance": {
             "type": "boolean",
             "description": (
-                "Whether the caller has legal expenses insurance " "(Rechtsschutzversicherung)."
+                "Whether the caller has legal expenses insurance (Rechtsschutzversicherung)."
             ),
         },
     },
