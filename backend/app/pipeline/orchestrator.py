@@ -12,7 +12,13 @@ from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
-from pipecat.frames.frames import EndFrame, LLMMessagesAppendFrame, TextFrame
+from pipecat.frames.frames import (
+    EndFrame,
+    LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
+    LLMMessagesAppendFrame,
+    TextFrame,
+)
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import NOT_GIVEN, LLMContext, NotGiven
@@ -216,13 +222,12 @@ async def create_pipeline(
             await task.queue_frames(
                 [
                     LLMMessagesAppendFrame(
-                        [
-                            {"role": "user", "content": "[A new caller has connected]"},
-                            {"role": "assistant", "content": greeting_template},
-                        ],
+                        [{"role": "user", "content": "[A new caller has connected]"}],
                         run_llm=False,
                     ),
+                    LLMFullResponseStartFrame(),
                     TextFrame(text=greeting_template),
+                    LLMFullResponseEndFrame(),
                 ]
             )
         else:

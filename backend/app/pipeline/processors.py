@@ -235,6 +235,7 @@ def _tts_preprocess(text: str, lang: str = "de") -> str:
     text = _CJK_RE.sub("", text).strip()
     text = _EMAIL_RE.sub(_expand_email, text)
     text = _PHONE_RE.sub(_expand_phone, text)
+    text = re.sub(r"(\d)\.$", r"\1", text)
     return text
 
 
@@ -475,15 +476,14 @@ class TranscriptProcessor(FrameProcessor):
                 self._conversation.add_assistant_message(fast_path)
                 await self.push_frame(
                     LLMMessagesAppendFrame(
-                        [
-                            {"role": "user", "content": text},
-                            {"role": "assistant", "content": fast_path},
-                        ],
+                        [{"role": "user", "content": text}],
                         run_llm=False,
                     ),
                     direction,
                 )
+                await self.push_frame(LLMFullResponseStartFrame(), direction)
                 await self.push_frame(TextFrame(text=fast_path), direction)
+                await self.push_frame(LLMFullResponseEndFrame(), direction)
                 return
 
             if self._filler_injector:

@@ -207,6 +207,11 @@ class TestGermanTTSPreprocessing:
         assert "你好" not in result
         assert "Guten Tag" in result
 
+    def test_phone_trailing_period_stripped(self):
+        result = _tts_preprocess("Ihre Nummer ist 151-597-30614.", lang="de")
+        assert result.endswith("4")
+        assert not result.endswith("4.")
+
     def test_english_email_uses_dot_not_punkt(self):
         result = _tts_preprocess("john@example.com", lang="en")
         assert "dot" in result

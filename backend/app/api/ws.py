@@ -73,5 +73,8 @@ async def websocket_call(websocket: WebSocket, call_id: str = "new"):
         )
 
         logger.info("[%s] Starting pipeline (tools=%s)", call_id, use_tools)
-        await runner.run(task)
+        try:
+            await runner.run(task)
+        except Exception:
+            logger.exception("[%s] Pipeline crashed", call_id)
         logger.info("[%s] Pipeline finished", call_id)
