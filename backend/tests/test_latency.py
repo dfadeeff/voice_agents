@@ -133,20 +133,21 @@ class TestFastPathDetection:
         result = proc._check_fast_path(old_phase, new_phase)
         assert result is None
 
-    def test_no_fast_path_on_subsequent_callback_turns(self):
+    def test_scripted_narration_drives_each_callback_step(self):
+        """Narration split: every callback step is spoken from state, not the LLM."""
         proc, conv = self._make_processor("de")
 
         conv.add_user_message("Ich möchte bitte Herrn Schmid sprechen.")
         assert conv.state.phase == CallPhase.CAPTURE
+        line_name = proc._check_fast_path(conv.state.phase, conv.state.phase)
+        assert line_name and "name" in line_name.lower()
+        conv.add_assistant_message(line_name)
 
-        old_phase = conv.state.phase
         conv.add_user_message("Max Mustermann")
-        new_phase = conv.state.phase
+        line_phone = proc._check_fast_path(conv.state.phase, conv.state.phase)
+        assert line_phone and ("telefon" in line_phone.lower() or "nummer" in line_phone.lower())
 
-        result = proc._check_fast_path(old_phase, new_phase)
-        assert result is None
-
-    def test_no_fast_path_when_already_in_capture(self):
+    def test_no_fast_path_when_not_callback(self):
         proc, conv = self._make_processor("de")
         result = proc._check_fast_path(CallPhase.CAPTURE, CallPhase.CAPTURE)
         assert result is None

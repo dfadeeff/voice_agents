@@ -262,6 +262,20 @@ QUALIFICATION_PROMPTS = {
 
 FILLERS = ["Einen Moment, bitte.", "Einen Augenblick.", "Einen Moment."]
 
+# Deterministic narration for fully state-determined callback steps. These are
+# spoken straight from state (no LLM), so they cannot drift, ramble, invent a
+# phone number, or claim a time the caller never gave.
+SCRIPTED = {
+    "team": "das Kanzleiteam",
+    "ask_name": ("Gerne nehme ich Ihren Rückrufwunsch auf. Wie ist Ihr Name, bitte?"),
+    "ask_phone": ("Vielen Dank. Unter welcher Telefonnummer können wir Sie erreichen?"),
+    "confirm_phone": ("Ich habe Ihre Nummer notiert: {phone}. Ist das korrekt?"),
+    "callback_done": (
+        "Vielen Dank. Ich habe Ihren Rückrufwunsch aufgenommen. "
+        "{person} wird sich zeitnah bei Ihnen melden. Auf Wiederhören!"
+    ),
+}
+
 FAST_PATH_RESPONSES = {
     "greeting": (
         "Hallo, ich bin Claudia, die KI-Anrufannahme der Kanzlei. "

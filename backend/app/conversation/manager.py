@@ -99,6 +99,11 @@ _AREA_DENIAL_RE = re.compile(
     r"no|that'?s\s+(?:not\s+right|wrong)|incorrect)\b",
     re.IGNORECASE,
 )
+# Affirmation in reply to a read-back ("ja, stimmt", "korrekt", "passt").
+_CONFIRM_YES_RE = re.compile(
+    r"\b(?:ja|jawohl|genau|korrekt|stimmt|richtig|passt|yes|correct|right)\b",
+    re.IGNORECASE,
+)
 
 
 def _extract_reference(text: str) -> str | None:
@@ -186,8 +191,27 @@ class ConversationManager:
         # question still gets asked; capture it on later turns / handoffs instead.
         if not just_routed:
             self._try_capture_matter_type(text)
+        self._try_confirm_readback(text)
         captured_insurance = self._try_capture_insurance(text)
         self._try_capture_contact(text, skip_phone=captured_insurance)
+
+    def _try_confirm_readback(self, text: str) -> None:
+        """Handle the caller's reply to a scripted phone read-back.
+
+        'Ja, stimmt' confirms the number; a denial drops it so it is asked again
+        (a re-stated number is then re-captured from the same turn).
+        """
+        if not self.state.callback_requested:
+            return
+        phone = self.state.entities.get("phone")
+        if not phone or phone.confirmed:
+            return
+        lowered = text.lower()
+        if _AREA_DENIAL_RE.search(lowered):
+            del self.state.entities["phone"]
+            self.advance_phase()
+        elif _CONFIRM_YES_RE.search(lowered):
+            self.confirm_entity("phone")
 
     def _recent_agent_text(self) -> str:
         for msg in reversed(self.state.messages):

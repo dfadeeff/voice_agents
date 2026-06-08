@@ -237,6 +237,20 @@ QUALIFICATION_PROMPTS = {
 
 FILLERS = ["One moment, please.", "Just a moment.", "One moment."]
 
+# Deterministic narration for fully state-determined callback steps. Spoken
+# straight from state (no LLM), so they cannot drift, ramble, invent a phone
+# number, or claim a time the caller never gave.
+SCRIPTED = {
+    "team": "the team",
+    "ask_name": ("I'll take down your callback request. What is your name, please?"),
+    "ask_phone": ("Thank you. What is the best phone number to reach you?"),
+    "confirm_phone": ("I've noted your number: {phone}. Is that correct?"),
+    "callback_done": (
+        "Thank you. I've recorded your callback request. "
+        "{person} will get back to you shortly. Goodbye!"
+    ),
+}
+
 FAST_PATH_RESPONSES = {
     "greeting": (
         "Thank you for calling our firm. "

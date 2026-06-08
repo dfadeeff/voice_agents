@@ -29,6 +29,7 @@ from pipecat.processors.aggregators.sentence import match_endofsentence
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 from app.conversation.locales import get_locale
+from app.conversation.script import scripted_line
 from app.models.schemas import CallPhase
 
 if TYPE_CHECKING:
@@ -468,18 +469,9 @@ class TranscriptProcessor(FrameProcessor):
         self._filler_injector = filler_injector
 
     def _check_fast_path(self, old_phase: CallPhase, new_phase: CallPhase) -> str | None:
-        state = self._conversation.state
-        locale = get_locale(self._conversation.lang)
-        responses = getattr(locale, "FAST_PATH_RESPONSES", {})
-
-        if (
-            state.callback_requested
-            and old_phase != CallPhase.CAPTURE
-            and new_phase == CallPhase.CAPTURE
-        ):
-            return responses.get("callback_ask_name")
-
-        return None
+        # Narration split: callback steps are fully state-determined, so speak them
+        # from a template and skip the LLM (it cannot drift/hallucinate here).
+        return scripted_line(self._conversation.state, self._conversation.lang)
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)

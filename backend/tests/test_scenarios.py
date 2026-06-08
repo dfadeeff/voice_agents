@@ -715,3 +715,49 @@ class TestAutoRouting:
         ctx.add_user_message("Mein Arbeitgeber hat einen Unfall verursacht.")
         assert ctx.state.legal_area == LegalArea.UNKNOWN
         assert ctx.state.phase == CallPhase.ROUTING
+
+
+class TestNarrationSplit:
+    """Callback steps are narrated deterministically from state (no LLM drift)."""
+
+    def _line(self, ctx):
+        from app.conversation.script import scripted_line
+
+        return scripted_line(ctx.state, "de")
+
+    def test_full_callback_scripted_flow(self):
+        ctx = ConversationManager(call_id="ns", lang="de")
+        ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
+        assert "name" in self._line(ctx).lower()
+        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_user_message("Daniel Stein")
+        assert "nummer" in self._line(ctx).lower()
+        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_user_message("0151 598 32614")
+        # Read-back contains the REAL captured number, never an invented one.
+        line = self._line(ctx)
+        assert "+4915159832614" in line
+        ctx.add_assistant_message(line)
+        ctx.add_user_message("Ja, das stimmt")
+        assert ctx.state.entities["phone"].confirmed is True
+        # Final line names the requested person, no invented time.
+        done = self._line(ctx)
+        assert "Schulz" in done
+        assert "Uhr" not in done
+
+    def test_denial_reasks_phone(self):
+        ctx = ConversationManager(call_id="ns2", lang="de")
+        ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
+        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_user_message("Daniel Stein")
+        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_user_message("0151 598 32614")
+        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_user_message("Nein, das ist falsch")
+        assert "phone" not in ctx.state.entities
+        assert "nummer" in self._line(ctx).lower()
+
+    def test_non_callback_uses_llm(self):
+        ctx = ConversationManager(call_id="ns3", lang="de")
+        ctx.add_user_message("Ich hatte einen Unfall")
+        assert self._line(ctx) is None
