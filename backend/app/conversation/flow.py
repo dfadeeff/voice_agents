@@ -13,7 +13,7 @@ CALLBACK_REQUIRED_FIELDS = ("name", "phone")
 PHASE_TOOLS: dict[CallPhase, list[str]] = {
     CallPhase.GREETING: [],
     CallPhase.ROUTING: ["route_call", "request_handoff"],
-    CallPhase.QUALIFICATION: ["capture_caller_details", "request_handoff"],
+    CallPhase.QUALIFICATION: ["capture_caller_details", "route_call", "request_handoff"],
     CallPhase.INFORMATION: ["route_call", "request_handoff"],
     CallPhase.CAPTURE: ["capture_caller_details", "confirm_caller_detail", "request_handoff"],
     CallPhase.BOOKING: ["check_availability", "book_consultation", "request_handoff"],

@@ -76,7 +76,9 @@ PHASE_PROMPTS: dict[CallPhase, str] = {
     ),
     CallPhase.CAPTURE: (
         "Erfasse die Kontaktdaten — ein Feld nach dem anderen.\n"
-        "- Frage zuerst den Namen.\n"
+        "- Frage zuerst nach dem Namen, ganz natürlich, "
+        "z.B. 'Darf ich zunächst Ihren Namen aufnehmen?' "
+        "oder 'Wie ist Ihr Name, bitte?'\n"
         "- Danach frage nach der E-Mail-Adresse.\n"
         "- Zuletzt frage nach der Telefonnummer.\n"
         "- Nutze capture_caller_details für jede Information.\n"
@@ -176,12 +178,15 @@ FRAGMENTS = {
 
 QUALIFICATION_PROMPTS = {
     "employment_type": (
-        "Der Anrufer hat ein arbeitsrechtliches Anliegen.\n"
-        "Frage: 'Verstanden, es geht um ein arbeitsrechtliches Thema. "
+        "Der Anrufer hat vermutlich ein arbeitsrechtliches Anliegen.\n"
+        "Frage ZUERST zur Bestätigung und stelle dann die Sachfrage in EINEM Satz: "
+        "'Habe ich Sie richtig verstanden, dass es um ein arbeitsrechtliches Thema geht? "
         "Handelt es sich um eine Kündigung, eine Abmahnung, "
         "einen Lohnstreit oder ein anderes Problem mit Ihrem Arbeitgeber?'\n"
         "- Speichere die Antwort mit capture_caller_details und matter_type.\n"
         "- Gültige Werte: 'dismissal', 'warning', 'wages', 'contract', 'other'.\n"
+        "- Falls der Anrufer das Rechtsgebiet verneint (es geht um etwas anderes), "
+        "rufe route_call mit dem richtigen legal_area auf.\n"
         "- WICHTIG: Der Anrufer antwortet auf deine Sachfrage. "
         "Speichere NUR matter_type — NICHT den Namen des Anrufers.\n"
         "- Stelle KEINE rechtlichen Detailfragen."
@@ -195,12 +200,15 @@ QUALIFICATION_PROMPTS = {
         "- Fasse kurz zusammen, was du bisher verstanden hast."
     ),
     "tenancy_type": (
-        "Der Anrufer hat ein mietrechtliches Anliegen.\n"
-        "Frage: 'Verstanden, es geht um ein mietrechtliches Thema. "
+        "Der Anrufer hat vermutlich ein mietrechtliches Anliegen.\n"
+        "Frage ZUERST zur Bestätigung und stelle dann die Sachfrage in EINEM Satz: "
+        "'Habe ich Sie richtig verstanden, dass es um ein mietrechtliches Thema geht? "
         "Handelt es sich um eine Kündigung der Wohnung, Probleme mit der Kaution, "
         "Mängel in der Wohnung oder ein anderes Problem mit Ihrem Vermieter?'\n"
         "- Speichere die Antwort mit capture_caller_details und matter_type.\n"
         "- Gültige Werte: 'eviction', 'deposit', 'rent_increase', 'repairs', 'other'.\n"
+        "- Falls der Anrufer das Rechtsgebiet verneint (es geht um etwas anderes), "
+        "rufe route_call mit dem richtigen legal_area auf.\n"
         "- WICHTIG: Der Anrufer antwortet auf deine Sachfrage. "
         "Speichere NUR matter_type — NICHT den Namen des Anrufers.\n"
         "- Stelle KEINE rechtlichen Detailfragen."
@@ -213,12 +221,15 @@ QUALIFICATION_PROMPTS = {
         "- Fasse kurz zusammen, was du bisher verstanden hast."
     ),
     "traffic_type": (
-        "Der Anrufer hat ein verkehrsrechtliches Anliegen.\n"
-        "Frage: 'Verstanden, es geht um ein verkehrsrechtliches Thema. "
+        "Der Anrufer hat vermutlich ein verkehrsrechtliches Anliegen.\n"
+        "Frage ZUERST zur Bestätigung und stelle dann die Sachfrage in EINEM Satz: "
+        "'Habe ich Sie richtig verstanden, dass es um ein verkehrsrechtliches Thema geht? "
         "Handelt es sich um einen Verkehrsunfall, einen Kfz-Schaden "
         "oder ein Problem mit einer Versicherung?'\n"
         "- Speichere die Antwort mit capture_caller_details und matter_type.\n"
         "- Gültige Werte: 'accident', 'damage', 'insurance', 'other'.\n"
+        "- Falls der Anrufer das Rechtsgebiet verneint (es geht um etwas anderes), "
+        "rufe route_call mit dem richtigen legal_area auf.\n"
         "- WICHTIG: Der Anrufer antwortet auf deine Sachfrage. "
         "Speichere NUR matter_type — NICHT den Namen des Anrufers.\n"
         "- Stelle KEINE rechtlichen Detailfragen."

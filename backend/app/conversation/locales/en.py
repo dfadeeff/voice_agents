@@ -60,7 +60,8 @@ PHASE_PROMPTS: dict[CallPhase, str] = {
     ),
     CallPhase.CAPTURE: (
         "Collect contact details — one field at a time.\n"
-        "- Ask for name first.\n"
+        "- Ask for the name first, naturally, "
+        "e.g. 'May I take your name first?' or 'What's your name, please?'\n"
         "- Then ask for email address.\n"
         "- Then ask for phone number.\n"
         "- Use capture_caller_details for each piece of information.\n"
@@ -154,12 +155,15 @@ FRAGMENTS = {
 
 QUALIFICATION_PROMPTS = {
     "employment_type": (
-        "The caller has an employment law issue.\n"
-        "Ask: 'I understand, this is about an employment matter. "
+        "The caller likely has an employment law issue.\n"
+        "FIRST confirm the area, then ask the matter question in ONE sentence: "
+        "'Did I understand correctly that this is about an employment matter? "
         "Is it mainly about a dismissal, a warning, a wage dispute, "
         "or another issue with your employer?'\n"
         "- Store the answer using capture_caller_details with matter_type.\n"
         "- Valid values: 'dismissal', 'warning', 'wages', 'contract', 'other'.\n"
+        "- If the caller says it's NOT this area (it's about something else), "
+        "call route_call with the correct legal_area.\n"
         "- IMPORTANT: The caller is answering your question about the issue. "
         "Store ONLY matter_type — NOT the caller's name.\n"
         "- Do NOT ask detailed legal questions."
@@ -172,12 +176,15 @@ QUALIFICATION_PROMPTS = {
         "- Briefly summarise what you've understood so far."
     ),
     "tenancy_type": (
-        "The caller has a tenancy law issue.\n"
-        "Ask: 'I understand, this is about a tenancy matter. "
+        "The caller likely has a tenancy law issue.\n"
+        "FIRST confirm the area, then ask the matter question in ONE sentence: "
+        "'Did I understand correctly that this is about a tenancy matter? "
         "Is it mainly about an eviction, a deposit issue, "
         "problems with repairs, or another issue with your landlord?'\n"
         "- Store the answer using capture_caller_details with matter_type.\n"
         "- Valid values: 'eviction', 'deposit', 'rent_increase', 'repairs', 'other'.\n"
+        "- If the caller says it's NOT this area (it's about something else), "
+        "call route_call with the correct legal_area.\n"
         "- IMPORTANT: The caller is answering your question about the issue. "
         "Store ONLY matter_type — NOT the caller's name.\n"
         "- Do NOT ask detailed legal questions."
@@ -190,12 +197,15 @@ QUALIFICATION_PROMPTS = {
         "- Briefly summarise what you've understood so far."
     ),
     "traffic_type": (
-        "The caller has a traffic law issue.\n"
-        "Ask: 'I understand, this is about a traffic matter. "
+        "The caller likely has a traffic law issue.\n"
+        "FIRST confirm the area, then ask the matter question in ONE sentence: "
+        "'Did I understand correctly that this is about a traffic matter? "
         "Is it mainly about an accident, vehicle damage, "
         "or an issue with an insurance company?'\n"
         "- Store the answer using capture_caller_details with matter_type.\n"
         "- Valid values: 'accident', 'damage', 'insurance', 'other'.\n"
+        "- If the caller says it's NOT this area (it's about something else), "
+        "call route_call with the correct legal_area.\n"
         "- IMPORTANT: The caller is answering your question about the issue. "
         "Store ONLY matter_type — NOT the caller's name.\n"
         "- Do NOT ask detailed legal questions."
