@@ -6,7 +6,7 @@ from app.config import Settings
 from app.conversation.locales import get_locale
 from app.conversation.manager import ConversationManager
 from app.models.schemas import CallPhase
-from app.pipeline.processors import CallLogger, TranscriptProcessor
+from app.pipeline.processors import CallLogger, FillerInjector, TranscriptProcessor
 
 # ---------------------------------------------------------------------------
 # Whisper tuning config
@@ -32,6 +32,15 @@ class TestWhisperConfig:
         s = Settings(_env_file=None)
         assert s.whisper_vad_filter is True
 
+    def test_default_filler_delay(self):
+        s = Settings(_env_file=None)
+        assert s.filler_delay_ms == 1500
+
+    def test_filler_delay_from_env(self, monkeypatch):
+        monkeypatch.setenv("FILLER_DELAY_MS", "0")
+        s = Settings(_env_file=None)
+        assert s.filler_delay_ms == 0
+
 
 # ---------------------------------------------------------------------------
 # Filler injection
@@ -50,14 +59,11 @@ class TestFillers:
         assert len(locale.FILLERS) >= 2
 
     def test_filler_rotation(self):
-        ws = AsyncMock()
-        logger = CallLogger("filler-test")
         conv = ConversationManager(call_id="filler-test", lang="de")
-
-        proc = TranscriptProcessor(ws, logger, conv)
+        injector = FillerInjector(conversation=conv, delay_s=1.5)
         fillers = []
         for _ in range(6):
-            fillers.append(proc._get_filler())
+            fillers.append(injector._get_filler())
 
         assert fillers[0] != fillers[1]
         assert fillers[0] == fillers[3]
@@ -66,6 +72,14 @@ class TestFillers:
 # ---------------------------------------------------------------------------
 # Fast path responses
 # ---------------------------------------------------------------------------
+
+
+class TestFillerInjector:
+    def test_no_task_when_delay_zero(self):
+        conv = ConversationManager(call_id="test", lang="de")
+        injector = FillerInjector(conversation=conv, delay_s=0)
+        injector.start_filler_timer()
+        assert injector._filler_task is None
 
 
 class TestFastPathResponses:

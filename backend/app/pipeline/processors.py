@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -16,6 +17,7 @@ from pipecat.frames.frames import (
     InterimTranscriptionFrame,
     InterruptionFrame,
     LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
     LLMMessagesAppendFrame,
     MetricsFrame,
     TextFrame,
@@ -346,6 +348,64 @@ class MetricsProcessor(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
+class FillerInjector(FrameProcessor):
+    """Injects a filler utterance if the LLM takes too long to respond.
+
+    Sits between the LLM and PreTTSSanitizer. TranscriptProcessor starts
+    the timer on each user turn; if the LLM emits LLMFullResponseStartFrame
+    before the timer fires, the filler is cancelled.
+    """
+
+    def __init__(
+        self,
+        conversation: ConversationManager,
+        delay_s: float = 1.5,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self._conversation = conversation
+        self._delay_s = delay_s
+        self._filler_index = 0
+        self._filler_task: asyncio.Task[None] | None = None
+
+    def _get_filler(self) -> str:
+        locale = get_locale(self._conversation.lang)
+        fillers = getattr(locale, "FILLERS", ["Mhm."])
+        filler = fillers[self._filler_index % len(fillers)]
+        self._filler_index += 1
+        return filler
+
+    def start_filler_timer(self) -> None:
+        self._cancel_filler()
+        if self._delay_s > 0:
+            self._filler_task = asyncio.get_event_loop().create_task(self._delayed_filler())
+
+    def _cancel_filler(self) -> None:
+        if self._filler_task and not self._filler_task.done():
+            self._filler_task.cancel()
+            self._filler_task = None
+
+    async def _delayed_filler(self) -> None:
+        try:
+            await asyncio.sleep(self._delay_s)
+            filler = self._get_filler()
+            logger.info("FILLER: %s", filler)
+            await self.push_frame(TextFrame(text=filler), FrameDirection.DOWNSTREAM)
+        except asyncio.CancelledError:
+            pass
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+
+        if isinstance(frame, LLMFullResponseStartFrame):
+            self._cancel_filler()
+
+        if isinstance(frame, InterruptionFrame):
+            self._cancel_filler()
+
+        await self.push_frame(frame, direction)
+
+
 class TranscriptProcessor(FrameProcessor):
     """Sits between STT and UserAggregator. Sends user transcriptions to
     the frontend via the websocket (the output transport only serializes audio).
@@ -356,20 +416,14 @@ class TranscriptProcessor(FrameProcessor):
         websocket,
         call_logger: CallLogger,
         conversation: ConversationManager,
+        filler_injector: FillerInjector | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self._ws = websocket
         self._logger = call_logger
         self._conversation = conversation
-        self._filler_index = 0
-
-    def _get_filler(self) -> str:
-        locale = get_locale(self._conversation.lang)
-        fillers = getattr(locale, "FILLERS", ["Mhm."])
-        filler = fillers[self._filler_index % len(fillers)]
-        self._filler_index += 1
-        return filler
+        self._filler_injector = filler_injector
 
     def _check_fast_path(self, old_phase: CallPhase, new_phase: CallPhase) -> str | None:
         state = self._conversation.state
@@ -432,9 +486,8 @@ class TranscriptProcessor(FrameProcessor):
                 await self.push_frame(TextFrame(text=fast_path), direction)
                 return
 
-            filler = self._get_filler()
-            logger.info("FILLER: %s", filler)
-            await self.push_frame(TextFrame(text=filler), direction)
+            if self._filler_injector:
+                self._filler_injector.start_filler_timer()
 
         await self.push_frame(frame, direction)
 

@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     sample_rate: int = 16000
     vad_threshold: float = 0.5
     silence_timeout_ms: int = 700
+    filler_delay_ms: int = 1500
 
     host: str = "0.0.0.0"
     port: int = 8000

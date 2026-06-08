@@ -29,6 +29,7 @@ from app.conversation.prompts import build_system_prompt
 from app.pipeline.processors import (
     AgentTextProcessor,
     CallLogger,
+    FillerInjector,
     MetricsProcessor,
     PreTTSSanitizer,
     TranscriptProcessor,
@@ -168,7 +169,13 @@ async def create_pipeline(
 
     call_logger = CallLogger(conversation.state.call_id)
     metrics_proc = MetricsProcessor(call_logger)
-    transcript_proc = TranscriptProcessor(websocket, call_logger, conversation)
+    filler_injector = FillerInjector(
+        conversation=conversation,
+        delay_s=settings.filler_delay_ms / 1000,
+    )
+    transcript_proc = TranscriptProcessor(
+        websocket, call_logger, conversation, filler_injector=filler_injector
+    )
     pre_tts_sanitizer = PreTTSSanitizer(lang=lang, tool_names=tool_names, conversation=conversation)
     agent_text_proc = AgentTextProcessor(
         websocket, call_logger, lang=lang, tool_names=tool_names, conversation=conversation
@@ -181,6 +188,7 @@ async def create_pipeline(
             transcript_proc,
             context_aggregator.user(),
             llm_service,
+            filler_injector,
             pre_tts_sanitizer,
             tts_service,
             agent_text_proc,
