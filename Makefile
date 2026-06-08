@@ -15,6 +15,9 @@ models:
 seed:
 	cd backend && python3 scripts/seed_calendar.py
 
+calendar-full:
+	cd backend && python3 scripts/fill_calendar.py
+
 run:
 	cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
