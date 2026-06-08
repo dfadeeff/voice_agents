@@ -258,6 +258,12 @@ def _tts_preprocess(text: str, lang: str = "de") -> str:
 
     text = _THINK_RE.sub("", text).strip()
     text = _CJK_RE.sub("", text).strip()
+    if lang == "de":
+        # The model sometimes slips into English honorifics ("Mr. Steinmeier").
+        # Germanize them while keeping its gender guess. Mrs/Ms first so the
+        # shorter "Mr" pattern can't claim them.
+        text = re.sub(r"\b(?:Mrs|Ms)\.?\s+", "Frau ", text)
+        text = re.sub(r"\bMr\.?\s+", "Herr ", text)
     text = _EMAIL_RE.sub(_expand_email, text)
     text = _PHONE_RE.sub(_expand_phone, text)
     text = re.sub(r"(\d)\.$", r"\1", text)

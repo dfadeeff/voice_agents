@@ -57,6 +57,16 @@ _INSURANCE_ASK_RE = re.compile(
 )
 _REF_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9\-/]*")
 
+# Affirmation / negation cues for "Habe ich richtig verstanden …?" confirmations.
+_AFFIRM_RE = re.compile(
+    r"\b(?:ja|jawohl|genau|korrekt|stimmt|richtig|exakt|yes|correct|right|exactly)\b",
+    re.IGNORECASE,
+)
+_NEGATE_RE = re.compile(
+    r"\b(?:nein|nicht|falsch|kein|keine|nö|nee|no|wrong|incorrect)\b",
+    re.IGNORECASE,
+)
+
 
 def _extract_reference(text: str) -> str | None:
     """Pull an insurance/claim reference (≥5 alphanumerics, digit-bearing) from text.
@@ -188,10 +198,22 @@ class ConversationManager:
         lowered = text.lower()
         for value, keywords in keyword_map:
             if any(kw in lowered for kw in keywords):
-                logger.info("Deterministic capture (LLM fallback): matter_type=%r", value)
-                self.update_and_confirm_entity("matter_type", value)
-                self._update_llm_context()
+                self._store_matter_type(value)
                 return
+        # The caller may confirm the area question ("Ja, das ist korrekt") without
+        # repeating the keyword — derive the type from the original complaint so we
+        # don't re-ask the same question.
+        if _AFFIRM_RE.search(lowered) and not _NEGATE_RE.search(lowered):
+            summary = (self.state.matter_summary or "").lower()
+            for value, keywords in keyword_map:
+                if any(kw in summary for kw in keywords):
+                    self._store_matter_type(value)
+                    return
+
+    def _store_matter_type(self, value: str) -> None:
+        logger.info("Deterministic capture (LLM fallback): matter_type=%r", value)
+        self.update_and_confirm_entity("matter_type", value)
+        self._update_llm_context()
 
     def _try_capture_contact(self, text: str, skip_phone: bool = False) -> None:
         """Deterministic fallback for name/phone when the LLM skips the tool.

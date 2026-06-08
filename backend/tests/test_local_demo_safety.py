@@ -176,6 +176,13 @@ class TestPreTTSSanitizer:
         san = self._make_sanitizer()
         assert san._strip_think("<think>reasoning</think>Hallo") == "Hallo"
 
+    def test_germanizes_english_honorifics(self):
+        san = self._make_sanitizer()
+        assert "Herr Steinmeier" in san._sanitize("Vielen Dank, Mr. Steinmeier.")
+        assert "Mr." not in san._sanitize("Vielen Dank, Mr. Steinmeier.")
+        assert "Frau Sommer" in san._sanitize("Guten Tag, Mrs. Sommer!")
+        assert "Frau Landau" in san._sanitize("Hallo Ms. Landau.")
+
     def test_strips_think_tags_across_chunks(self):
         san = self._make_sanitizer()
         assert san._strip_think("<think>start of thought") == ""

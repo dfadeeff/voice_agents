@@ -182,6 +182,21 @@ class TestDeterministicMatterType:
         ctx.add_user_message("Ein Verkehrsunfall, die Versicherung macht Probleme")
         assert ctx.state.entities["matter_type"].value == "accident"
 
+    def test_bare_yes_confirmation_captures_from_complaint(self):
+        """Regression: 'Ja, das ist korrekt' must capture the type so the agent
+        does not re-ask the same area-confirmation question."""
+        ctx = ConversationManager(call_id="mt-yes", lang="de")
+        ctx.add_user_message("Ich hatte ein Unfall")
+        assert "matter_type" not in ctx.state.entities  # confirmation still asked
+        ctx.add_user_message("Ja, das ist korrekt.")
+        assert ctx.state.entities["matter_type"].value == "accident"
+
+    def test_negative_confirmation_captures_nothing(self):
+        ctx = ConversationManager(call_id="mt-no", lang="de")
+        ctx.add_user_message("Ich hatte ein Unfall")
+        ctx.add_user_message("Nein, das stimmt nicht")
+        assert "matter_type" not in ctx.state.entities
+
 
 class TestContextAwareInsuranceCapture:
     """insurance_number is captured only when the agent just asked for it."""
