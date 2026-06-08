@@ -59,6 +59,20 @@ _TECHNICAL_LEAK_RE = re.compile(
 _INTERNAL_JSON_OBJECT_RE = re.compile(r"\{[^{}]*\}", re.DOTALL)
 _INTERNAL_JSON_ARRAY_RE = re.compile(r"\[[^\[\]]*\]", re.DOTALL)
 _INTERNAL_ONLY_RE = re.compile(r"^\s*(?:\{.*\}|\[.*\])\s*[.!?]?\s*$", re.DOTALL)
+
+# A lowercase snake_case identifier (2+ underscore-joined parts) optionally
+# trailed by a call payload like {…} or (…). Natural German/English speech never
+# contains snake_case, so any such token is a leaked (or garbled) tool/arg name —
+# e.g. "roring_caller_details {...}" (a mangled capture_caller_details). The
+# lookbehind/lookahead protect email local-parts like "fade_jeff@gmail.com".
+_SNAKE_IDENT_RE = re.compile(
+    r"(?<![\w@.])[a-z][a-z0-9]*(?:_[a-z0-9]+)+(?![\w@])(?:\s*[({][^)}]*[)}]?)?"
+)
+# An unfilled template placeholder such as [preferred_date], {name}, <feld>.
+# Real JSON args ({"k": "v"}) start with a quote, so they don't match here.
+_PLACEHOLDER_RE = re.compile(r"[\[{<]\s*[a-z][a-z0-9 _]*[\]}>]")
+# A sentence has speakable content only if it contains a real word (2+ letters).
+_HAS_WORD_RE = re.compile(r"[A-Za-zÄÖÜäöüß]{2,}")
 _IMPOSSIBLE_HANDOFF_DE_RE = re.compile(
     r"\b(?:ich\s+)?(?:verbinde\s+sie|stelle\s+sie\s+durch|leite\s+sie\s+weiter)\b",
     re.IGNORECASE,
@@ -148,6 +162,12 @@ class PreTTSSanitizer(FrameProcessor):
         if _INTERNAL_ONLY_RE.match(text):
             logger.warning("Dropped internal-only LLM output before TTS: %r", text)
             return ""
+        # An unfilled template placeholder ([preferred_date], {name}) means the
+        # LLM emitted a template it never filled. Stripping the token leaves
+        # broken grammar ("Am liebsten am  um?"), so drop the whole sentence.
+        if _PLACEHOLDER_RE.search(text):
+            logger.warning("Dropped sentence with unfilled placeholder before TTS: %r", text)
+            return ""
         guarded = _guard_impossible_handoff(text, self._lang)
         if guarded != text:
             return _tts_preprocess(guarded, self._lang)
@@ -156,12 +176,17 @@ class PreTTSSanitizer(FrameProcessor):
         text = _INTERNAL_JSON_ARRAY_RE.sub("", text)
         if self._tool_re:
             text = self._tool_re.sub("", text)
+        text = _SNAKE_IDENT_RE.sub("", text)
         text = _JSON_LEAK_RE.sub("", text)
         text = _TECHNICAL_LEAK_RE.sub("", text)
         text = re.sub(r"\s+", " ", text).strip()
         text = re.sub(r"^[\-–—.,\s]+", "", text)
         text = re.sub(r"\s+([,.;:!?])", r"\1", text)
         text = re.sub(r"([.!?])(?:\s*[.!?])+", r"\1", text)
+        # If stripping internal tokens left no real word, it was all leakage.
+        if text and not _HAS_WORD_RE.search(text):
+            logger.warning("Dropped non-speakable residue before TTS: %r", original)
+            return ""
         text = _guard_false_booking(text, self._booking_confirmed)
         text = _tts_preprocess(text, self._lang)
         if text != original.strip():

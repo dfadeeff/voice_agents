@@ -211,6 +211,36 @@ class TestPreTTSSanitizer:
         assert "verbinde" not in cleaned.lower()
         assert "Rückrufwunsch" in cleaned
 
+    def test_drops_garbled_tool_name_with_payload(self):
+        """Real bug: LLM leaked a mangled capture_caller_details as spoken text.
+
+        The exact-name denylist missed 'roring_caller_details' because it isn't
+        an exact tool name. The snake_case pattern catches it regardless.
+        """
+        san = self._make_sanitizer(["capture_caller_details"])
+        assert san._sanitize('roring_caller_details {"matter_type": "accident"}') == ""
+
+    def test_drops_bare_snake_case_identifier(self):
+        san = self._make_sanitizer()
+        assert san._sanitize("preferred_date") == ""
+
+    def test_drops_unfilled_placeholder_sentence(self):
+        """Real bug: 'Am liebsten am [preferred_date] um [preferred_time]?'."""
+        san = self._make_sanitizer()
+        assert san._sanitize("Am liebsten am [preferred_date] um [preferred_time]?") == ""
+
+    def test_preserves_email_with_underscore(self):
+        """snake_case stripping must NOT eat an email local-part like fade_jeff."""
+        san = self._make_sanitizer(["capture_caller_details"])
+        cleaned = san._sanitize("Ihre E-Mail ist fade_jeff@gmail.com, korrekt?")
+        assert "fade_jeff" in cleaned or "fade" in cleaned
+        assert "korrekt" in cleaned
+
+    def test_preserves_normal_german_sentence(self):
+        san = self._make_sanitizer(["capture_caller_details", "route_call"])
+        text = "Habe ich Sie richtig verstanden, dass es um ein Verkehrsunfall geht?"
+        assert san._sanitize(text) == text
+
     @pytest.mark.asyncio
     async def test_strips_tool_name_split_across_streamed_chunks(self):
         san = self._make_sanitizer(["classify_legal_area"])
