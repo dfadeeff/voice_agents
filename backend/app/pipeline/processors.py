@@ -38,6 +38,10 @@ logger = logging.getLogger(__name__)
 
 _PHONE_RE = re.compile(r"(?<!\w)[+]?[\d][\d\s\-]{3,}[\d](?!\w)")
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
+# An alphanumeric reference (insurance/claim number) — has both a letter and a
+# digit, 5+ chars. Spelled out char-by-char so TTS doesn't read "F62415723" as a
+# giant number. Pure-digit strings are handled by _PHONE_RE instead.
+_REF_CODE_RE = re.compile(r"\b(?=[A-Za-z0-9]*[A-Za-z])(?=[A-Za-z0-9]*\d)[A-Za-z0-9]{5,}\b")
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _CJK_RE = re.compile(r"[⺀-鿿豈-﫿︰-﹏\U00020000-\U0002FA1F]+")
 
@@ -179,6 +183,10 @@ class PreTTSSanitizer(FrameProcessor):
         text = _SNAKE_IDENT_RE.sub("", text)
         text = _JSON_LEAK_RE.sub("", text)
         text = _TECHNICAL_LEAK_RE.sub("", text)
+        # Scars left by stripped tool calls: empty brackets and orphan dashes
+        # (e.g. "…8, 9()-Ich werde…" → "…8, 9 Ich werde…").
+        text = re.sub(r"[(){}\[\]]+", " ", text)
+        text = re.sub(r"(^|\s)[-–—]+\s*", r"\1", text)
         text = re.sub(r"\s+", " ", text).strip()
         text = re.sub(r"^[\-–—.,\s]+", "", text)
         text = re.sub(r"\s+([,.;:!?])", r"\1", text)
@@ -265,6 +273,8 @@ def _tts_preprocess(text: str, lang: str = "de") -> str:
         text = re.sub(r"\b(?:Mrs|Ms)\.?\s+", "Frau ", text)
         text = re.sub(r"\bMr\.?\s+", "Herr ", text)
     text = _EMAIL_RE.sub(_expand_email, text)
+    text = _REF_CODE_RE.sub(lambda m: ", ".join(m.group(0)), text)
+    text = re.sub(r"(?<=\d)\s*/\s*(?=\d)", " ", text)
     text = _PHONE_RE.sub(_expand_phone, text)
     text = re.sub(r"(\d)\.$", r"\1", text)
     return text

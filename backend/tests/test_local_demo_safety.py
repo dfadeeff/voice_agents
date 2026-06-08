@@ -186,6 +186,17 @@ class TestPreTTSSanitizer:
         assert "Frau Sommer" in san._sanitize("Guten Tag, Mrs. Sommer!")
         assert "Frau Landau" in san._sanitize("Hallo Ms. Landau.")
 
+    def test_spells_out_alphanumeric_reference(self):
+        san = self._make_sanitizer()
+        out = san._sanitize("Ich notiere Ihre Versicherungsnummer: F62415723")
+        assert "F, 6, 2, 4, 1, 5, 7, 2, 3" in out
+
+    def test_strips_tool_call_scars(self):
+        san = self._make_sanitizer(tool_names=["confirm_caller_detail"])
+        out = san._sanitize("Nummer: 0711()-Ich werde Herrn Schulz informieren.")
+        assert "()" not in out
+        assert "-Ich" not in out
+
     def test_strips_think_tags_across_chunks(self):
         san = self._make_sanitizer()
         assert san._strip_think("<think>start of thought") == ""

@@ -136,6 +136,10 @@ CALLBACK_PROMPTS: dict[CallPhase, str] = {
         "- Bei Verkehrssachen: frage auch nach der Schadensnummer oder "
         "Versicherungsnummer (insurance_number).\n"
         "- Wenn Bestandsmandant: frage nach dem Aktenzeichen (case_reference).\n"
+        "- Sprich den Anrufer mit 'Herr' oder 'Frau' und dem Nachnamen an "
+        "(z.B. 'Herr Stein'). NIEMALS nur den Vornamen, NIEMALS den vollen Namen.\n"
+        "- Erfinde NIEMALS eine Telefonnummer; lies nur zurück, was der Anrufer "
+        "tatsächlich genannt hat.\n"
         "- Maximal 1-2 kurze Sätze."
     ),
     CallPhase.CONFIRMATION: (
@@ -256,7 +260,7 @@ QUALIFICATION_PROMPTS = {
     ),
 }
 
-FILLERS = ["Mhm.", "Einen Moment.", "Verstanden."]
+FILLERS = ["Einen Moment, bitte.", "Einen Augenblick.", "Einen Moment."]
 
 FAST_PATH_RESPONSES = {
     "greeting": (

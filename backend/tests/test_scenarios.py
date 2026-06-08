@@ -141,6 +141,21 @@ class TestDeterministicContactCapture:
 
         assert ctx.state.entities["name"].value == "Herbert Wilhelm"
 
+    def test_bare_name_captured_after_agent_asks(self):
+        """Regression: caller answers 'Daniel Stein' with no 'Mein Name ist' trigger."""
+        ctx = ConversationManager(call_id="det-bare", lang="de")
+        ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
+        ctx.add_assistant_message("Gerne. Darf ich Ihren Namen erfahren?")
+        ctx.add_user_message("Daniel Stein")
+        assert ctx.state.entities["name"].value == "Daniel Stein"
+
+    def test_bare_reply_non_name_not_captured(self):
+        ctx = ConversationManager(call_id="det-bare2", lang="de")
+        ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
+        ctx.add_assistant_message("Darf ich Ihren Namen erfahren?")
+        ctx.add_user_message("Ja gerne")
+        assert "name" not in ctx.state.entities
+
 
 class TestDeterministicMatterType:
     """matter_type backfill when the caller front-loads details or the LLM skips."""
@@ -180,6 +195,14 @@ class TestDeterministicMatterType:
         ctx = ConversationManager(call_id="mt-prio", lang="de")
         ctx.add_user_message("Ich hatte einen Unfall")
         ctx.add_user_message("Ein Verkehrsunfall, die Versicherung macht Probleme")
+        assert ctx.state.entities["matter_type"].value == "accident"
+
+    def test_versicherungsnummer_mention_does_not_become_matter_type(self):
+        """Regression: mentioning 'Versicherungsnummer' must not set matter_type=insurance
+        when the original complaint was an accident."""
+        ctx = ConversationManager(call_id="mt-vsn", lang="de")
+        ctx.add_user_message("Ich hatte einen Unfall")
+        ctx.add_user_message("Ja, ich habe eine Versicherungsnummer")
         assert ctx.state.entities["matter_type"].value == "accident"
 
     def test_bare_yes_confirmation_captures_from_complaint(self):

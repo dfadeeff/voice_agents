@@ -113,6 +113,9 @@ CALLBACK_PROMPTS: dict[CallPhase, str] = {
         "- For traffic cases: also ask for the insurance claim or "
         "damage number (insurance_number).\n"
         "- If existing client: ask for their case reference (case_reference).\n"
+        "- Address the caller as 'Mr'/'Ms' + surname (e.g. 'Mr Stein'). "
+        "NEVER the first name alone, NEVER the full name.\n"
+        "- NEVER invent a phone number; only read back what the caller actually gave.\n"
         "- Maximum 1-2 short sentences."
     ),
     CallPhase.CONFIRMATION: (
@@ -232,7 +235,7 @@ QUALIFICATION_PROMPTS = {
     ),
 }
 
-FILLERS = ["Sure.", "One moment.", "Got it."]
+FILLERS = ["One moment, please.", "Just a moment.", "One moment."]
 
 FAST_PATH_RESPONSES = {
     "greeting": (

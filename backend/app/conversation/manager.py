@@ -24,6 +24,36 @@ _NAME_TRIGGER_RE = re.compile(
     re.IGNORECASE,
 )
 _CAPWORDS_RE = re.compile(r"([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){0,2})")
+# Cue that the agent's last turn asked for the name, so a bare reply ("Daniel
+# Stein") is the name even without a "Mein Name ist" trigger.
+_NAME_ASK_RE = re.compile(
+    r"\b(?:ihren?\s+namen|ihr\s+name|wie\s+(?:hei(?:ß|ss)en\s+sie|ist\s+ihr\s+name)|"
+    r"your\s+name|may\s+i\s+(?:have|take|ask)\b)",
+    re.IGNORECASE,
+)
+# Capitalised sentence-starters that are not names (guards the bare-reply path).
+_NAME_STOPWORDS = {
+    "ich",
+    "ja",
+    "nein",
+    "herr",
+    "frau",
+    "mein",
+    "meine",
+    "der",
+    "die",
+    "das",
+    "es",
+    "bitte",
+    "danke",
+    "guten",
+    "hallo",
+    "und",
+    "aber",
+    "nee",
+    "ok",
+    "okay",
+}
 
 # Keyword → matter_type per area, checked in priority order (most specific first).
 # Backfills matter_type when the caller front-loads details or the LLM skips the
@@ -57,13 +87,16 @@ _INSURANCE_ASK_RE = re.compile(
 )
 _REF_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9\-/]*")
 
-# Affirmation / negation cues for "Habe ich richtig verstanden …?" confirmations.
-_AFFIRM_RE = re.compile(
-    r"\b(?:ja|jawohl|genau|korrekt|stimmt|richtig|exakt|yes|correct|right|exactly)\b",
-    re.IGNORECASE,
-)
+# Negation cue used by the insurance step ("nein", "noch keine").
 _NEGATE_RE = re.compile(
     r"\b(?:nein|nicht|falsch|kein|keine|nö|nee|no|wrong|incorrect)\b",
+    re.IGNORECASE,
+)
+# A denial of the area-confirmation specifically (not just any negation — "ich
+# habe keine Versicherungsnummer" is not a denial of the accident).
+_AREA_DENIAL_RE = re.compile(
+    r"\b(?:nein|nö|nee|stimmt\s+nicht|nicht\s+richtig|falsch|"
+    r"no|that'?s\s+(?:not\s+right|wrong)|incorrect)\b",
     re.IGNORECASE,
 )
 
@@ -176,6 +209,11 @@ class ConversationManager:
         if not _INSURANCE_ASK_RE.search(self._recent_agent_text()):
             return False
         value = _extract_reference(text)
+        negative = bool(_NEGATE_RE.search(text.lower()))
+        if not value and not negative:
+            # Partial / unclear answer (e.g. "die lautet…"); wait for the number
+            # rather than prematurely closing the step.
+            return False
         if value:
             logger.info("Deterministic capture (LLM fallback): insurance_number=%r", value)
             self.update_and_confirm_entity("insurance_number", value)
@@ -200,17 +238,16 @@ class ConversationManager:
         if not keyword_map:
             return
         lowered = text.lower()
-        for value, keywords in keyword_map:
-            if any(kw in lowered for kw in keywords):
-                self._store_matter_type(value)
-                return
-        # The caller may confirm the area question ("Ja, das ist korrekt") without
-        # repeating the keyword — derive the type from the original complaint so we
-        # don't re-ask the same question.
-        if _AFFIRM_RE.search(lowered) and not _NEGATE_RE.search(lowered):
-            summary = (self.state.matter_summary or "").lower()
+        # Don't capture when the caller denies the area-confirmation question.
+        if _AREA_DENIAL_RE.search(lowered):
+            return
+        # Prefer the original complaint ("Ich hatte einen Unfall") over this turn's
+        # words: it is the most reliable signal and avoids mis-reading a later
+        # mention (e.g. "Versicherungsnummer") as the matter type.
+        summary = (self.state.matter_summary or "").lower()
+        for source in (summary, lowered):
             for value, keywords in keyword_map:
-                if any(kw in summary for kw in keywords):
+                if any(kw in source for kw in keywords):
                     self._store_matter_type(value)
                     return
 
@@ -218,6 +255,19 @@ class ConversationManager:
         logger.info("Deterministic capture (LLM fallback): matter_type=%r", value)
         self.update_and_confirm_entity("matter_type", value)
         self._update_llm_context()
+
+    def _extract_name(self, text: str) -> str | None:
+        """Get the caller's name from a trigger phrase, or from a bare reply when
+        the agent just asked for it (e.g. 'Daniel Stein')."""
+        trigger = _NAME_TRIGGER_RE.search(text)
+        if trigger:
+            match = _CAPWORDS_RE.match(text[trigger.end() :].strip())
+            return match.group(1).strip() if match else None
+        if _NAME_ASK_RE.search(self._recent_agent_text()):
+            match = _CAPWORDS_RE.match(text.strip())
+            if match and match.group(1).split()[0].lower() not in _NAME_STOPWORDS:
+                return match.group(1).strip()
+        return None
 
     def _try_capture_contact(self, text: str, skip_phone: bool = False) -> None:
         """Deterministic fallback for name/phone when the LLM skips the tool.
@@ -233,14 +283,11 @@ class ConversationManager:
 
         existing_name = self.state.entities.get("name")
         if not (existing_name and existing_name.confirmed):
-            trigger = _NAME_TRIGGER_RE.search(text)
-            if trigger:
-                match = _CAPWORDS_RE.match(text[trigger.end() :].strip())
-                if match:
-                    name = match.group(1).strip()
-                    logger.info("Deterministic capture (LLM fallback): name=%r", name)
-                    self.update_and_confirm_entity("name", name)
-                    captured = True
+            name = self._extract_name(text)
+            if name:
+                logger.info("Deterministic capture (LLM fallback): name=%r", name)
+                self.update_and_confirm_entity("name", name)
+                captured = True
 
         existing_phone = self.state.entities.get("phone")
         if not skip_phone and not (existing_phone and existing_phone.confirmed):
