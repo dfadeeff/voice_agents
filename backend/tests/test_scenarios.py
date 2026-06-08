@@ -757,7 +757,16 @@ class TestNarrationSplit:
         assert "phone" not in ctx.state.entities
         assert "nummer" in self._line(ctx).lower()
 
-    def test_non_callback_uses_llm(self):
+    def test_traffic_qualification_is_scripted(self):
+        """Regression: the insurance turn that leaked a tool call is now scripted."""
         ctx = ConversationManager(call_id="ns3", lang="de")
         ctx.add_user_message("Ich hatte einen Unfall")
+        assert "verkehrsrechtliches" in self._line(ctx).lower()
+        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_user_message("Ja, das ist korrekt.")
+        assert "versicherungsnummer" in self._line(ctx).lower()
+
+    def test_ambiguous_routing_uses_llm(self):
+        ctx = ConversationManager(call_id="ns4", lang="de")
+        ctx.add_user_message("Ich habe da ein Problem.")
         assert self._line(ctx) is None

@@ -124,13 +124,18 @@ class TestFastPathDetection:
         assert result is not None
         assert "name" in result.lower()
 
-    def test_no_fast_path_for_normal_routing(self):
+    def test_scripted_area_confirmation_after_routing(self):
+        """The area-confirmation question is now narrated from state, not the LLM."""
         proc, conv = self._make_processor("de")
-        old_phase = conv.state.phase
         conv.add_user_message("Ich wurde letzte Woche gekündigt.")
-        new_phase = conv.state.phase
+        result = proc._check_fast_path(conv.state.phase, conv.state.phase)
+        assert result is not None
+        assert "arbeitsrechtliches" in result.lower()
 
-        result = proc._check_fast_path(old_phase, new_phase)
+    def test_no_fast_path_for_ambiguous_routing(self):
+        proc, conv = self._make_processor("de")
+        conv.add_user_message("Ich habe da ein Problem.")  # no keyword → stays ROUTING
+        result = proc._check_fast_path(conv.state.phase, conv.state.phase)
         assert result is None
 
     def test_scripted_narration_drives_each_callback_step(self):

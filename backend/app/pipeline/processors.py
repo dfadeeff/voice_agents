@@ -76,6 +76,12 @@ _SNAKE_IDENT_RE = re.compile(
 # An unfilled template placeholder such as [preferred_date], {name}, <feld>.
 # Real JSON args ({"k": "v"}) start with a quote, so they don't match here.
 _PLACEHOLDER_RE = re.compile(r"[\[{<]\s*[a-z][a-z0-9 _]*[\]}>]")
+# A serialized tool call leaked into spoken text — e.g. '... "name": "", "arguments":'.
+# These keys never occur in real speech, so the whole sentence is dropped.
+_TOOLCALL_TEXT_RE = re.compile(
+    r"\"(?:name|arguments|parameters|function|tool_call_id|tool_calls|role|content)\"\s*:",
+    re.IGNORECASE,
+)
 # A sentence has speakable content only if it contains a real word (2+ letters).
 _HAS_WORD_RE = re.compile(r"[A-Za-zÄÖÜäöüß]{2,}")
 _IMPOSSIBLE_HANDOFF_DE_RE = re.compile(
@@ -172,6 +178,9 @@ class PreTTSSanitizer(FrameProcessor):
         # broken grammar ("Am liebsten am  um?"), so drop the whole sentence.
         if _PLACEHOLDER_RE.search(text):
             logger.warning("Dropped sentence with unfilled placeholder before TTS: %r", text)
+            return ""
+        if _TOOLCALL_TEXT_RE.search(text):
+            logger.warning("Dropped leaked tool-call JSON before TTS: %r", text)
             return ""
         guarded = _guard_impossible_handoff(text, self._lang)
         if guarded != text:

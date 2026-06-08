@@ -267,6 +267,22 @@ FILLERS = ["Einen Moment, bitte.", "Einen Augenblick.", "Einen Moment."]
 # phone number, or claim a time the caller never gave.
 SCRIPTED = {
     "team": "das Kanzleiteam",
+    "traffic_confirm": (
+        "Habe ich Sie richtig verstanden, dass es um ein verkehrsrechtliches Thema geht? "
+        "Handelt es sich um einen Verkehrsunfall, einen Kfz-Schaden "
+        "oder ein Problem mit einer Versicherung?"
+    ),
+    "employment_confirm": (
+        "Habe ich Sie richtig verstanden, dass es um ein arbeitsrechtliches Thema geht? "
+        "Handelt es sich um eine Kündigung, eine Abmahnung, einen Lohnstreit "
+        "oder ein anderes Problem mit Ihrem Arbeitgeber?"
+    ),
+    "tenancy_confirm": (
+        "Habe ich Sie richtig verstanden, dass es um ein mietrechtliches Thema geht? "
+        "Handelt es sich um eine Kündigung der Wohnung, Probleme mit der Kaution, "
+        "Mängel in der Wohnung oder ein anderes Problem mit Ihrem Vermieter?"
+    ),
+    "traffic_insurance": ("Haben Sie bereits eine Schadensnummer oder eine Versicherungsnummer?"),
     "ask_name": ("Gerne nehme ich Ihren Rückrufwunsch auf. Wie ist Ihr Name, bitte?"),
     "ask_phone": ("Vielen Dank. Unter welcher Telefonnummer können wir Sie erreichen?"),
     "confirm_phone": ("Ich habe Ihre Nummer notiert: {phone}. Ist das korrekt?"),

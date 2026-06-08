@@ -242,6 +242,22 @@ FILLERS = ["One moment, please.", "Just a moment.", "One moment."]
 # number, or claim a time the caller never gave.
 SCRIPTED = {
     "team": "the team",
+    "traffic_confirm": (
+        "Did I understand correctly that this is about a traffic matter? "
+        "Is it mainly about an accident, vehicle damage, "
+        "or an issue with an insurance company?"
+    ),
+    "employment_confirm": (
+        "Did I understand correctly that this is about an employment matter? "
+        "Is it mainly about a dismissal, a warning, a wage dispute, "
+        "or another issue with your employer?"
+    ),
+    "tenancy_confirm": (
+        "Did I understand correctly that this is about a tenancy matter? "
+        "Is it mainly about an eviction, a deposit issue, problems with repairs, "
+        "or another issue with your landlord?"
+    ),
+    "traffic_insurance": ("Do you already have a claim number or an insurance number?"),
     "ask_name": ("I'll take down your callback request. What is your name, please?"),
     "ask_phone": ("Thank you. What is the best phone number to reach you?"),
     "confirm_phone": ("I've noted your number: {phone}. Is that correct?"),
