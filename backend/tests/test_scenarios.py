@@ -394,6 +394,38 @@ class TestOfferedSlotSafety:
         assert "not offered" in result["message"]
 
 
+class TestTrafficInsuranceCapture:
+    """Traffic-specific capture: insurance/claim number stored."""
+
+    @pytest.mark.asyncio
+    async def test_insurance_number_stored(self, registry, ctx):
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.TRAFFIC)
+        result = await registry.execute(
+            "capture_caller_details",
+            {"matter_type": "accident", "insurance_number": "VS-2026-12345"},
+            ctx,
+        )
+        assert "matter_type" in result["stored"]
+        assert "insurance_number" in result["stored"]
+        assert ctx.state.entities["insurance_number"].value == "VS-2026-12345"
+
+
+class TestCaseReferenceCapture:
+    """Existing client provides Aktenzeichen (case reference)."""
+
+    @pytest.mark.asyncio
+    async def test_case_reference_stored(self, registry, ctx):
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        result = await registry.execute(
+            "capture_caller_details",
+            {"case_reference": "44/24"},
+            ctx,
+        )
+        assert "case_reference" in result["stored"]
+        assert ctx.state.entities["case_reference"].value == "44/24"
+        assert ctx.state.entities["case_reference"].confirmed is True
+
+
 class TestAutoRouting:
     """Keyword-based auto-routing when LLM skips route_call."""
 
