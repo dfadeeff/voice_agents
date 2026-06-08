@@ -13,7 +13,7 @@ Outputs:
 
 Usage:
     python3 scripts/benchmark_models.py                    # test all installed models
-    python3 scripts/benchmark_models.py qwen3:4b llama3.1  # test specific models
+    python3 scripts/benchmark_models.py qwen2.5:7b qwen3:4b  # test specific models
 """
 
 import json
@@ -325,7 +325,7 @@ def main():
         models = get_installed_models()
 
     if not models:
-        print("No models found. Run: ollama pull qwen3:4b")
+        print("No models found. Run: ollama pull qwen2.5:7b")
         sys.exit(1)
 
     print(f"Benchmarking {len(models)} model(s): {', '.join(models)}")
