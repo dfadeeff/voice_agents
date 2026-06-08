@@ -52,12 +52,24 @@ class TestNextPhase:
         )
         assert next_phase(s) == CallPhase.QUALIFICATION
 
-    def test_capture_when_matter_type_set_fields_missing(self):
+    def test_qualification_when_matter_type_set_but_details_missing(self):
         s = _state(
             turn_count=3,
             caller_intent=CallerIntent.BOOK_CONSULTATION,
             legal_area=LegalArea.EMPLOYMENT,
             entities={"matter_type": _confirmed_entity("matter_type", "dismissal")},
+        )
+        assert next_phase(s) == CallPhase.QUALIFICATION
+
+    def test_capture_when_matter_type_and_details_set_fields_missing(self):
+        s = _state(
+            turn_count=3,
+            caller_intent=CallerIntent.BOOK_CONSULTATION,
+            legal_area=LegalArea.EMPLOYMENT,
+            entities={
+                "matter_type": _confirmed_entity("matter_type", "dismissal"),
+                "matter_details": _confirmed_entity("matter_details", "3 week deadline"),
+            },
         )
         assert next_phase(s) == CallPhase.CAPTURE
 
@@ -68,6 +80,7 @@ class TestNextPhase:
             legal_area=LegalArea.TENANCY,
             entities={
                 "matter_type": _confirmed_entity("matter_type", "deposit"),
+                "matter_details": _confirmed_entity("matter_details", "written to landlord"),
                 "name": _confirmed_entity("name"),
                 "phone": _unconfirmed_entity("phone"),
             },
@@ -81,6 +94,7 @@ class TestNextPhase:
             legal_area=LegalArea.EMPLOYMENT,
             entities={
                 "matter_type": _confirmed_entity("matter_type", "dismissal"),
+                "matter_details": _confirmed_entity("matter_details", "deadline in 2 weeks"),
                 "name": _confirmed_entity("name", "John Smith"),
                 "email": _confirmed_entity("email", "john@example.com"),
                 "phone": _confirmed_entity("phone", "+1234567890"),
@@ -131,6 +145,7 @@ class TestNextPhase:
             legal_area=LegalArea.EMPLOYMENT,
             entities={
                 "matter_type": _confirmed_entity("matter_type", "dismissal"),
+                "matter_details": _confirmed_entity("matter_details", "no deadline"),
                 "name": _confirmed_entity("name"),
                 "matter_description": _confirmed_entity("matter_description"),
             },

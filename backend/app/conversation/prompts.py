@@ -45,6 +45,14 @@ def build_system_prompt(state: ConversationState, lang: str = "de") -> str:
         phase_prompt = callback_prompts.get(state.phase, "")
         target = state.target_person or ("das Kanzleiteam" if lang == "de" else "the team")
         phase_prompt = phase_prompt.replace("{target_person}", target)
+    elif state.phase == CallPhase.QUALIFICATION:
+        qual_prompts = getattr(locale, "QUALIFICATION_PROMPTS", {})
+        area_key = state.legal_area.value
+        has_matter_type = "matter_type" in state.entities
+        if has_matter_type:
+            phase_prompt = qual_prompts.get(f"{area_key}_details", "")
+        else:
+            phase_prompt = qual_prompts.get(f"{area_key}_type", "")
     else:
         phase_prompt = locale.PHASE_PROMPTS.get(state.phase, "")
 

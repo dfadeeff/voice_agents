@@ -50,16 +50,7 @@ PHASE_PROMPTS: dict[CallPhase, str] = {
         "- If the area is unclear, ask ONE clarifying question.\n"
         "- Do NOT tell the caller the technical legal area."
     ),
-    CallPhase.QUALIFICATION: (
-        "Ask ONE branch-specific follow-up question to understand the matter type.\n"
-        "- Employment: 'Is this mainly about a dismissal, a warning, or another issue "
-        "with your employer?'\n"
-        "- Tenancy: 'Is this mainly about an eviction, a deposit issue, or another problem "
-        "with your landlord?'\n"
-        "- Traffic: 'Is this mainly about an accident, vehicle damage, or an insurance issue?'\n"
-        "- Store the answer using capture_caller_details with matter_type.\n"
-        "- Do NOT ask detailed legal questions. The lawyer does that in the consultation."
-    ),
+    CallPhase.QUALIFICATION: "",
     CallPhase.INFORMATION: (
         "The caller wants general information.\n"
         "- Briefly explain what the firm handles in this area.\n"
@@ -152,6 +143,57 @@ FRAGMENTS = {
     "employment": EMPLOYMENT_FRAGMENT,
     "tenancy": TENANCY_FRAGMENT,
     "traffic": TRAFFIC_FRAGMENT,
+}
+
+QUALIFICATION_PROMPTS = {
+    "employment_type": (
+        "The caller has an employment law issue.\n"
+        "Ask: 'I understand, this is about an employment matter. "
+        "Is it mainly about a dismissal, a warning, a wage dispute, "
+        "or another issue with your employer?'\n"
+        "- Store the answer using capture_caller_details with matter_type.\n"
+        "- Valid values: 'dismissal', 'warning', 'wages', 'contract', 'other'.\n"
+        "- Do NOT ask detailed legal questions."
+    ),
+    "employment_details": (
+        "You already know the type of employment issue.\n"
+        "Ask: 'Is there a deadline you're aware of? "
+        "For example, an unfair dismissal claim must be filed within three weeks.'\n"
+        "- Store the answer using capture_caller_details with matter_details.\n"
+        "- Briefly summarise what you've understood so far."
+    ),
+    "tenancy_type": (
+        "The caller has a tenancy law issue.\n"
+        "Ask: 'I understand, this is about a tenancy matter. "
+        "Is it mainly about an eviction, a deposit issue, "
+        "problems with repairs, or another issue with your landlord?'\n"
+        "- Store the answer using capture_caller_details with matter_type.\n"
+        "- Valid values: 'eviction', 'deposit', 'rent_increase', 'repairs', 'other'.\n"
+        "- Do NOT ask detailed legal questions."
+    ),
+    "tenancy_details": (
+        "You already know the type of tenancy issue.\n"
+        "Ask: 'Have you raised this in writing with your landlord yet? "
+        "And are there any deadlines you need to be aware of?'\n"
+        "- Store the answer using capture_caller_details with matter_details.\n"
+        "- Briefly summarise what you've understood so far."
+    ),
+    "traffic_type": (
+        "The caller has a traffic law issue.\n"
+        "Ask: 'I understand, this is about a traffic matter. "
+        "Is it mainly about an accident, vehicle damage, "
+        "or an issue with an insurance company?'\n"
+        "- Store the answer using capture_caller_details with matter_type.\n"
+        "- Valid values: 'accident', 'damage', 'insurance', 'other'.\n"
+        "- Do NOT ask detailed legal questions."
+    ),
+    "traffic_details": (
+        "You already know the type of traffic issue.\n"
+        "Ask: 'Were the police called to the scene? "
+        "And do you have a reference number or claim number from the insurer?'\n"
+        "- Store the answer using capture_caller_details with matter_details.\n"
+        "- Briefly summarise what you've understood so far."
+    ),
 }
 
 FILLERS = ["Sure.", "One moment.", "Got it."]

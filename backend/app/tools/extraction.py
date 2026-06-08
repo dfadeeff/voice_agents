@@ -28,6 +28,17 @@ CAPTURE_SCHEMA = {
                 "Traffic: 'accident', 'damage', 'insurance', 'other'."
             ),
         },
+        "matter_details": {
+            "type": "string",
+            "description": (
+                "Follow-up details about the matter. "
+                "Employment: whether there is a deadline "
+                "(e.g. 3-week dismissal protection period). "
+                "Tenancy: whether the issue was reported in writing. "
+                "Traffic: whether police were involved or "
+                "there is a reference/claim number."
+            ),
+        },
         "preferred_date": {
             "type": "string",
             "description": "Preferred consultation date (YYYY-MM-DD or natural language).",

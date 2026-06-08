@@ -20,24 +20,20 @@ class TestEmploymentRoutingScenario:
     @pytest.mark.asyncio
     async def test_employment_booking_flow(self, registry, ctx):
         ctx.add_user_message("I was fired last week and I think it was unfair.")
-        assert ctx.state.phase == CallPhase.ROUTING
-
-        result = await registry.execute(
-            "route_call",
-            {
-                "intent": "book_consultation",
-                "legal_area": "employment",
-                "matter_summary": "unfair dismissal",
-            },
-            ctx,
-        )
-        assert result["status"] == "routed"
         assert ctx.state.phase == CallPhase.QUALIFICATION
         assert ctx.state.legal_area == LegalArea.EMPLOYMENT
 
         await registry.execute(
             "capture_caller_details",
             {"matter_type": "dismissal"},
+            ctx,
+        )
+        assert ctx.state.phase == CallPhase.QUALIFICATION
+
+        ctx.add_user_message("Yes, the deadline is in two weeks")
+        await registry.execute(
+            "capture_caller_details",
+            {"matter_details": "deadline in 2 weeks"},
             ctx,
         )
         assert ctx.state.phase == CallPhase.CAPTURE
@@ -198,6 +194,8 @@ class TestUnavailableSlotScenario:
         ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
         ctx.store_entity("matter_type", "dismissal", 1.0)
         ctx.confirm_entity("matter_type")
+        ctx.store_entity("matter_details", "deadline soon", 1.0)
+        ctx.confirm_entity("matter_details")
         for field in ("name", "email", "phone"):
             ctx.store_entity(field, f"test_{field}", 0.9)
             ctx.confirm_entity(field)
@@ -240,6 +238,14 @@ class TestFullBookingScenario:
         await registry.execute(
             "capture_caller_details",
             {"matter_type": "dismissal"},
+            ctx,
+        )
+        assert ctx.state.phase == CallPhase.QUALIFICATION
+
+        ctx.add_user_message("Yes, the deadline is in about two weeks")
+        await registry.execute(
+            "capture_caller_details",
+            {"matter_details": "deadline approaching in 2 weeks"},
             ctx,
         )
         assert ctx.state.phase == CallPhase.CAPTURE
@@ -365,6 +371,8 @@ class TestOfferedSlotSafety:
         ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
         ctx.store_entity("matter_type", "dismissal", 1.0)
         ctx.confirm_entity("matter_type")
+        ctx.store_entity("matter_details", "deadline soon", 1.0)
+        ctx.confirm_entity("matter_details")
         for field in ("name", "email", "phone"):
             ctx.store_entity(field, f"test_{field}", 0.9)
             ctx.confirm_entity(field)
@@ -384,3 +392,56 @@ class TestOfferedSlotSafety:
         )
         assert result["status"] == "error"
         assert "not offered" in result["message"]
+
+
+class TestAutoRouting:
+    """Keyword-based auto-routing when LLM skips route_call."""
+
+    def test_employment_auto_route_de(self):
+        ctx = ConversationManager(call_id="auto-de", lang="de")
+        ctx.add_user_message("Ich wurde letzte Woche gekündigt.")
+        assert ctx.state.legal_area == LegalArea.EMPLOYMENT
+        assert ctx.state.caller_intent == CallerIntent.BOOK_CONSULTATION
+        assert ctx.state.phase == CallPhase.QUALIFICATION
+
+    def test_tenancy_auto_route_de(self):
+        ctx = ConversationManager(call_id="auto-de", lang="de")
+        ctx.add_user_message("Mein Vermieter will die Kaution nicht zurückgeben.")
+        assert ctx.state.legal_area == LegalArea.TENANCY
+        assert ctx.state.phase == CallPhase.QUALIFICATION
+
+    def test_traffic_auto_route_de(self):
+        ctx = ConversationManager(call_id="auto-de", lang="de")
+        ctx.add_user_message("Ich hatte einen Unfall auf der Autobahn.")
+        assert ctx.state.legal_area == LegalArea.TRAFFIC
+        assert ctx.state.phase == CallPhase.QUALIFICATION
+
+    def test_employment_auto_route_en(self):
+        ctx = ConversationManager(call_id="auto-en", lang="en")
+        ctx.add_user_message("I was fired last week.")
+        assert ctx.state.legal_area == LegalArea.EMPLOYMENT
+        assert ctx.state.phase == CallPhase.QUALIFICATION
+
+    def test_tenancy_auto_route_en(self):
+        ctx = ConversationManager(call_id="auto-en", lang="en")
+        ctx.add_user_message("My landlord won't return my deposit.")
+        assert ctx.state.legal_area == LegalArea.TENANCY
+        assert ctx.state.phase == CallPhase.QUALIFICATION
+
+    def test_traffic_auto_route_en(self):
+        ctx = ConversationManager(call_id="auto-en", lang="en")
+        ctx.add_user_message("I had a car accident yesterday.")
+        assert ctx.state.legal_area == LegalArea.TRAFFIC
+        assert ctx.state.phase == CallPhase.QUALIFICATION
+
+    def test_ambiguous_stays_in_routing(self):
+        ctx = ConversationManager(call_id="ambiguous", lang="de")
+        ctx.add_user_message("Ich habe ein Problem.")
+        assert ctx.state.legal_area == LegalArea.UNKNOWN
+        assert ctx.state.phase == CallPhase.ROUTING
+
+    def test_multi_area_stays_in_routing(self):
+        ctx = ConversationManager(call_id="multi", lang="de")
+        ctx.add_user_message("Mein Arbeitgeber hat einen Unfall verursacht.")
+        assert ctx.state.legal_area == LegalArea.UNKNOWN
+        assert ctx.state.phase == CallPhase.ROUTING

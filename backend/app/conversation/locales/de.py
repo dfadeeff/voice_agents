@@ -66,18 +66,7 @@ PHASE_PROMPTS: dict[CallPhase, str] = {
         "3. Erst NACHDEM du weißt worum es geht, rufe request_handoff auf.\n"
         "Sage NIEMALS 'ich verbinde Sie' oder 'ich stelle Sie durch'."
     ),
-    CallPhase.QUALIFICATION: (
-        "Stelle EINE fachspezifische Nachfrage, um die Art des Problems zu verstehen.\n"
-        "- Arbeitsrecht: 'Verstanden. Geht es hauptsächlich um eine Kündigung, "
-        "eine Abmahnung oder ein anderes Problem mit Ihrem Arbeitgeber?'\n"
-        "- Mietrecht: 'Verstanden. Geht es hauptsächlich um eine Kündigung, "
-        "die Kaution oder ein anderes Problem mit Ihrem Vermieter?'\n"
-        "- Verkehrsrecht: 'Verstanden. Geht es hauptsächlich um einen Unfall, "
-        "einen Kfz-Schaden oder eine Versicherungsangelegenheit?'\n"
-        "- Speichere die Antwort mit capture_caller_details und matter_type.\n"
-        "- Stelle KEINE detaillierten rechtlichen Fragen. "
-        "Das macht der Anwalt im Beratungsgespräch."
-    ),
+    CallPhase.QUALIFICATION: "",
     CallPhase.INFORMATION: (
         "Der Anrufer möchte allgemeine Informationen.\n"
         "- Erkläre kurz, was die Kanzlei in diesem Bereich bearbeitet.\n"
@@ -176,6 +165,58 @@ FRAGMENTS = {
     "employment": EMPLOYMENT_FRAGMENT,
     "tenancy": TENANCY_FRAGMENT,
     "traffic": TRAFFIC_FRAGMENT,
+}
+
+QUALIFICATION_PROMPTS = {
+    "employment_type": (
+        "Der Anrufer hat ein arbeitsrechtliches Anliegen.\n"
+        "Frage: 'Verstanden, es geht um ein arbeitsrechtliches Thema. "
+        "Handelt es sich um eine Kündigung, eine Abmahnung, "
+        "einen Lohnstreit oder ein anderes Problem mit Ihrem Arbeitgeber?'\n"
+        "- Speichere die Antwort mit capture_caller_details und matter_type.\n"
+        "- Gültige Werte: 'dismissal', 'warning', 'wages', 'contract', 'other'.\n"
+        "- Stelle KEINE rechtlichen Detailfragen."
+    ),
+    "employment_details": (
+        "Du kennst bereits die Art des arbeitsrechtlichen Problems.\n"
+        "Frage: 'Gibt es eine Frist, die beachtet werden muss? "
+        "Bei einer Kündigung zum Beispiel muss eine Klage innerhalb von drei Wochen "
+        "eingereicht werden.'\n"
+        "- Speichere die Antwort mit capture_caller_details und matter_details.\n"
+        "- Fasse kurz zusammen, was du bisher verstanden hast."
+    ),
+    "tenancy_type": (
+        "Der Anrufer hat ein mietrechtliches Anliegen.\n"
+        "Frage: 'Verstanden, es geht um ein mietrechtliches Thema. "
+        "Handelt es sich um eine Kündigung der Wohnung, Probleme mit der Kaution, "
+        "Mängel in der Wohnung oder ein anderes Problem mit Ihrem Vermieter?'\n"
+        "- Speichere die Antwort mit capture_caller_details und matter_type.\n"
+        "- Gültige Werte: 'eviction', 'deposit', 'rent_increase', 'repairs', 'other'.\n"
+        "- Stelle KEINE rechtlichen Detailfragen."
+    ),
+    "tenancy_details": (
+        "Du kennst bereits die Art des mietrechtlichen Problems.\n"
+        "Frage: 'Haben Sie das Problem bereits schriftlich bei Ihrem Vermieter angezeigt? "
+        "Und wissen Sie, ob es eine Frist gibt, die beachtet werden muss?'\n"
+        "- Speichere die Antwort mit capture_caller_details und matter_details.\n"
+        "- Fasse kurz zusammen, was du bisher verstanden hast."
+    ),
+    "traffic_type": (
+        "Der Anrufer hat ein verkehrsrechtliches Anliegen.\n"
+        "Frage: 'Verstanden, es geht um ein verkehrsrechtliches Thema. "
+        "Handelt es sich um einen Verkehrsunfall, einen Kfz-Schaden "
+        "oder ein Problem mit einer Versicherung?'\n"
+        "- Speichere die Antwort mit capture_caller_details und matter_type.\n"
+        "- Gültige Werte: 'accident', 'damage', 'insurance', 'other'.\n"
+        "- Stelle KEINE rechtlichen Detailfragen."
+    ),
+    "traffic_details": (
+        "Du kennst bereits die Art des verkehrsrechtlichen Problems.\n"
+        "Frage: 'War die Polizei vor Ort? Und gibt es bereits ein Aktenzeichen "
+        "oder eine Schadensnummer von der Versicherung?'\n"
+        "- Speichere die Antwort mit capture_caller_details und matter_details.\n"
+        "- Fasse kurz zusammen, was du bisher verstanden hast."
+    ),
 }
 
 FILLERS = ["Mhm.", "Einen Moment.", "Verstanden."]

@@ -36,6 +36,7 @@ class TestTrafficArea:
         ctx.state.legal_area = LegalArea.TRAFFIC
         ctx.state.entities = {
             "matter_type": _confirmed("matter_type", "accident"),
+            "matter_details": _confirmed("matter_details", "police on scene"),
             "name": _confirmed("name", "Dmitry Fadeev"),
             "email": _confirmed("email", "dima@example.com"),
             "phone": _confirmed("phone", "017612345678"),
@@ -55,6 +56,7 @@ class TestEmailRequired:
         ctx.state.legal_area = LegalArea.TRAFFIC
         ctx.state.entities = {
             "matter_type": _confirmed("matter_type", "accident"),
+            "matter_details": _confirmed("matter_details", "police on scene"),
             "name": _confirmed("name", "Dmitry Fadeev"),
             "phone": _confirmed("phone", "017612345678"),
         }
@@ -68,6 +70,7 @@ class TestEmailRequired:
         ctx.state.legal_area = LegalArea.TRAFFIC
         ctx.state.entities = {
             "matter_type": _confirmed("matter_type", "accident"),
+            "matter_details": _confirmed("matter_details", "police on scene"),
             "name": _confirmed("name", "Dmitry Fadeev"),
             "email": _confirmed("email", "dima@example.com"),
             "phone": _confirmed("phone", "017612345678"),

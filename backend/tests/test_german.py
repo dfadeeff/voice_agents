@@ -48,12 +48,43 @@ class TestGermanPrompts:
         assert "Rechtsgebiet" in prompt
         assert "route_call" in prompt
 
-    def test_qualification_prompt(self):
+    def test_qualification_prompt_employment(self):
         state = ConversationState(call_id="t")
         state.phase = CallPhase.QUALIFICATION
+        state.legal_area = LegalArea.EMPLOYMENT
         prompt = build_system_prompt(state, lang="de")
         assert "Kündigung" in prompt
         assert "capture_caller_details" in prompt
+        assert "matter_type" in prompt
+
+    def test_qualification_prompt_tenancy(self):
+        state = ConversationState(call_id="t")
+        state.phase = CallPhase.QUALIFICATION
+        state.legal_area = LegalArea.TENANCY
+        prompt = build_system_prompt(state, lang="de")
+        assert "Kaution" in prompt
+        assert "Vermieter" in prompt
+
+    def test_qualification_prompt_traffic(self):
+        state = ConversationState(call_id="t")
+        state.phase = CallPhase.QUALIFICATION
+        state.legal_area = LegalArea.TRAFFIC
+        prompt = build_system_prompt(state, lang="de")
+        assert "Unfall" in prompt or "Verkehrsunfall" in prompt
+        assert "Versicherung" in prompt
+
+    def test_qualification_details_prompt(self):
+        state = ConversationState(call_id="t")
+        state.phase = CallPhase.QUALIFICATION
+        state.legal_area = LegalArea.EMPLOYMENT
+        state.entities = {
+            "matter_type": ExtractedEntity(
+                field_name="matter_type", value="dismissal", confidence=0.9, confirmed=True
+            )
+        }
+        prompt = build_system_prompt(state, lang="de")
+        assert "Frist" in prompt
+        assert "matter_details" in prompt
 
     def test_capture_prompt_shows_missing_fields(self):
         state = ConversationState(call_id="t")
@@ -365,6 +396,8 @@ class TestBookingValidation:
             ctx.confirm_entity(f)
         ctx.store_entity("matter_type", "dismissal", 1.0)
         ctx.confirm_entity("matter_type")
+        ctx.store_entity("matter_details", "deadline soon", 1.0)
+        ctx.confirm_entity("matter_details")
         ctx.advance_phase()
 
         avail = await registry.execute(
@@ -399,22 +432,17 @@ class TestGermanFullBookingScenario:
         assert ctx.state.phase == CallPhase.GREETING
 
         ctx.add_user_message("Hallo, ich wurde letzte Woche gekündigt.")
-        assert ctx.state.phase == CallPhase.ROUTING
-
-        await registry.execute(
-            "route_call",
-            {
-                "intent": "book_consultation",
-                "legal_area": "employment",
-                "matter_summary": "Kündigung",
-            },
-            ctx,
-        )
         assert ctx.state.phase == CallPhase.QUALIFICATION
         assert ctx.state.legal_area == LegalArea.EMPLOYMENT
 
         ctx.add_user_message("Es geht um eine Kündigung")
         await registry.execute("capture_caller_details", {"matter_type": "dismissal"}, ctx)
+        assert ctx.state.phase == CallPhase.QUALIFICATION
+
+        ctx.add_user_message("Ja, die Frist läuft in zwei Wochen ab")
+        await registry.execute(
+            "capture_caller_details", {"matter_details": "deadline in 2 weeks"}, ctx
+        )
         assert ctx.state.phase == CallPhase.CAPTURE
 
         ctx.add_user_message("Mein Name ist Max Müller")
@@ -463,14 +491,16 @@ class TestGermanFullBookingScenario:
     async def test_german_tenancy_flow(self, registry, ctx_de):
         ctx = ctx_de
         ctx.add_user_message("Mein Vermieter will mich rauswerfen.")
-        await registry.execute(
-            "route_call",
-            {"intent": "book_consultation", "legal_area": "tenancy", "matter_summary": "Räumung"},
-            ctx,
-        )
         assert ctx.state.phase == CallPhase.QUALIFICATION
+        assert ctx.state.legal_area == LegalArea.TENANCY
 
         await registry.execute("capture_caller_details", {"matter_type": "eviction"}, ctx)
+        assert ctx.state.phase == CallPhase.QUALIFICATION
+
+        ctx.add_user_message("Nein, noch nicht schriftlich")
+        await registry.execute(
+            "capture_caller_details", {"matter_details": "not yet in writing"}, ctx
+        )
         assert ctx.state.phase == CallPhase.CAPTURE
 
         for field, value in [

@@ -60,7 +60,84 @@ class ConversationManager:
             target = extract_target_person(text, self.lang)
             if target:
                 self.state.target_person = target
+        if self.state.caller_intent == CallerIntent.UNKNOWN:
+            self._try_auto_route(text)
         self.advance_phase()
+
+    def _try_auto_route(self, text: str) -> None:
+        """Keyword fallback when the LLM skips route_call."""
+        t = text.lower()
+        scores: dict[LegalArea, int] = {
+            LegalArea.EMPLOYMENT: 0,
+            LegalArea.TENANCY: 0,
+            LegalArea.TRAFFIC: 0,
+        }
+        employment_kw = [
+            "kündigung",
+            "gekündigt",
+            "arbeitgeber",
+            "abfindung",
+            "abmahnung",
+            "lohn",
+            "gehalt",
+            "arbeitsvertrag",
+            "mobbing",
+            "dismissal",
+            "employer",
+            "wages",
+            "redundancy",
+            "fired",
+        ]
+        tenancy_kw = [
+            "vermieter",
+            "miete",
+            "kaution",
+            "wohnung",
+            "mängel",
+            "nebenkosten",
+            "mietvertrag",
+            "räumung",
+            "mieterhöhung",
+            "landlord",
+            "rent",
+            "deposit",
+            "tenant",
+            "eviction",
+            "flat",
+        ]
+        traffic_kw = [
+            "unfall",
+            "auto",
+            "kfz",
+            "schaden",
+            "versicherung",
+            "verkehr",
+            "fahrzeug",
+            "polizei",
+            "auffahrunfall",
+            "accident",
+            "car",
+            "vehicle",
+            "damage",
+            "insurance",
+            "crash",
+        ]
+        for kw in employment_kw:
+            if kw in t:
+                scores[LegalArea.EMPLOYMENT] += 1
+        for kw in tenancy_kw:
+            if kw in t:
+                scores[LegalArea.TENANCY] += 1
+        for kw in traffic_kw:
+            if kw in t:
+                scores[LegalArea.TRAFFIC] += 1
+        matches = [(area, s) for area, s in scores.items() if s > 0]
+        if len(matches) == 1:
+            area = matches[0][0]
+            logger.info("Auto-route: %s (keyword match)", area.value)
+            self.state.caller_intent = CallerIntent.BOOK_CONSULTATION
+            self.state.legal_area = area
+            self.state.matter_summary = text
 
     def set_transcription_confidence(self, confidence: float | None) -> None:
         self.state.last_transcription_confidence = confidence
