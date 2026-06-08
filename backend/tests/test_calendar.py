@@ -17,6 +17,7 @@ class TestCalendarInit:
         assert "slots" in tables
         assert "bookings" in tables
         assert "call_logs" in tables
+        assert "callers" in tables
 
     @pytest.mark.asyncio
     async def test_init_is_idempotent(self, calendar):
@@ -112,6 +113,60 @@ class TestBookings:
     async def test_booking_nonexistent_slot(self, seeded_calendar):
         result = await seeded_calendar.create_booking(slot_id=9999, call_id="test-001")
         assert result is None
+
+
+class TestSaveCaller:
+    @pytest.mark.asyncio
+    async def test_save_caller_persists(self, calendar):
+        row_id = await calendar.save_caller(
+            call_id="call-100",
+            name="Amelie Sommer",
+            phone="+491761234567",
+            email="amelie@example.com",
+            legal_area="employment",
+            matter_type="dismissal",
+            matter_summary="unfair dismissal",
+            case_reference="44/24",
+            insurance_number="",
+            outcome="booked",
+        )
+        assert row_id is not None
+
+        import aiosqlite
+
+        async with aiosqlite.connect(calendar._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM callers WHERE call_id = ?", ["call-100"]
+            ) as cursor:
+                row = await cursor.fetchone()
+        assert row is not None
+        assert dict(row)["name"] == "Amelie Sommer"
+        assert dict(row)["case_reference"] == "44/24"
+        assert dict(row)["legal_area"] == "employment"
+
+    @pytest.mark.asyncio
+    async def test_save_caller_with_insurance_number(self, calendar):
+        await calendar.save_caller(
+            call_id="call-101",
+            name="Max Müller",
+            phone="+491769876543",
+            legal_area="traffic",
+            matter_type="accident",
+            insurance_number="VS-2026-12345",
+            outcome="callback",
+        )
+
+        import aiosqlite
+
+        async with aiosqlite.connect(calendar._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM callers WHERE call_id = ?", ["call-101"]
+            ) as cursor:
+                row = await cursor.fetchone()
+        assert dict(row)["insurance_number"] == "VS-2026-12345"
+        assert dict(row)["outcome"] == "callback"
 
 
 class TestCallLogs:

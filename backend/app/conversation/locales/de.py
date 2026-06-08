@@ -85,7 +85,11 @@ PHASE_PROMPTS: dict[CallPhase, str] = {
         "- Telefon: IMMER Ziffer für Ziffer vorlesen, "
         "dann confirm_caller_detail nach der Antwort des Anrufers aufrufen.\n"
         "- Name: nur bestätigen, wenn ungewöhnlich oder unklar.\n"
-        "- Frage nicht alles auf einmal."
+        "- Frage nicht alles auf einmal.\n"
+        "- Wenn der Anrufer sagt, er sei bereits Mandant: "
+        "frage nach dem Aktenzeichen (case_reference).\n"
+        "- Sobald du den Namen kennst, sprich den Anrufer mit Namen an "
+        "(z.B. 'Frau Sommer', 'Herr Müller')."
     ),
     CallPhase.BOOKING: (
         "Hilf beim Terminwunsch.\n"
@@ -215,6 +219,8 @@ QUALIFICATION_PROMPTS = {
         "Frage: 'War die Polizei vor Ort? Und gibt es bereits ein Aktenzeichen "
         "oder eine Schadensnummer von der Versicherung?'\n"
         "- Speichere die Antwort mit capture_caller_details und matter_details.\n"
+        "- Wenn eine Versicherungsnummer oder Schadensnummer genannt wird, "
+        "speichere sie mit capture_caller_details und insurance_number.\n"
         "- Fasse kurz zusammen, was du bisher verstanden hast."
     ),
 }

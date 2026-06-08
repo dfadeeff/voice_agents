@@ -74,6 +74,22 @@ class CalendarService:
                     entities_json TEXT
                 )
             """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS callers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    call_id TEXT NOT NULL,
+                    name TEXT,
+                    phone TEXT,
+                    email TEXT,
+                    legal_area TEXT,
+                    matter_type TEXT,
+                    matter_summary TEXT,
+                    case_reference TEXT,
+                    insurance_number TEXT,
+                    outcome TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             await db.commit()
 
     async def get_slot_by_id(self, slot_id: int) -> dict | None:
@@ -177,6 +193,41 @@ class CalendarService:
             ) as cur:
                 row = await cur.fetchone()
                 return dict(row) if row else None
+
+    async def save_caller(
+        self,
+        call_id: str,
+        name: str = "",
+        phone: str = "",
+        email: str = "",
+        legal_area: str = "",
+        matter_type: str = "",
+        matter_summary: str = "",
+        case_reference: str = "",
+        insurance_number: str = "",
+        outcome: str = "",
+    ) -> int | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(
+                """INSERT INTO callers
+                   (call_id, name, phone, email, legal_area, matter_type,
+                    matter_summary, case_reference, insurance_number, outcome)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [
+                    call_id,
+                    name,
+                    phone,
+                    email,
+                    legal_area,
+                    matter_type,
+                    matter_summary,
+                    case_reference,
+                    insurance_number,
+                    outcome,
+                ],
+            )
+            await db.commit()
+            return cursor.lastrowid
 
     async def log_call(
         self,

@@ -12,11 +12,46 @@ from pipecat.transports.websocket.fastapi import (
 from app.conversation.manager import ConversationManager
 from app.pipeline.orchestrator import create_pipeline
 from app.pipeline.services import create_llm, create_stt, create_tts
+from app.services.calendar import CalendarService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _call_semaphore: asyncio.Semaphore | None = None
+
+
+async def _save_caller(calendar: CalendarService, conv: ConversationManager) -> None:
+    """Persist caller details to the callers table after every call."""
+    state = conv.state
+    entities = state.entities
+
+    def _val(field: str) -> str:
+        e = entities.get(field)
+        return e.value if e else ""
+
+    if not _val("name") and not _val("phone"):
+        return
+
+    outcome = state.phase.value
+    if state.booking_confirmed:
+        outcome = "booked"
+    elif state.callback_requested:
+        outcome = "callback"
+    elif state.escalation_requested:
+        outcome = "escalation"
+
+    await calendar.save_caller(
+        call_id=state.call_id,
+        name=_val("name"),
+        phone=_val("phone"),
+        email=_val("email"),
+        legal_area=state.legal_area.value,
+        matter_type=_val("matter_type"),
+        matter_summary=state.matter_summary or "",
+        case_reference=_val("case_reference"),
+        insurance_number=_val("insurance_number"),
+        outcome=outcome,
+    )
 
 
 def _get_semaphore(max_calls: int) -> asyncio.Semaphore:
@@ -77,4 +112,10 @@ async def websocket_call(websocket: WebSocket, call_id: str = "new"):
             await runner.run(task)
         except Exception:
             logger.exception("[%s] Pipeline crashed", call_id)
+
+        calendar: CalendarService = websocket.app.state.calendar
+        try:
+            await _save_caller(calendar, conversation)
+        except Exception:
+            logger.exception("[%s] Failed to save caller data", call_id)
         logger.info("[%s] Pipeline finished", call_id)

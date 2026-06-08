@@ -69,7 +69,11 @@ PHASE_PROMPTS: dict[CallPhase, str] = {
         "- For phone: ALWAYS read it back digit by digit and use confirm_caller_detail "
         "after the caller responds.\n"
         "- For name: confirm only if it sounds unusual or you're unsure.\n"
-        "- Don't ask for everything at once."
+        "- Don't ask for everything at once.\n"
+        "- If the caller says they are an existing client: "
+        "ask for the case reference number (case_reference).\n"
+        "- Once you know the caller's name, address them by name "
+        "(e.g. 'Ms Sommer', 'Mr Smith')."
     ),
     CallPhase.BOOKING: (
         "Help book a consultation.\n"
@@ -192,6 +196,8 @@ QUALIFICATION_PROMPTS = {
         "Ask: 'Were the police called to the scene? "
         "And do you have a reference number or claim number from the insurer?'\n"
         "- Store the answer using capture_caller_details with matter_details.\n"
+        "- If an insurance or claim number is given, "
+        "store it with capture_caller_details and insurance_number.\n"
         "- Briefly summarise what you've understood so far."
     ),
 }

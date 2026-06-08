@@ -39,6 +39,20 @@ CAPTURE_SCHEMA = {
                 "there is a reference/claim number."
             ),
         },
+        "case_reference": {
+            "type": "string",
+            "description": (
+                "Existing case reference number (Aktenzeichen) "
+                "if the caller is an existing client."
+            ),
+        },
+        "insurance_number": {
+            "type": "string",
+            "description": (
+                "Insurance claim or policy number "
+                "(Versicherungsnummer/Schadensnummer) for traffic cases."
+            ),
+        },
         "preferred_date": {
             "type": "string",
             "description": "Preferred consultation date (YYYY-MM-DD or natural language).",
