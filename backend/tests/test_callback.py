@@ -44,7 +44,7 @@ class TestCallbackFlow:
         ctx.add_user_message("Ich möchte bitte Herrn Schmid sprechen.")
         assert ctx.state.phase == CallPhase.CAPTURE
         assert ctx.state.callback_requested is True
-        assert ctx.state.target_person == "Schmid"
+        assert ctx.state.target_person == "Herr Schmid"
         assert ctx.state.escalation_requested is False
 
     def test_callback_requires_phone_after_name(self):
@@ -154,7 +154,7 @@ class TestCallbackScenarioWithTools:
         ctx.add_user_message("Ich möchte bitte Herrn Schmid sprechen.")
         assert ctx.state.phase == CallPhase.CAPTURE
         assert ctx.state.callback_requested is True
-        assert ctx.state.target_person == "Schmid"
+        assert ctx.state.target_person == "Herr Schmid"
 
         ctx.add_user_message("Ja, Max Mustermann")
         await registry.execute("capture_caller_details", {"name": "Max Mustermann"}, ctx)
@@ -224,19 +224,20 @@ class TestCallbackScenarioWithTools:
 
 class TestExtractTargetPerson:
     def test_herr_schmid(self):
-        assert extract_target_person("Ich möchte Herrn Schmid sprechen", "de") == "Schmid"
+        assert extract_target_person("Ich möchte Herrn Schmid sprechen", "de") == "Herr Schmid"
 
     def test_frau_landau(self):
-        assert extract_target_person("Ich möchte bitte Frau Landau sprechen.", "de") == "Landau"
+        result = extract_target_person("Ich möchte bitte Frau Landau sprechen.", "de")
+        assert result == "Frau Landau"
 
     def test_no_person(self):
         assert extract_target_person("Ich möchte einen Termin", "de") is None
 
     def test_english_mr(self):
-        assert extract_target_person("I'd like to speak to Mr Smith", "en") == "Smith"
+        assert extract_target_person("I'd like to speak to Mr Smith", "en") == "Mr Smith"
 
     def test_english_ms(self):
-        assert extract_target_person("Can I talk to Ms Johnson please?", "en") == "Johnson"
+        assert extract_target_person("Can I talk to Ms Johnson please?", "en") == "Ms Johnson"
 
     def test_generic_request_no_name(self):
         assert extract_target_person("Ich möchte mit einem Anwalt sprechen", "de") is None

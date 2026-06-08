@@ -32,6 +32,20 @@ def _last_user_text(state: ConversationState) -> str:
     return ""
 
 
+def _last_agent_text(state: ConversationState) -> str:
+    for msg in reversed(state.messages):
+        if msg.get("role") == "assistant" and msg.get("content"):
+            return str(msg["content"])
+    return ""
+
+
+def _spoken_phone(value: str, lang: str) -> str:
+    """German callers expect their national number read back (0151…), not +49."""
+    if lang == "de" and value.startswith("+49"):
+        return "0" + value[3:]
+    return value
+
+
 def scripted_line(state: ConversationState, lang: str = "de") -> str | None:
     """Return the deterministic next line for a structured step, or None for the LLM.
 
@@ -78,10 +92,14 @@ def scripted_line(state: ConversationState, lang: str = "de") -> str | None:
         if not phone:
             return scripts["ask_phone"]
         if not phone.confirmed:
-            return scripts["confirm_phone"].format(phone=phone.value)
+            return scripts["confirm_phone"].format(phone=_spoken_phone(phone.value, lang))
         return None  # all contacts confirmed → BOOKING (LLM handles slots)
 
     if callback and state.phase == CallPhase.CONFIRMATION:
+        # Say the closing only once, even if the caller adds "Tschüss" afterwards.
+        last_agent = _last_agent_text(state)
+        if "Wiederhören" in last_agent or "Goodbye" in last_agent:
+            return None
         person = state.target_person or scripts.get("team", "")
         return scripts["callback_done"].format(person=person)
 

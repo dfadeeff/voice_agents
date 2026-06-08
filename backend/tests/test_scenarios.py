@@ -313,7 +313,7 @@ class TestHumanHandoffScenario:
 
         assert ctx.state.phase == CallPhase.CAPTURE
         assert ctx.state.callback_requested is True
-        assert ctx.state.target_person == "Landau"
+        assert ctx.state.target_person == "Frau Landau"
         assert ctx.state.escalation_requested is False
 
     @pytest.mark.asyncio
@@ -734,15 +734,17 @@ class TestNarrationSplit:
         assert "nummer" in self._line(ctx).lower()
         ctx.add_assistant_message(self._line(ctx))
         ctx.add_user_message("0151 598 32614")
-        # Read-back contains the REAL captured number, never an invented one.
+        # Read-back contains the REAL captured number (national format), not invented.
         line = self._line(ctx)
-        assert "+4915159832614" in line
+        assert "015159832614" in line
         ctx.add_assistant_message(line)
         ctx.add_user_message("Ja, das stimmt")
         assert ctx.state.entities["phone"].confirmed is True
-        # Final line names the requested person, no invented time.
+        # Stored value stays international for the database.
+        assert ctx.state.entities["phone"].value == "+4915159832614"
+        # Final line names the requested person with honorific, no invented time.
         done = self._line(ctx)
-        assert "Schulz" in done
+        assert "Herr Schulz" in done
         assert "Uhr" not in done
 
     def test_denial_reasks_phone(self):

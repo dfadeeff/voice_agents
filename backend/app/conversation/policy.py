@@ -25,13 +25,14 @@ _EN_PERSON_REQUESTS = (
 )
 
 _DE_PERSON_NAME_RE = re.compile(
-    r"\b(?:frau|herrn?)\s+([\wäöüß-]+)\b",
+    r"\b(frau|herrn?)\s+([\wäöüß-]+)\b",
     re.IGNORECASE,
 )
 _EN_PERSON_NAME_RE = re.compile(
-    r"\b(?:mr|mrs|ms|miss)\s+(\w+)\b",
+    r"\b(mr|mrs|ms|miss)\s+(\w+)\b",
     re.IGNORECASE,
 )
+_EN_HONORIFICS = {"mr": "Mr", "mrs": "Mrs", "ms": "Ms", "miss": "Miss"}
 
 
 def is_explicit_handoff_request(text: str, lang: str = "de") -> bool:
@@ -41,9 +42,14 @@ def is_explicit_handoff_request(text: str, lang: str = "de") -> bool:
 
 
 def extract_target_person(text: str, lang: str = "de") -> str | None:
-    """Extract named person from a handoff request, e.g. 'Herr Schmid' → 'Schmid'."""
+    """Extract the requested person with honorific, e.g. 'Herrn Schulz' → 'Herr Schulz'."""
     pattern = _DE_PERSON_NAME_RE if lang == "de" else _EN_PERSON_NAME_RE
     match = pattern.search(text)
-    if match:
-        return match.group(1).title()
-    return None
+    if not match:
+        return None
+    honor_raw, name = match.group(1).lower(), match.group(2).title()
+    if lang == "de":
+        honor = "Frau" if honor_raw.startswith("frau") else "Herr"
+    else:
+        honor = _EN_HONORIFICS.get(honor_raw, honor_raw.title())
+    return f"{honor} {name}"
