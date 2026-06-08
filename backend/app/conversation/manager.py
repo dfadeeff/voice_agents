@@ -25,6 +25,29 @@ _NAME_TRIGGER_RE = re.compile(
 )
 _CAPWORDS_RE = re.compile(r"([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){0,2})")
 
+# Keyword → matter_type per area, checked in priority order (most specific first).
+# Backfills matter_type when the caller front-loads details or the LLM skips the
+# tool, so the matter is recorded even if qualification is cut short by a handoff.
+_MATTER_KEYWORDS: dict[LegalArea, tuple[tuple[str, tuple[str, ...]], ...]] = {
+    LegalArea.TRAFFIC: (
+        ("accident", ("unfall", "zusammenstoß", "zusammenstoss", "accident", "crash")),
+        ("damage", ("kfz-schaden", "blechschaden", "kratzer", "beschädigung", "vehicle damage")),
+        ("insurance", ("versicherung", "insurance", "insurer")),
+    ),
+    LegalArea.EMPLOYMENT: (
+        ("dismissal", ("kündigung", "gekündigt", "entlass", "dismissal", "redundan")),
+        ("warning", ("abmahnung", "abgemahnt", "warning")),
+        ("wages", ("lohn", "gehalt", "lohnstreit", "wages", "salary")),
+        ("contract", ("arbeitsvertrag", "contract")),
+    ),
+    LegalArea.TENANCY: (
+        ("eviction", ("räumung", "raeumung", "eviction", "evict")),
+        ("deposit", ("kaution", "deposit")),
+        ("rent_increase", ("mieterhöhung", "mieterhoehung", "rent increase")),
+        ("repairs", ("mängel", "maengel", "reparatur", "schimmel", "repairs", "mould", "mold")),
+    ),
+}
+
 
 class ConversationManager:
     def __init__(self, call_id: str, lang: str = "de"):
@@ -73,12 +96,40 @@ class ConversationManager:
             target = extract_target_person(text, self.lang)
             if target:
                 self.state.target_person = target
+        just_routed = False
         if self.state.caller_intent == CallerIntent.UNKNOWN:
+            area_before = self.state.legal_area
             self._try_auto_route(text)
+            just_routed = self.state.legal_area != area_before
         self.advance_phase()
         if not was_callback and self.state.callback_requested:
             self._update_llm_context()
+        # Skip matter_type backfill on the routing turn so the area-confirmation
+        # question still gets asked; capture it on later turns / handoffs instead.
+        if not just_routed:
+            self._try_capture_matter_type(text)
         self._try_capture_contact(text)
+
+    def _try_capture_matter_type(self, text: str) -> None:
+        """Deterministic fallback for matter_type when the LLM skips the tool.
+
+        Keeps the matter on record even when the caller front-loads everything
+        (e.g. describes the issue and asks for a person in one breath).
+        """
+        if self.state.legal_area == LegalArea.UNKNOWN:
+            return
+        if "matter_type" in self.state.entities:
+            return
+        keyword_map = _MATTER_KEYWORDS.get(self.state.legal_area)
+        if not keyword_map:
+            return
+        lowered = text.lower()
+        for value, keywords in keyword_map:
+            if any(kw in lowered for kw in keywords):
+                logger.info("Deterministic capture (LLM fallback): matter_type=%r", value)
+                self.update_and_confirm_entity("matter_type", value)
+                self._update_llm_context()
+                return
 
     def _try_capture_contact(self, text: str) -> None:
         """Deterministic fallback for name/phone when the LLM skips the tool.

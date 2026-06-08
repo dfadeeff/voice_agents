@@ -228,6 +228,8 @@ QUALIFICATION_PROMPTS = {
         "oder ein Problem mit einer Versicherung?'\n"
         "- Speichere die Antwort mit capture_caller_details und matter_type.\n"
         "- Gültige Werte: 'accident', 'damage', 'insurance', 'other'.\n"
+        "- Frage in DIESEM Schritt NICHT nach einer Versicherungsnummer, "
+        "Schadensnummer oder anderen Nummern — nur nach der Art des Anliegens.\n"
         "- Falls der Anrufer das Rechtsgebiet verneint (es geht um etwas anderes), "
         "rufe route_call mit dem richtigen legal_area auf.\n"
         "- WICHTIG: Der Anrufer antwortet auf deine Sachfrage. "

@@ -204,6 +204,8 @@ QUALIFICATION_PROMPTS = {
         "or an issue with an insurance company?'\n"
         "- Store the answer using capture_caller_details with matter_type.\n"
         "- Valid values: 'accident', 'damage', 'insurance', 'other'.\n"
+        "- In THIS step do NOT ask for an insurance number, claim number, "
+        "or any number — only the type of matter.\n"
         "- If the caller says it's NOT this area (it's about something else), "
         "call route_call with the correct legal_area.\n"
         "- IMPORTANT: The caller is answering your question about the issue. "

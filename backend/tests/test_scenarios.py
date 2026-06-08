@@ -142,6 +142,47 @@ class TestDeterministicContactCapture:
         assert ctx.state.entities["name"].value == "Herbert Wilhelm"
 
 
+class TestDeterministicMatterType:
+    """matter_type backfill when the caller front-loads details or the LLM skips."""
+
+    def test_routing_turn_does_not_capture_matter_type(self):
+        """Regression: the area-confirmation question must still be asked."""
+        ctx = ConversationManager(call_id="mt-route", lang="de")
+        ctx.add_user_message("Ich hatte einen Unfall")
+        assert ctx.state.phase == CallPhase.QUALIFICATION
+        assert "matter_type" not in ctx.state.entities
+
+    def test_matter_type_backfilled_on_confirm_turn(self):
+        ctx = ConversationManager(call_id="mt-confirm", lang="de")
+        ctx.add_user_message("Ich hatte einen Unfall")
+        ctx.add_user_message("Ja, ein Verkehrsunfall")
+        assert ctx.state.entities["matter_type"].value == "accident"
+
+    def test_matter_type_backfilled_when_frontloaded_with_handoff(self):
+        """The live-call regression: matter + person request in one breath."""
+        ctx = ConversationManager(call_id="mt-frontload", lang="de")
+        ctx.add_user_message("Ich hatte einen Unfall")
+        ctx.add_user_message(
+            "Es war ein Verkehrsunfall, ich habe keine Versicherungsnummer "
+            "und ich möchte mit Herrn Schulz sprechen."
+        )
+        assert ctx.state.entities["matter_type"].value == "accident"
+        assert ctx.state.callback_requested is True
+
+    def test_employment_matter_type(self):
+        ctx = ConversationManager(call_id="mt-emp", lang="de")
+        ctx.add_user_message("Mein Arbeitgeber hat mir gekündigt")
+        ctx.add_user_message("Ja, eine Kündigung")
+        assert ctx.state.entities["matter_type"].value == "dismissal"
+
+    def test_accident_wins_over_insurance_keyword(self):
+        """'Unfall' + 'Versicherung' in one sentence resolves to accident."""
+        ctx = ConversationManager(call_id="mt-prio", lang="de")
+        ctx.add_user_message("Ich hatte einen Unfall")
+        ctx.add_user_message("Ein Verkehrsunfall, die Versicherung macht Probleme")
+        assert ctx.state.entities["matter_type"].value == "accident"
+
+
 class TestHumanHandoffScenario:
     """Caller explicitly asks for a human at any point."""
 
