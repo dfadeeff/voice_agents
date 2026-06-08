@@ -18,6 +18,9 @@ class Settings(BaseSettings):
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:7b"
+    # Low temperature keeps a phone receptionist consistent and curbs the
+    # invented-compound-word hallucinations qwen2.5 produces at higher temps.
+    llm_temperature: float = 0.3
 
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"

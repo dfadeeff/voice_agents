@@ -38,11 +38,12 @@ def create_llm(settings: Settings):
 
     from pipecat.services.ollama.llm import OLLamaLLMService
 
-    max_tokens = 400 if "qwen3" in settings.ollama_model else 200
+    max_tokens = 400 if "qwen3" in settings.ollama_model else 150
     return OLLamaLLMService(
         settings=OLLamaLLMService.Settings(
             model=settings.ollama_model,
             max_tokens=max_tokens,
+            temperature=settings.llm_temperature,
         ),
         base_url=f"{settings.ollama_base_url}/v1",
     )

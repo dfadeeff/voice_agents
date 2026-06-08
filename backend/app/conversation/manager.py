@@ -2,16 +2,28 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Callable
 from typing import Any
 
 from app.conversation.flow import PHASE_TOOLS, next_phase
+from app.conversation.phone import normalize_phone_text
 from app.conversation.policy import extract_target_person, is_explicit_handoff_request
 from app.conversation.prompts import build_system_prompt, get_system_prompt_base
 from app.conversation.state import ConversationState
 from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity, LegalArea
 
 logger = logging.getLogger(__name__)
+
+# Deterministic contact-capture fallback (mirrors _try_auto_route): when the
+# caller states a name or phone but the LLM forgets to call capture_caller_details,
+# we extract and store it in code so the data still persists to the database.
+_NAME_TRIGGER_RE = re.compile(
+    r"(?:mein\s+name\s+ist|ich\s+hei(?:ß|ss)e|ich\s+bin|hier\s+(?:ist|spricht)|"
+    r"my\s+name\s+is|i\s+am|i'm|this\s+is)\s+",
+    re.IGNORECASE,
+)
+_CAPWORDS_RE = re.compile(r"([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){0,2})")
 
 
 class ConversationManager:
@@ -65,6 +77,40 @@ class ConversationManager:
             self._try_auto_route(text)
         self.advance_phase()
         if not was_callback and self.state.callback_requested:
+            self._update_llm_context()
+        self._try_capture_contact(text)
+
+    def _try_capture_contact(self, text: str) -> None:
+        """Deterministic fallback for name/phone when the LLM skips the tool.
+
+        Runs only while collecting contact details. Guarantees the data reaches
+        the database even if capture_caller_details is never called.
+        """
+        if self.state.phase not in (CallPhase.CAPTURE, CallPhase.ESCALATION):
+            return
+
+        captured = False
+
+        existing_name = self.state.entities.get("name")
+        if not (existing_name and existing_name.confirmed):
+            trigger = _NAME_TRIGGER_RE.search(text)
+            if trigger:
+                match = _CAPWORDS_RE.match(text[trigger.end() :].strip())
+                if match:
+                    name = match.group(1).strip()
+                    logger.info("Deterministic capture (LLM fallback): name=%r", name)
+                    self.update_and_confirm_entity("name", name)
+                    captured = True
+
+        existing_phone = self.state.entities.get("phone")
+        if not (existing_phone and existing_phone.confirmed):
+            normalized = normalize_phone_text(text)
+            if len(re.sub(r"\D", "", normalized)) >= 7:
+                logger.info("Deterministic capture (LLM fallback): phone=%r", normalized)
+                self.store_entity("phone", normalized, 0.9)
+                captured = True
+
+        if captured:
             self._update_llm_context()
 
     def _try_auto_route(self, text: str) -> None:

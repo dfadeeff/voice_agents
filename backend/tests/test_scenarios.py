@@ -88,6 +88,60 @@ class TestUnknownAreaEscalationScenario:
         assert ctx.state.phase == CallPhase.ESCALATION
 
 
+class TestDeterministicContactCapture:
+    """LLM-skip fallback: name/phone are stored in code so data still persists.
+
+    Regression for a live call where the model narrated capturing contact details
+    but never called capture_caller_details, so nothing reached the database.
+    """
+
+    def test_name_captured_without_tool_call_in_callback(self):
+        ctx = ConversationManager(call_id="det-name", lang="de")
+        ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
+        assert ctx.state.phase == CallPhase.CAPTURE
+
+        ctx.add_user_message("Mein Name ist Herbert Wilhelm")
+
+        assert "name" in ctx.state.entities
+        assert ctx.state.entities["name"].value == "Herbert Wilhelm"
+
+    def test_phone_captured_without_tool_call(self):
+        ctx = ConversationManager(call_id="det-phone", lang="de")
+        ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
+
+        ctx.add_user_message("0151 693 67234")
+
+        assert "phone" in ctx.state.entities
+        assert ctx.state.entities["phone"].value == "+4915169367234"
+
+    def test_partial_phone_fragment_not_stored(self):
+        ctx = ConversationManager(call_id="det-partial", lang="de")
+        ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
+
+        ctx.add_user_message("0151")
+
+        assert "phone" not in ctx.state.entities
+
+    def test_no_contact_capture_during_qualification(self):
+        """Name must NOT be captured while still qualifying the matter."""
+        ctx = ConversationManager(call_id="det-qual", lang="de")
+        ctx.add_user_message("Ich hatte einen Unfall")
+        assert ctx.state.phase == CallPhase.QUALIFICATION
+
+        ctx.add_user_message("Mein Name ist Herbert Wilhelm")
+
+        assert "name" not in ctx.state.entities
+
+    def test_english_name_capture(self):
+        ctx = ConversationManager(call_id="det-en", lang="en")
+        ctx.add_user_message("I'd like to speak to Mr Schulz please.")
+        assert ctx.state.phase == CallPhase.CAPTURE
+
+        ctx.add_user_message("My name is Herbert Wilhelm")
+
+        assert ctx.state.entities["name"].value == "Herbert Wilhelm"
+
+
 class TestHumanHandoffScenario:
     """Caller explicitly asks for a human at any point."""
 
