@@ -259,6 +259,9 @@ SCRIPTED = {
     ),
     "traffic_insurance": ("Do you already have a claim number or an insurance number?"),
     "ask_name": ("I'll take down your callback request. What is your name, please?"),
+    "ask_name_booking": ("Of course. What is your name, please?"),
+    "ask_email": ("Thank you. What is your email address?"),
+    "confirm_email": ("I've noted: {email}. Is that correct?"),
     "ask_phone": ("Thank you. What is the best phone number to reach you?"),
     "confirm_phone": ("I've noted your number: {phone}. Is that correct?"),
     "callback_done": (

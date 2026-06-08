@@ -284,6 +284,9 @@ SCRIPTED = {
     ),
     "traffic_insurance": ("Haben Sie bereits eine Schadensnummer oder eine Versicherungsnummer?"),
     "ask_name": ("Gerne nehme ich Ihren Rückrufwunsch auf. Wie ist Ihr Name, bitte?"),
+    "ask_name_booking": ("Sehr gerne. Wie ist Ihr Name, bitte?"),
+    "ask_email": ("Danke. Wie lautet Ihre E-Mail-Adresse?"),
+    "confirm_email": ("Ich habe notiert: {email}. Ist das korrekt?"),
     "ask_phone": ("Vielen Dank. Unter welcher Telefonnummer können wir Sie erreichen?"),
     "confirm_phone": ("Ich habe Ihre Nummer notiert: {phone}. Ist das korrekt?"),
     "callback_done": (

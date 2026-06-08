@@ -61,22 +61,27 @@ def scripted_line(state: ConversationState, lang: str = "de") -> str | None:
             return scripts.get("traffic_insurance")
         return None
 
-    if not state.callback_requested:
-        return None
-
-    name = state.entities.get("name")
-    phone = state.entities.get("phone")
+    callback = state.callback_requested
+    name = ents.get("name")
+    email = ents.get("email")
+    phone = ents.get("phone")
 
     if state.phase in (CallPhase.CAPTURE, CallPhase.ESCALATION):
         if not (name and name.value):
-            return scripts["ask_name"]
+            return scripts["ask_name"] if callback else scripts["ask_name_booking"]
+        # Booking needs an email; a callback does not.
+        if not callback:
+            if not email:
+                return scripts["ask_email"]
+            if not email.confirmed:
+                return scripts["confirm_email"].format(email=email.value)
         if not phone:
             return scripts["ask_phone"]
         if not phone.confirmed:
             return scripts["confirm_phone"].format(phone=phone.value)
-        return None
+        return None  # all contacts confirmed → BOOKING (LLM handles slots)
 
-    if state.phase == CallPhase.CONFIRMATION:
+    if callback and state.phase == CallPhase.CONFIRMATION:
         person = state.target_person or scripts.get("team", "")
         return scripts["callback_done"].format(person=person)
 

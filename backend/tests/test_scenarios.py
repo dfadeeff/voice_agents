@@ -770,3 +770,57 @@ class TestNarrationSplit:
         ctx = ConversationManager(call_id="ns4", lang="de")
         ctx.add_user_message("Ich habe da ein Problem.")
         assert self._line(ctx) is None
+
+
+class TestBookingCaptureSplit:
+    """Booking contact collection is narrated from state (no LLM until slots)."""
+
+    def _line(self, ctx):
+        from app.conversation.script import scripted_line
+
+        return scripted_line(ctx.state, "de")
+
+    def test_full_booking_capture_scripted(self):
+        ctx = ConversationManager(call_id="bc", lang="de")
+        ctx.add_user_message("Ich hatte einen Unfall")
+        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_user_message("Ja, korrekt")
+        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_user_message("Nein, keine")  # no insurance number
+        assert "name" in self._line(ctx).lower()
+        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_user_message("Daniel Stein")
+        assert "mail" in self._line(ctx).lower()
+        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_user_message("max at gmail punkt com")
+        line = self._line(ctx)
+        assert "max@gmail.com" in line  # real captured email, read back
+        ctx.add_assistant_message(line)
+        ctx.add_user_message("Ja, stimmt")
+        assert "telefon" in self._line(ctx).lower() or "nummer" in self._line(ctx).lower()
+        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_user_message("0151 598 32614")
+        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_user_message("Ja, das stimmt")
+        # All contacts confirmed → BOOKING; the LLM takes over for slots.
+        assert ctx.state.phase == CallPhase.BOOKING
+        assert self._line(ctx) is None
+        assert ctx.state.entities["email"].value == "max@gmail.com"
+        assert ctx.state.entities["phone"].confirmed is True
+
+    def test_email_denial_reasks(self):
+        ctx = ConversationManager(call_id="bc2", lang="de")
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        ctx.store_entity("matter_type", "dismissal", 1.0)
+        ctx.confirm_entity("matter_type")
+        ctx.store_entity("matter_details", "Frist", 1.0)
+        ctx.confirm_entity("matter_details")
+        ctx.store_entity("name", "Anna Schmidt", 0.9)
+        ctx.confirm_entity("name")
+        assert ctx.state.phase == CallPhase.CAPTURE
+        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_user_message("anna at example punkt de")
+        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_user_message("Nein, das ist falsch")
+        assert "email" not in ctx.state.entities
+        assert "mail" in self._line(ctx).lower()

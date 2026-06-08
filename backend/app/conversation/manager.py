@@ -104,6 +104,19 @@ _CONFIRM_YES_RE = re.compile(
     r"\b(?:ja|jawohl|genau|korrekt|stimmt|richtig|passt|yes|correct|right)\b",
     re.IGNORECASE,
 )
+_EMAIL_VALID_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$")
+
+
+def _parse_email(text: str) -> str | None:
+    """Convert a spoken email ('max at gmail punkt com') to an address."""
+    t = text.lower()
+    t = re.sub(r"\s+(?:at|ät)\s+", "@", t)
+    t = re.sub(r"\s+(?:punkt|dot|point)\s+", ".", t)
+    for token in t.split():
+        token = token.strip(".,;:!?")
+        if _EMAIL_VALID_RE.match(token):
+            return token
+    return None
 
 
 def _extract_reference(text: str) -> str | None:
@@ -196,22 +209,25 @@ class ConversationManager:
         self._try_capture_contact(text, skip_phone=captured_insurance)
 
     def _try_confirm_readback(self, text: str) -> None:
-        """Handle the caller's reply to a scripted phone read-back.
+        """Handle the caller's reply to a scripted email/phone read-back.
 
-        'Ja, stimmt' confirms the number; a denial drops it so it is asked again
-        (a re-stated number is then re-captured from the same turn).
+        'Ja, stimmt' confirms the field; a denial drops it so it is asked again
+        (a re-stated value is then re-captured from the same turn). Acts on the
+        first unconfirmed contact field, matching the scripted read-back order.
         """
-        if not self.state.callback_requested:
+        if self.state.phase not in (CallPhase.CAPTURE, CallPhase.ESCALATION):
             return
-        phone = self.state.entities.get("phone")
-        if not phone or phone.confirmed:
+        for field in ("email", "phone"):
+            entity = self.state.entities.get(field)
+            if not entity or entity.confirmed:
+                continue
+            lowered = text.lower()
+            if _AREA_DENIAL_RE.search(lowered):
+                del self.state.entities[field]
+                self.advance_phase()
+            elif _CONFIRM_YES_RE.search(lowered):
+                self.confirm_entity(field)
             return
-        lowered = text.lower()
-        if _AREA_DENIAL_RE.search(lowered):
-            del self.state.entities["phone"]
-            self.advance_phase()
-        elif _CONFIRM_YES_RE.search(lowered):
-            self.confirm_entity("phone")
 
     def _recent_agent_text(self) -> str:
         for msg in reversed(self.state.messages):
@@ -311,6 +327,14 @@ class ConversationManager:
             if name:
                 logger.info("Deterministic capture (LLM fallback): name=%r", name)
                 self.update_and_confirm_entity("name", name)
+                captured = True
+
+        existing_email = self.state.entities.get("email")
+        if not (existing_email and existing_email.confirmed):
+            email = _parse_email(text)
+            if email:
+                logger.info("Deterministic capture (LLM fallback): email=%r", email)
+                self.store_entity("email", email, 0.9)
                 captured = True
 
         existing_phone = self.state.entities.get("phone")
