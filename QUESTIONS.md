@@ -19,8 +19,8 @@ TTFA = STT latency + LLM time-to-first-token + TTS time-to-first-byte
 ```
 
 With the local stack:
-- **STT** (faster-whisper, base model): ~300-500ms per utterance
-- **LLM** (Ollama qwen3:4b): ~300-500ms TTFT depending on hardware
+- **STT** (faster-whisper, small model): ~300-500ms per utterance
+- **LLM** (Ollama qwen2.5:7b): ~300-500ms TTFT depending on hardware
 - **TTS** (Piper): ~50ms TTFB (lightweight CPU model)
 
 Total: ~650ms-1s locally. With cloud providers (Deepgram + GPT-4o-mini + ElevenLabs), the Salesforce paper benchmarks this at ~755ms measured end-to-end.
@@ -41,9 +41,9 @@ Not `STT + LLM(full response) + TTS(full response)`. For a two-sentence response
 
 **2. Small model selection** (`config.py:17`, `services.py:27-32`)
 
-I default to qwen3:4b (2.6GB) rather than a larger model. For a receptionist conversation, the model needs to do three things well: follow the phase-specific system prompt, call the right tool with correct arguments, and phrase short responses naturally. A 4B model does all three. A 14B or 70B model might reason better in edge cases, but the extra seconds of inference latency make the call feel broken.
+I default to qwen2.5:7b (4.7GB) rather than a larger model. For a receptionist conversation, the model needs to do three things well: follow the phase-specific system prompt, call the right tool with correct arguments, and phrase short responses naturally. qwen2.5:7b does all three — it was specifically trained for function calling — at ~0.8s latency. A 14B or 70B model might reason better in edge cases, but the extra seconds of inference latency make the call feel broken. I avoid qwen3:8b because it emits thinking tokens that create dead air on the phone line.
 
-The model is configurable via `OLLAMA_MODEL` in `.env` — if hardware supports it, qwen3:8b provides better tool calling with slightly more latency.
+The model is configurable via `OLLAMA_MODEL` in `.env` — qwen3:4b is ~0.3s faster if you are latency-constrained and accept slightly less reliable tool calling.
 
 **3. Phase-constrained prompts** (`prompts.py:34-96`)
 
@@ -140,7 +140,7 @@ The prototype is designed so production upgrades are config changes, not rewrite
 | Concern | Prototype | Production | How to switch |
 |---|---|---|---|
 | STT | faster-whisper (batch) | Deepgram Nova (streaming) | `STT_PROVIDER=deepgram` |
-| LLM | Ollama qwen3:4b (CPU) | GPT-4o-mini or vLLM (GPU) | `LLM_PROVIDER=openai` |
+| LLM | Ollama qwen2.5:7b (CPU) | GPT-4o-mini or vLLM (GPU) | `LLM_PROVIDER=openai` |
 | TTS | Piper (robotic) | ElevenLabs (natural) | `TTS_PROVIDER=elevenlabs` |
 | State | In-memory dict | Redis | Set `REDIS_URL` |
 | DB | SQLite | Postgres | Change `DB_URL` |
