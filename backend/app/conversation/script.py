@@ -83,11 +83,12 @@ def scripted_line(state: ConversationState, lang: str = "de") -> str | None:
     if state.phase in (CallPhase.CAPTURE, CallPhase.ESCALATION):
         if not (name and name.value):
             return scripts["ask_name"] if callback else scripts["ask_name_booking"]
-        # Booking needs an email; a callback does not.
+        # Booking asks for an email (with spell-back) but it is optional — a phone
+        # number is enough, so the caller can decline. A callback skips email.
         if not callback:
-            if not email:
+            if not email and not state.email_skipped:
                 return scripts["ask_email"]
-            if not email.confirmed:
+            if email and not email.confirmed:
                 return scripts["confirm_email"].format(email=email.value)
         if not phone:
             return scripts["ask_phone"]

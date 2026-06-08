@@ -364,27 +364,28 @@ class TestBookingValidation:
             ctx,
         )
         assert result["status"] == "blocked"
-        assert "email" in result["missing_fields"]
+        # Email is optional; only the phone number is required (plus name).
         assert "phone" in result["missing_fields"]
+        assert "email" not in result["missing_fields"]
 
     @pytest.mark.asyncio
-    async def test_booking_blocked_when_email_unconfirmed(self, registry, ctx_de):
+    async def test_booking_not_blocked_by_optional_email(self, registry, ctx_de):
+        """Name + phone confirmed is enough — an unconfirmed email does not block."""
         ctx = ctx_de
         ctx.add_user_message("Ich brauche einen Termin")
         ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
-        for f in ("name", "email", "phone"):
-            ctx.store_entity(f, f"test_{f}", 0.95)
+        ctx.store_entity("name", "Test", 0.95)
         ctx.confirm_entity("name")
+        ctx.store_entity("phone", "+4915112345678", 0.9)
         ctx.confirm_entity("phone")
+        ctx.store_entity("email", "test@example.com", 0.9)  # unconfirmed
 
         result = await registry.execute(
             "book_consultation",
             {"slot_id": 1, "caller_name": "Test"},
             ctx,
         )
-        assert result["status"] == "blocked"
-        assert result["missing_fields"] == []
-        assert "email" in result["unconfirmed_fields"]
+        assert result["status"] != "blocked"
 
     @pytest.mark.asyncio
     async def test_booking_proceeds_when_all_confirmed(self, registry, ctx_de):

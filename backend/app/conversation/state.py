@@ -29,6 +29,9 @@ class ConversationState:
     insurance_resolved: bool = False
     # Callback-only: the caller's preferred time to be called back (free text).
     preferred_time: str | None = None
+    # Booking: True once email was asked and the caller had none — email is
+    # optional, a phone number is enough to book.
+    email_skipped: bool = False
     misunderstanding_streak: int = 0
     last_transcription_confidence: float | None = None
     started_at: float = field(default_factory=time.time)

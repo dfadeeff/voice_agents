@@ -107,6 +107,8 @@ _CONFIRM_YES_RE = re.compile(
 _EMAIL_VALID_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$")
 # Cue that the agent's last turn asked for the preferred callback time.
 _CALLBACK_TIME_ASK_RE = re.compile(r"zurückrufen|call you back", re.IGNORECASE)
+# Cue that the agent's last turn asked for the email address.
+_EMAIL_ASK_RE = re.compile(r"e-?mail", re.IGNORECASE)
 
 
 def _parse_email(text: str) -> str | None:
@@ -209,7 +211,23 @@ class ConversationManager:
         self._try_confirm_readback(text)
         captured_insurance = self._try_capture_insurance(text)
         self._try_capture_contact(text, skip_phone=captured_insurance)
+        self._try_skip_email(text)
         self._try_capture_preferred_time(text)
+
+    def _try_skip_email(self, text: str) -> None:
+        """Mark email as skipped when the agent asked for it and the caller has none."""
+        if self.state.callback_requested or self.state.email_skipped:
+            return
+        if self.state.phase not in (CallPhase.CAPTURE, CallPhase.ESCALATION):
+            return
+        if "email" in self.state.entities:
+            return
+        if not _EMAIL_ASK_RE.search(self._recent_agent_text()):
+            return
+        if _NEGATE_RE.search(text.lower()):
+            logger.info("Email skipped: caller has none")
+            self.state.email_skipped = True
+            self.advance_phase()
 
     def _try_capture_preferred_time(self, text: str) -> None:
         """Store the caller's preferred callback time once it has been asked."""

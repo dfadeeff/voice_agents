@@ -1,7 +1,9 @@
-from app.conversation.flow import CONTACT_FIELDS
 from app.conversation.manager import ConversationManager
 from app.services.calendar import CalendarService
 from app.tools.registry import ToolRegistry
+
+# A booking needs a name and at least a phone number; email is optional.
+BOOKING_REQUIRED_FIELDS = ("name", "phone")
 
 CHECK_SCHEMA = {
     "type": "object",
@@ -85,10 +87,10 @@ def _make_check_availability(calendar: CalendarService):
 
 def _make_book_consultation(calendar: CalendarService):
     async def book_consultation(args: dict, ctx: ConversationManager) -> dict:
-        missing = [f for f in CONTACT_FIELDS if f not in ctx.state.entities]
+        missing = [f for f in BOOKING_REQUIRED_FIELDS if f not in ctx.state.entities]
         unconfirmed = [
             f
-            for f in CONTACT_FIELDS
+            for f in BOOKING_REQUIRED_FIELDS
             if f in ctx.state.entities and not ctx.state.entities[f].confirmed
         ]
         if missing or unconfirmed:

@@ -22,12 +22,18 @@ PHASE_TOOLS: dict[CallPhase, list[str]] = {
 }
 
 
-def all_contacts_confirmed(entities: dict) -> bool:
-    for f in CONTACT_FIELDS:
-        entity = entities.get(f)
-        if not entity or not entity.confirmed:
-            return False
-    return True
+def all_contacts_confirmed(state) -> bool:
+    """Booking needs name + phone confirmed; email is optional (a phone number is
+    enough), so it counts as resolved once given or explicitly skipped."""
+    ents = state.entities
+
+    def confirmed(field: str) -> bool:
+        entity = ents.get(field)
+        return bool(entity and entity.confirmed)
+
+    if not (confirmed("name") and confirmed("phone")):
+        return False
+    return confirmed("email") or state.email_skipped
 
 
 def callback_contacts_confirmed(entities: dict) -> bool:
@@ -83,7 +89,7 @@ def next_phase(state) -> CallPhase:
     elif "matter_details" not in state.entities:
         return CallPhase.QUALIFICATION
 
-    if not all_contacts_confirmed(state.entities):
+    if not all_contacts_confirmed(state):
         return CallPhase.CAPTURE
 
     return CallPhase.BOOKING

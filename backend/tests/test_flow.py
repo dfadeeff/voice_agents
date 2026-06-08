@@ -155,26 +155,51 @@ class TestNextPhase:
 
 class TestAllContactsConfirmed:
     def test_empty_entities(self):
-        assert all_contacts_confirmed({}) is False
+        assert all_contacts_confirmed(_state()) is False
 
-    def test_partial_entities(self):
-        entities = {"name": _confirmed_entity("name")}
-        assert all_contacts_confirmed(entities) is False
+    def test_name_only(self):
+        assert all_contacts_confirmed(_state(entities={"name": _confirmed_entity("name")})) is False
 
-    def test_all_confirmed(self):
-        entities = {
-            "name": _confirmed_entity("name"),
-            "email": _confirmed_entity("email"),
-            "phone": _confirmed_entity("phone"),
-        }
-        assert all_contacts_confirmed(entities) is True
+    def test_name_and_phone_with_email(self):
+        s = _state(
+            entities={
+                "name": _confirmed_entity("name"),
+                "email": _confirmed_entity("email"),
+                "phone": _confirmed_entity("phone"),
+            }
+        )
+        assert all_contacts_confirmed(s) is True
 
-    def test_one_unconfirmed(self):
-        entities = {
-            "name": _confirmed_entity("name"),
-            "phone": _unconfirmed_entity("phone"),
-        }
-        assert all_contacts_confirmed(entities) is False
+    def test_name_and_phone_email_skipped(self):
+        """Email is optional — name + phone with email skipped is enough."""
+        s = _state(
+            email_skipped=True,
+            entities={
+                "name": _confirmed_entity("name"),
+                "phone": _confirmed_entity("phone"),
+            },
+        )
+        assert all_contacts_confirmed(s) is True
+
+    def test_name_and_phone_without_email_decision_waits(self):
+        """Email not given and not skipped → still collecting (the email step)."""
+        s = _state(
+            entities={
+                "name": _confirmed_entity("name"),
+                "phone": _confirmed_entity("phone"),
+            }
+        )
+        assert all_contacts_confirmed(s) is False
+
+    def test_phone_unconfirmed(self):
+        s = _state(
+            email_skipped=True,
+            entities={
+                "name": _confirmed_entity("name"),
+                "phone": _unconfirmed_entity("phone"),
+            },
+        )
+        assert all_contacts_confirmed(s) is False
 
 
 class TestContactFields:
