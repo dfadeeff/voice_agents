@@ -125,12 +125,15 @@ CALLBACK_PROMPTS: dict[CallPhase, str] = {
     CallPhase.CAPTURE: (
         "Der Anrufer möchte {target_person} sprechen.\n"
         "Du kannst NICHT direkt verbinden. Du nimmst einen Rückrufwunsch auf.\n"
-        "Erfasse NUR: Name und Telefonnummer. Keine E-Mail nötig.\n"
+        "Erfasse: Name und Telefonnummer.\n"
         "- Wenn Name fehlt: frage NUR nach dem Namen.\n"
         "- Wenn Telefonnummer fehlt: frage NUR nach der Telefonnummer.\n"
         "- Nutze capture_caller_details für jede Information.\n"
         "- Telefon: IMMER Ziffer für Ziffer vorlesen, "
         "dann confirm_caller_detail aufrufen.\n"
+        "- Bei Verkehrssachen: frage auch nach der Schadensnummer oder "
+        "Versicherungsnummer (insurance_number).\n"
+        "- Wenn Bestandsmandant: frage nach dem Aktenzeichen (case_reference).\n"
         "- Maximal 1-2 kurze Sätze."
     ),
     CallPhase.CONFIRMATION: (
@@ -179,6 +182,8 @@ QUALIFICATION_PROMPTS = {
         "einen Lohnstreit oder ein anderes Problem mit Ihrem Arbeitgeber?'\n"
         "- Speichere die Antwort mit capture_caller_details und matter_type.\n"
         "- Gültige Werte: 'dismissal', 'warning', 'wages', 'contract', 'other'.\n"
+        "- WICHTIG: Der Anrufer antwortet auf deine Sachfrage. "
+        "Speichere NUR matter_type — NICHT den Namen des Anrufers.\n"
         "- Stelle KEINE rechtlichen Detailfragen."
     ),
     "employment_details": (
@@ -196,6 +201,8 @@ QUALIFICATION_PROMPTS = {
         "Mängel in der Wohnung oder ein anderes Problem mit Ihrem Vermieter?'\n"
         "- Speichere die Antwort mit capture_caller_details und matter_type.\n"
         "- Gültige Werte: 'eviction', 'deposit', 'rent_increase', 'repairs', 'other'.\n"
+        "- WICHTIG: Der Anrufer antwortet auf deine Sachfrage. "
+        "Speichere NUR matter_type — NICHT den Namen des Anrufers.\n"
         "- Stelle KEINE rechtlichen Detailfragen."
     ),
     "tenancy_details": (
@@ -212,6 +219,8 @@ QUALIFICATION_PROMPTS = {
         "oder ein Problem mit einer Versicherung?'\n"
         "- Speichere die Antwort mit capture_caller_details und matter_type.\n"
         "- Gültige Werte: 'accident', 'damage', 'insurance', 'other'.\n"
+        "- WICHTIG: Der Anrufer antwortet auf deine Sachfrage. "
+        "Speichere NUR matter_type — NICHT den Namen des Anrufers.\n"
         "- Stelle KEINE rechtlichen Detailfragen."
     ),
     "traffic_details": (

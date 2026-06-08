@@ -112,7 +112,8 @@ class TestHumanHandoffScenario:
         )
         assert result["status"] == "handoff_requested"
         assert result["mode"] == "callback"
-        assert ctx.state.phase == CallPhase.ESCALATION
+        assert ctx.state.callback_requested is True
+        assert ctx.state.phase == CallPhase.CAPTURE
 
     @pytest.mark.asyncio
     async def test_handoff_mid_flow(self, registry, ctx):
@@ -130,7 +131,8 @@ class TestHumanHandoffScenario:
             {"reason": "caller_requested_human"},
             ctx,
         )
-        assert ctx.state.phase == CallPhase.ESCALATION
+        assert ctx.state.callback_requested is True
+        assert ctx.state.phase == CallPhase.CAPTURE
         assert result["context_for_human"]["caller_details"] == {}
 
 
@@ -142,6 +144,10 @@ class TestEmailConfirmationScenario:
         ctx.add_user_message("I was dismissed")
         ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
         await registry.execute("capture_caller_details", {"matter_type": "dismissal"}, ctx)
+        await registry.execute(
+            "capture_caller_details", {"matter_details": "deadline in 2 weeks"}, ctx
+        )
+        assert ctx.state.phase == CallPhase.CAPTURE
 
         result = await registry.execute(
             "capture_caller_details",
@@ -166,6 +172,9 @@ class TestEmailConfirmationScenario:
         ctx.add_user_message("details")
         ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
         await registry.execute("capture_caller_details", {"matter_type": "dismissal"}, ctx)
+        await registry.execute(
+            "capture_caller_details", {"matter_details": "deadline in 2 weeks"}, ctx
+        )
 
         await registry.execute(
             "capture_caller_details",
@@ -323,6 +332,9 @@ class TestMisunderstandingEscalation:
         ctx.add_user_message("details")
         ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
         await registry.execute("capture_caller_details", {"matter_type": "dismissal"}, ctx)
+        await registry.execute(
+            "capture_caller_details", {"matter_details": "deadline in 2 weeks"}, ctx
+        )
 
         for i in range(3):
             ctx.add_user_message(f"bad email {i}")
@@ -352,6 +364,9 @@ class TestEmailValidation:
         ctx.add_user_message("my email is not-an-email")
         ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
         await registry.execute("capture_caller_details", {"matter_type": "dismissal"}, ctx)
+        await registry.execute(
+            "capture_caller_details", {"matter_details": "deadline in 2 weeks"}, ctx
+        )
 
         result = await registry.execute(
             "capture_caller_details",
@@ -400,12 +415,14 @@ class TestTrafficInsuranceCapture:
     @pytest.mark.asyncio
     async def test_insurance_number_stored(self, registry, ctx):
         ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.TRAFFIC)
+        await registry.execute("capture_caller_details", {"matter_type": "accident"}, ctx)
+        assert "matter_type" in ctx.state.entities
+
         result = await registry.execute(
             "capture_caller_details",
-            {"matter_type": "accident", "insurance_number": "VS-2026-12345"},
+            {"insurance_number": "VS-2026-12345"},
             ctx,
         )
-        assert "matter_type" in result["stored"]
         assert "insurance_number" in result["stored"]
         assert ctx.state.entities["insurance_number"].value == "VS-2026-12345"
 
@@ -416,6 +433,12 @@ class TestCaseReferenceCapture:
     @pytest.mark.asyncio
     async def test_case_reference_stored(self, registry, ctx):
         ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        await registry.execute("capture_caller_details", {"matter_type": "dismissal"}, ctx)
+        await registry.execute(
+            "capture_caller_details", {"matter_details": "deadline in 2 weeks"}, ctx
+        )
+        assert ctx.state.phase == CallPhase.CAPTURE
+
         result = await registry.execute(
             "capture_caller_details",
             {"case_reference": "44/24"},

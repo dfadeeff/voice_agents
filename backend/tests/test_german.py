@@ -530,7 +530,8 @@ class TestGermanFullBookingScenario:
         )
         assert result["status"] == "handoff_requested"
         assert result["mode"] == "callback"
-        assert ctx.state.phase == CallPhase.ESCALATION
+        assert ctx.state.callback_requested is True
+        assert ctx.state.phase == CallPhase.CAPTURE
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +545,10 @@ class TestGermanEmailConfirmation:
         ctx = ConversationManager(call_id="de-email-test", lang="de")
         ctx.add_user_message("ameliesommer at gmail punkt com")
         ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        await registry.execute("capture_caller_details", {"matter_type": "dismissal"}, ctx)
+        await registry.execute(
+            "capture_caller_details", {"matter_details": "deadline in 2 weeks"}, ctx
+        )
 
         result = await registry.execute(
             "capture_caller_details",
@@ -559,6 +564,10 @@ class TestGermanEmailConfirmation:
         ctx = ConversationManager(call_id="de-email-confirm", lang="de")
         ctx.add_user_message("max at example punkt com")
         ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        await registry.execute("capture_caller_details", {"matter_type": "dismissal"}, ctx)
+        await registry.execute(
+            "capture_caller_details", {"matter_details": "deadline in 2 weeks"}, ctx
+        )
 
         await registry.execute("capture_caller_details", {"email": "max@example.com"}, ctx)
         assert not ctx.state.entities["email"].confirmed

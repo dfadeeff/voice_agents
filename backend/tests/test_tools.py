@@ -440,8 +440,8 @@ class TestRequestHandoff:
         )
         assert result["status"] == "handoff_requested"
         assert result["mode"] == "callback"
-        assert conversation.state.escalation_requested is True
-        assert conversation.state.phase == CallPhase.ESCALATION
+        assert conversation.state.callback_requested is True
+        assert conversation.state.phase == CallPhase.CAPTURE
 
     @pytest.mark.asyncio
     async def test_handoff_includes_context(self, registry, conversation):

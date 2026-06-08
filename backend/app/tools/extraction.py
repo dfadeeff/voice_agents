@@ -1,8 +1,12 @@
+import logging
 import re
 
 from app.conversation.manager import ConversationManager
 from app.conversation.phone import normalize_phone_text
+from app.models.schemas import CallPhase, LegalArea
 from app.tools.registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 CAPTURE_SCHEMA = {
     "type": "object",
@@ -104,13 +108,72 @@ def _validate_format(field_name: str, value: str) -> str | None:
     return None
 
 
+CONTACT_FIELDS = {"name", "email", "phone", "case_reference", "insurance_number"}
+
+
+def _allowed_fields(ctx: ConversationManager) -> set[str]:
+    """Return the set of fields allowed in the current phase."""
+    phase = ctx.state.phase
+    if phase == CallPhase.QUALIFICATION:
+        if "matter_type" not in ctx.state.entities:
+            return {"matter_type"}
+        return {"matter_details", "insurance_number"}
+    if phase in (CallPhase.CAPTURE, CallPhase.ESCALATION):
+        return CONTACT_FIELDS
+    return set(CAPTURE_SCHEMA["properties"].keys())
+
+
+def _compute_next_ask(ctx: ConversationManager) -> dict:
+    """Compute what to ask next based on state, for tool-driven branching."""
+    phase = ctx.state.phase
+    area = ctx.state.legal_area
+
+    if phase == CallPhase.QUALIFICATION:
+        if "matter_type" not in ctx.state.entities:
+            return {"next_ask": "matter_type"}
+        if "matter_details" not in ctx.state.entities:
+            return {"next_ask": "matter_details"}
+        if area == LegalArea.TRAFFIC and "insurance_number" not in ctx.state.entities:
+            return {
+                "next_ask": "insurance_number",
+                "hint": "Ask if there is an insurance claim or damage number",
+            }
+        return {}
+
+    if phase in (CallPhase.CAPTURE, CallPhase.ESCALATION):
+        from app.conversation.flow import CALLBACK_REQUIRED_FIELDS
+        from app.conversation.flow import CONTACT_FIELDS as FLOW_CONTACTS
+
+        required = CALLBACK_REQUIRED_FIELDS if ctx.state.callback_requested else FLOW_CONTACTS
+        for f in required:
+            e = ctx.state.entities.get(f)
+            if not e:
+                return {"next_ask": f}
+            if not e.confirmed:
+                return {"next_confirm": f, "value": e.value}
+        if area == LegalArea.TRAFFIC and "insurance_number" not in ctx.state.entities:
+            return {
+                "next_ask": "insurance_number",
+                "hint": "Ask if there is an insurance claim or damage number",
+            }
+        return {}
+
+    return {}
+
+
 async def capture_caller_details(args: dict, ctx: ConversationManager) -> dict:
     stored = []
     needs_confirmation = []
     format_errors = []
+    allowed = _allowed_fields(ctx)
+    rejected = []
 
     for field_name, value in args.items():
         if not value or not isinstance(value, str):
+            continue
+
+        if field_name not in allowed:
+            rejected.append(field_name)
             continue
 
         if field_name == "phone":
@@ -150,18 +213,32 @@ async def capture_caller_details(args: dict, ctx: ConversationManager) -> dict:
         else:
             ctx.confirm_entity(field_name)
 
+    if rejected:
+        logger.warning(
+            "Rejected fields for phase %s: %s",
+            ctx.state.phase.value,
+            rejected,
+        )
+
     if format_errors:
         ctx.record_misunderstanding()
     elif stored:
         ctx.reset_misunderstanding_streak()
 
-    result = {
+    result: dict = {
         "stored": stored,
         "needs_confirmation": needs_confirmation,
         "all_confirmed": len(needs_confirmation) == 0 and len(format_errors) == 0,
     }
     if format_errors:
         result["format_errors"] = format_errors
+    if rejected:
+        result["rejected_fields"] = rejected
+        result["hint"] = f"Only {', '.join(sorted(allowed))} can be stored right now."
+
+    next_hint = _compute_next_ask(ctx)
+    result.update(next_hint)
+
     return result
 
 

@@ -29,6 +29,7 @@ async def request_handoff(args: dict, ctx: ConversationManager) -> dict:
     summary = args.get("summary", "")
     ctx.request_handoff(reason, summary)
 
+    is_callback = reason == "caller_requested_human"
     context_for_human = {
         "reason": reason,
         "summary": summary,
@@ -39,11 +40,15 @@ async def request_handoff(args: dict, ctx: ConversationManager) -> dict:
         "call_id": ctx.state.call_id,
     }
 
-    return {
+    result = {
         "status": "handoff_requested",
         "mode": "callback",
         "context_for_human": context_for_human,
     }
+    if is_callback:
+        result["action"] = "collect_callback_details"
+        result["collect"] = ["name", "phone"]
+    return result
 
 
 def register_handoff_tools(registry: ToolRegistry) -> None:

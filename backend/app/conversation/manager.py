@@ -55,6 +55,7 @@ class ConversationManager:
     def add_user_message(self, text: str) -> None:
         self.state.turn_count += 1
         self.state.messages.append({"role": "user", "content": text})
+        was_callback = self.state.callback_requested
         if is_explicit_handoff_request(text, self.lang):
             self.state.callback_requested = True
             target = extract_target_person(text, self.lang)
@@ -63,6 +64,8 @@ class ConversationManager:
         if self.state.caller_intent == CallerIntent.UNKNOWN:
             self._try_auto_route(text)
         self.advance_phase()
+        if not was_callback and self.state.callback_requested:
+            self._update_llm_context()
 
     def _try_auto_route(self, text: str) -> None:
         """Keyword fallback when the LLM skips route_call."""
@@ -214,9 +217,13 @@ class ConversationManager:
         self.advance_phase()
 
     def request_handoff(self, reason: str, summary: str = "") -> None:
-        self.state.escalation_requested = True
-        self.state.escalation_reason = reason
-        self.state.escalation_summary = summary
+        if reason == "caller_requested_human":
+            self.state.callback_requested = True
+            self.state.escalation_summary = summary
+        else:
+            self.state.escalation_requested = True
+            self.state.escalation_reason = reason
+            self.state.escalation_summary = summary
         self.advance_phase()
 
     def reset_misunderstanding_streak(self) -> None:

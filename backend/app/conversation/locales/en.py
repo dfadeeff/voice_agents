@@ -103,12 +103,15 @@ CALLBACK_PROMPTS: dict[CallPhase, str] = {
     CallPhase.CAPTURE: (
         "The caller wants to speak with {target_person}.\n"
         "You CANNOT transfer directly. You are recording a callback request.\n"
-        "Collect ONLY: name and phone number. No email needed.\n"
+        "Collect: name and phone number.\n"
         "- If name is missing: ask ONLY for the name.\n"
         "- If phone is missing: ask ONLY for the phone number.\n"
         "- Use capture_caller_details for each piece of information.\n"
         "- Phone: ALWAYS read it back digit by digit, "
         "then use confirm_caller_detail.\n"
+        "- For traffic cases: also ask for the insurance claim or "
+        "damage number (insurance_number).\n"
+        "- If existing client: ask for their case reference (case_reference).\n"
         "- Maximum 1-2 short sentences."
     ),
     CallPhase.CONFIRMATION: (
@@ -157,6 +160,8 @@ QUALIFICATION_PROMPTS = {
         "or another issue with your employer?'\n"
         "- Store the answer using capture_caller_details with matter_type.\n"
         "- Valid values: 'dismissal', 'warning', 'wages', 'contract', 'other'.\n"
+        "- IMPORTANT: The caller is answering your question about the issue. "
+        "Store ONLY matter_type — NOT the caller's name.\n"
         "- Do NOT ask detailed legal questions."
     ),
     "employment_details": (
@@ -173,6 +178,8 @@ QUALIFICATION_PROMPTS = {
         "problems with repairs, or another issue with your landlord?'\n"
         "- Store the answer using capture_caller_details with matter_type.\n"
         "- Valid values: 'eviction', 'deposit', 'rent_increase', 'repairs', 'other'.\n"
+        "- IMPORTANT: The caller is answering your question about the issue. "
+        "Store ONLY matter_type — NOT the caller's name.\n"
         "- Do NOT ask detailed legal questions."
     ),
     "tenancy_details": (
@@ -189,6 +196,8 @@ QUALIFICATION_PROMPTS = {
         "or an issue with an insurance company?'\n"
         "- Store the answer using capture_caller_details with matter_type.\n"
         "- Valid values: 'accident', 'damage', 'insurance', 'other'.\n"
+        "- IMPORTANT: The caller is answering your question about the issue. "
+        "Store ONLY matter_type — NOT the caller's name.\n"
         "- Do NOT ask detailed legal questions."
     ),
     "traffic_details": (

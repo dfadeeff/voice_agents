@@ -40,9 +40,15 @@ def build_system_prompt(state: ConversationState, lang: str = "de") -> str:
     locale = get_locale(lang)
     parts = [locale.PREAMBLE]
 
-    if state.callback_requested and state.phase in (CallPhase.CAPTURE, CallPhase.CONFIRMATION):
+    if state.callback_requested and state.phase in (
+        CallPhase.CAPTURE,
+        CallPhase.CONFIRMATION,
+        CallPhase.ESCALATION,
+    ):
         callback_prompts = getattr(locale, "CALLBACK_PROMPTS", {})
         phase_prompt = callback_prompts.get(state.phase, "")
+        if not phase_prompt and state.phase == CallPhase.ESCALATION:
+            phase_prompt = callback_prompts.get(CallPhase.CAPTURE, "")
         target = state.target_person or ("das Kanzleiteam" if lang == "de" else "the team")
         phase_prompt = phase_prompt.replace("{target_person}", target)
     elif state.phase == CallPhase.QUALIFICATION:
@@ -77,15 +83,15 @@ def build_system_prompt(state: ConversationState, lang: str = "de") -> str:
             label = "BESTÄTIGUNG NÖTIG" if lang == "de" else "NEEDS CONFIRMATION"
             parts.append(f"\n{label}: {', '.join(unconfirmed)}")
 
-    if not state.callback_requested:
-        fragment = locale.FRAGMENTS.get(state.legal_area.value, "")
-        if fragment and state.phase in (
-            CallPhase.ROUTING,
-            CallPhase.INFORMATION,
-            CallPhase.CAPTURE,
-            CallPhase.BOOKING,
-        ):
-            parts.append(fragment)
+    fragment = locale.FRAGMENTS.get(state.legal_area.value, "")
+    if fragment and state.phase in (
+        CallPhase.ROUTING,
+        CallPhase.INFORMATION,
+        CallPhase.CAPTURE,
+        CallPhase.BOOKING,
+        CallPhase.ESCALATION,
+    ):
+        parts.append(fragment)
 
     prompt = "\n".join(parts)
     if _is_qwen3:
