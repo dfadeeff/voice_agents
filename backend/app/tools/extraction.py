@@ -42,8 +42,7 @@ CAPTURE_SCHEMA = {
         "case_reference": {
             "type": "string",
             "description": (
-                "Existing case reference number (Aktenzeichen) "
-                "if the caller is an existing client."
+                "Existing case reference number (Aktenzeichen) if the caller is an existing client."
             ),
         },
         "insurance_number": {
