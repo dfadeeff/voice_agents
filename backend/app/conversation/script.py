@@ -93,7 +93,10 @@ def scripted_line(state: ConversationState, lang: str = "de") -> str | None:
             return scripts["ask_phone"]
         if not phone.confirmed:
             return scripts["confirm_phone"].format(phone=_spoken_phone(phone.value, lang))
-        return None  # all contacts confirmed → BOOKING (LLM handles slots)
+        # Callback: capture a preferred call-back time after the contact details.
+        if callback and not state.preferred_time:
+            return scripts["ask_callback_time"]
+        return None  # all done → CONFIRMATION (callback) or BOOKING (booking)
 
     if callback and state.phase == CallPhase.CONFIRMATION:
         # Say the closing only once, even if the caller adds "Tschüss" afterwards.
@@ -101,6 +104,6 @@ def scripted_line(state: ConversationState, lang: str = "de") -> str | None:
         if "Wiederhören" in last_agent or "Goodbye" in last_agent:
             return None
         person = state.target_person or scripts.get("team", "")
-        return scripts["callback_done"].format(person=person)
+        return scripts["callback_done"].format(person=person, time=state.preferred_time or "")
 
     return None

@@ -51,6 +51,7 @@ async def _save_caller(calendar: CalendarService, conv: ConversationManager) -> 
         case_reference=_val("case_reference"),
         insurance_number=_val("insurance_number"),
         outcome=outcome,
+        preferred_time=state.preferred_time or "",
     )
 
 

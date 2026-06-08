@@ -289,9 +289,10 @@ SCRIPTED = {
     "confirm_email": ("Ich habe notiert: {email}. Ist das korrekt?"),
     "ask_phone": ("Vielen Dank. Unter welcher Telefonnummer können wir Sie erreichen?"),
     "confirm_phone": ("Ich habe Ihre Nummer notiert: {phone}. Ist das korrekt?"),
+    "ask_callback_time": ("Und wann dürfen wir Sie am besten zurückrufen?"),
     "callback_done": (
-        "Vielen Dank. Ich habe Ihren Rückrufwunsch aufgenommen. "
-        "{person} wird sich zeitnah bei Ihnen melden. Auf Wiederhören!"
+        "Vielen Dank. Ich habe Ihren Rückrufwunsch notiert. "
+        "{person} ruft Sie {time} zurück. Auf Wiederhören!"
     ),
 }
 

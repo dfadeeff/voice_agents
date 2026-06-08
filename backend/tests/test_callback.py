@@ -59,7 +59,7 @@ class TestCallbackFlow:
         assert ctx.state.phase == CallPhase.CAPTURE
         assert not ctx.state.entities.get("phone")
 
-    def test_callback_confirms_after_name_and_phone(self):
+    def test_callback_confirms_after_name_phone_and_time(self):
         ctx = ConversationManager(call_id="cb-test", lang="de")
         ctx.add_user_message("Ich möchte bitte Herrn Schmid sprechen.")
 
@@ -68,7 +68,11 @@ class TestCallbackFlow:
 
         ctx.store_entity("phone", "+49176123456", 0.9)
         ctx.confirm_entity("phone")
+        # Name + phone alone now wait for a preferred callback time.
+        assert ctx.state.phase == CallPhase.CAPTURE
 
+        ctx.state.preferred_time = "morgen Vormittag"
+        ctx.advance_phase()
         assert ctx.state.phase == CallPhase.CONFIRMATION
 
     def test_callback_does_not_require_email(self):
@@ -76,6 +80,7 @@ class TestCallbackFlow:
             callback_requested=True,
             target_person="Schmid",
             turn_count=3,
+            preferred_time="morgen Vormittag",
             entities={
                 "name": _confirmed("name", "Max Mustermann"),
                 "phone": _confirmed("phone", "+49176123456"),
@@ -173,7 +178,12 @@ class TestCallbackScenarioWithTools:
             {"field": "phone", "confirmed_value": "+4917656834205", "status": "accepted"},
             ctx,
         )
+        # Name + phone done → scheduling step asks for a callback time.
+        assert ctx.state.phase == CallPhase.CAPTURE
 
+        ctx.add_assistant_message("Und wann dürfen wir Sie am besten zurückrufen?")
+        ctx.add_user_message("Morgen um 10 Uhr")
+        assert ctx.state.preferred_time == "Morgen um 10 Uhr"
         assert ctx.state.phase == CallPhase.CONFIRMATION
 
     @pytest.mark.asyncio

@@ -27,6 +27,8 @@ class ConversationState:
     # caller answered (with a number or a clear "none"). Gates qualification so
     # the step cannot be skipped by the model.
     insurance_resolved: bool = False
+    # Callback-only: the caller's preferred time to be called back (free text).
+    preferred_time: str | None = None
     misunderstanding_streak: int = 0
     last_transcription_confidence: float | None = None
     started_at: float = field(default_factory=time.time)

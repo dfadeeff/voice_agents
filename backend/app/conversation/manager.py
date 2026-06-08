@@ -105,6 +105,8 @@ _CONFIRM_YES_RE = re.compile(
     re.IGNORECASE,
 )
 _EMAIL_VALID_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$")
+# Cue that the agent's last turn asked for the preferred callback time.
+_CALLBACK_TIME_ASK_RE = re.compile(r"zurückrufen|call you back", re.IGNORECASE)
 
 
 def _parse_email(text: str) -> str | None:
@@ -207,6 +209,21 @@ class ConversationManager:
         self._try_confirm_readback(text)
         captured_insurance = self._try_capture_insurance(text)
         self._try_capture_contact(text, skip_phone=captured_insurance)
+        self._try_capture_preferred_time(text)
+
+    def _try_capture_preferred_time(self, text: str) -> None:
+        """Store the caller's preferred callback time once it has been asked."""
+        if not self.state.callback_requested or self.state.preferred_time:
+            return
+        name = self.state.entities.get("name")
+        phone = self.state.entities.get("phone")
+        if not (name and name.confirmed and phone and phone.confirmed):
+            return
+        if not _CALLBACK_TIME_ASK_RE.search(self._recent_agent_text()):
+            return
+        self.state.preferred_time = text.strip()
+        logger.info("Deterministic capture: preferred_time=%r", self.state.preferred_time)
+        self.advance_phase()
 
     def _try_confirm_readback(self, text: str) -> None:
         """Handle the caller's reply to a scripted email/phone read-back.

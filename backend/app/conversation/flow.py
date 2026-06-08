@@ -55,7 +55,8 @@ def next_phase(state) -> CallPhase:
         return CallPhase.CONFIRMATION
 
     if state.callback_requested:
-        if callback_contacts_confirmed(state.entities):
+        # Name + phone, then a preferred callback time, then confirm.
+        if callback_contacts_confirmed(state.entities) and state.preferred_time:
             return CallPhase.CONFIRMATION
         return CallPhase.CAPTURE
 

@@ -742,10 +742,14 @@ class TestNarrationSplit:
         assert ctx.state.entities["phone"].confirmed is True
         # Stored value stays international for the database.
         assert ctx.state.entities["phone"].value == "+4915159832614"
-        # Final line names the requested person with honorific, no invented time.
+        # Scheduling step asks for a callback time before closing.
+        assert "zurückrufen" in self._line(ctx).lower()
+        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_user_message("Morgen Vormittag")
+        # Final line names the person with honorific and the captured time.
         done = self._line(ctx)
         assert "Herr Schulz" in done
-        assert "Uhr" not in done
+        assert "Morgen Vormittag" in done
 
     def test_denial_reasks_phone(self):
         ctx = ConversationManager(call_id="ns2", lang="de")

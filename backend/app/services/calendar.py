@@ -87,9 +87,15 @@ class CalendarService:
                     case_reference TEXT,
                     insurance_number TEXT,
                     outcome TEXT,
+                    preferred_time TEXT,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # Idempotent column add for databases created before preferred_time.
+            try:
+                await db.execute("ALTER TABLE callers ADD COLUMN preferred_time TEXT")
+            except Exception:
+                pass
             await db.commit()
 
     async def get_slot_by_id(self, slot_id: int) -> dict | None:
@@ -206,13 +212,15 @@ class CalendarService:
         case_reference: str = "",
         insurance_number: str = "",
         outcome: str = "",
+        preferred_time: str = "",
     ) -> int | None:
         async with aiosqlite.connect(self._db_path) as db:
             cursor = await db.execute(
                 """INSERT INTO callers
                    (call_id, name, phone, email, legal_area, matter_type,
-                    matter_summary, case_reference, insurance_number, outcome)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    matter_summary, case_reference, insurance_number, outcome,
+                    preferred_time)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 [
                     call_id,
                     name,
@@ -224,6 +232,7 @@ class CalendarService:
                     case_reference,
                     insurance_number,
                     outcome,
+                    preferred_time,
                 ],
             )
             await db.commit()

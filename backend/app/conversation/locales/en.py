@@ -264,9 +264,10 @@ SCRIPTED = {
     "confirm_email": ("I've noted: {email}. Is that correct?"),
     "ask_phone": ("Thank you. What is the best phone number to reach you?"),
     "confirm_phone": ("I've noted your number: {phone}. Is that correct?"),
+    "ask_callback_time": ("And when would be a good time to call you back?"),
     "callback_done": (
         "Thank you. I've recorded your callback request. "
-        "{person} will get back to you shortly. Goodbye!"
+        "{person} will call you back {time}. Goodbye!"
     ),
 }
 
