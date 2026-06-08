@@ -183,6 +183,50 @@ class TestDeterministicMatterType:
         assert ctx.state.entities["matter_type"].value == "accident"
 
 
+class TestContextAwareInsuranceCapture:
+    """insurance_number is captured only when the agent just asked for it."""
+
+    def _traffic_ctx(self):
+        ctx = ConversationManager(call_id="ins", lang="de")
+        ctx.add_user_message("Ich hatte einen Unfall")
+        ctx.add_user_message("Ja, ein Verkehrsunfall")
+        return ctx
+
+    def test_captured_after_agent_asks(self):
+        ctx = self._traffic_ctx()
+        ctx.add_assistant_message("Haben Sie eine Schadensnummer oder Versicherungsnummer?")
+        ctx.add_user_message("Ja, meine Versicherungsnummer ist VS 4455 6677")
+        assert ctx.state.entities["insurance_number"].value == "VS44556677"
+
+    def test_digits_not_misread_as_phone(self):
+        ctx = self._traffic_ctx()
+        ctx.add_assistant_message("Haben Sie eine Versicherungsnummer?")
+        ctx.add_user_message("Ja, 9988776655")
+        assert ctx.state.entities["insurance_number"].value == "9988776655"
+        assert "phone" not in ctx.state.entities
+
+    def test_negative_reply_stores_nothing(self):
+        ctx = self._traffic_ctx()
+        ctx.add_assistant_message("Haben Sie eine Versicherungsnummer?")
+        ctx.add_user_message("Nee leider nicht")
+        assert "insurance_number" not in ctx.state.entities
+
+    def test_not_captured_without_agent_ask(self):
+        """A bare number with no insurance question must NOT become insurance_number."""
+        ctx = self._traffic_ctx()
+        ctx.add_assistant_message("War die Polizei vor Ort?")
+        ctx.add_user_message("Ja, die Polizei war da, Vorgang 123456")
+        assert "insurance_number" not in ctx.state.entities
+
+    def test_phone_still_works_when_phone_asked(self):
+        ctx = ConversationManager(call_id="ins-phone", lang="de")
+        ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
+        ctx.add_assistant_message("Darf ich Ihre Telefonnummer haben?")
+        ctx.add_user_message("0151 598 32614")
+        assert ctx.state.entities["phone"].value == "+4915159832614"
+        assert "insurance_number" not in ctx.state.entities
+
+
 class TestHumanHandoffScenario:
     """Caller explicitly asks for a human at any point."""
 

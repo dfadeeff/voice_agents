@@ -48,6 +48,41 @@ _MATTER_KEYWORDS: dict[LegalArea, tuple[tuple[str, tuple[str, ...]], ...]] = {
     ),
 }
 
+# Cue that the agent's last turn asked for an insurance/claim/damage number, so a
+# number in the caller's reply is that reference (context-aware, not a blind grab).
+_INSURANCE_ASK_RE = re.compile(
+    r"versicherungs(?:nummer|nr)|schadens(?:nummer|nr|referenz)|policen(?:nummer|nr)|"
+    r"insurance\s+number|claim\s+number|policy\s+number|damage\s+number",
+    re.IGNORECASE,
+)
+_REF_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9\-/]*")
+
+
+def _extract_reference(text: str) -> str | None:
+    """Pull an insurance/claim reference (≥5 alphanumerics, digit-bearing) from text.
+
+    Negative replies ('keine', 'nicht', 'no') have no such token, so they yield
+    None and nothing is stored.
+    """
+    tokens = _REF_TOKEN_RE.findall(text)
+    kept: list[str] = []
+    for i, tok in enumerate(tokens):
+        if any(c.isdigit() for c in tok):
+            kept.append(tok)
+        elif kept:
+            break  # a word after the number ends the reference
+        elif (
+            tok.isupper()
+            and len(tok) <= 5
+            and i + 1 < len(tokens)
+            and any(c.isdigit() for c in tokens[i + 1])
+        ):
+            kept.append(tok)  # short prefix like 'VS' before the digits
+    joined = "".join(kept)
+    if len(re.sub(r"[^A-Za-z0-9]", "", joined)) >= 5:
+        return joined
+    return None
+
 
 class ConversationManager:
     def __init__(self, call_id: str, lang: str = "de"):
@@ -108,7 +143,34 @@ class ConversationManager:
         # question still gets asked; capture it on later turns / handoffs instead.
         if not just_routed:
             self._try_capture_matter_type(text)
-        self._try_capture_contact(text)
+        captured_insurance = self._try_capture_insurance(text)
+        self._try_capture_contact(text, skip_phone=captured_insurance)
+
+    def _recent_agent_text(self) -> str:
+        for msg in reversed(self.state.messages):
+            if msg.get("role") == "assistant" and msg.get("content"):
+                return str(msg["content"])
+        return ""
+
+    def _try_capture_insurance(self, text: str) -> bool:
+        """Capture insurance_number only when the agent's last turn asked for it.
+
+        Returns True if a reference was stored, so phone capture can stand down
+        and not mistake the insurance digits for a phone number.
+        """
+        if self.state.legal_area != LegalArea.TRAFFIC:
+            return False
+        if "insurance_number" in self.state.entities:
+            return False
+        if not _INSURANCE_ASK_RE.search(self._recent_agent_text()):
+            return False
+        value = _extract_reference(text)
+        if not value:
+            return False
+        logger.info("Deterministic capture (LLM fallback): insurance_number=%r", value)
+        self.update_and_confirm_entity("insurance_number", value)
+        self._update_llm_context()
+        return True
 
     def _try_capture_matter_type(self, text: str) -> None:
         """Deterministic fallback for matter_type when the LLM skips the tool.
@@ -131,11 +193,12 @@ class ConversationManager:
                 self._update_llm_context()
                 return
 
-    def _try_capture_contact(self, text: str) -> None:
+    def _try_capture_contact(self, text: str, skip_phone: bool = False) -> None:
         """Deterministic fallback for name/phone when the LLM skips the tool.
 
         Runs only while collecting contact details. Guarantees the data reaches
-        the database even if capture_caller_details is never called.
+        the database even if capture_caller_details is never called. ``skip_phone``
+        is set when the digits in this turn are an insurance number, not a phone.
         """
         if self.state.phase not in (CallPhase.CAPTURE, CallPhase.ESCALATION):
             return
@@ -154,7 +217,7 @@ class ConversationManager:
                     captured = True
 
         existing_phone = self.state.entities.get("phone")
-        if not (existing_phone and existing_phone.confirmed):
+        if not skip_phone and not (existing_phone and existing_phone.confirmed):
             normalized = normalize_phone_text(text)
             if len(re.sub(r"\D", "", normalized)) >= 7:
                 logger.info("Deterministic capture (LLM fallback): phone=%r", normalized)
