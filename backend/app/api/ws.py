@@ -20,8 +20,13 @@ router = APIRouter()
 _call_semaphore: asyncio.Semaphore | None = None
 
 
-async def _save_caller(calendar: CalendarService, conv: ConversationManager) -> None:
-    """Persist caller details to the callers table after every call."""
+def _save_caller(calendar: CalendarService, conv: ConversationManager) -> None:
+    """Final upsert of caller data with outcome at call end.
+
+    _persist() writes incrementally during the call; this adds the final
+    outcome (booked/callback/escalation) which is only known at teardown.
+    Uses the same upsert so duplicate rows are impossible.
+    """
     state = conv.state
     entities = state.entities
 
@@ -40,7 +45,7 @@ async def _save_caller(calendar: CalendarService, conv: ConversationManager) -> 
     elif state.escalation_requested:
         outcome = "escalation"
 
-    await calendar.save_caller(
+    calendar.upsert_caller_sync(
         call_id=state.call_id,
         name=_val("name"),
         phone=_val("phone"),
@@ -120,7 +125,7 @@ async def websocket_call(websocket: WebSocket, call_id: str = "new"):
 
         calendar: CalendarService = websocket.app.state.calendar
         try:
-            await _save_caller(calendar, conversation)
+            _save_caller(calendar, conversation)
         except Exception:
             logger.exception("[%s] Failed to save caller data", call_id)
         logger.info("[%s] Pipeline finished", call_id)

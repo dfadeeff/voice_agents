@@ -264,6 +264,41 @@ class ConversationManager:
         self._try_skip_email(text)
         self._try_capture_preferred_time(text)
         self._try_book(text)
+        self._persist()
+
+    def _persist(self) -> None:
+        """Write the caller row immediately after each turn so a dropped call
+        never loses captured data (incremental, authoritative-at-decision-time)."""
+        if self._calendar is None:
+            return
+        ents = self.state.entities
+
+        def val(field: str) -> str:
+            entity = ents.get(field)
+            return entity.value if entity else ""
+
+        if not (val("name") or val("phone")):
+            return  # nothing material captured yet
+        outcome = self.state.phase.value
+        if self.state.booking_confirmed:
+            outcome = "booked"
+        elif self.state.callback_requested:
+            outcome = "callback"
+        elif self.state.escalation_requested:
+            outcome = "escalation"
+        self._calendar.upsert_caller_sync(
+            call_id=self.state.call_id,
+            name=val("name"),
+            phone=val("phone"),
+            email=val("email"),
+            legal_area=self.state.legal_area.value,
+            matter_type=val("matter_type"),
+            matter_summary=self.state.matter_summary or "",
+            case_reference=val("case_reference"),
+            insurance_number=val("insurance_number"),
+            outcome=outcome,
+            preferred_time=self.state.preferred_time or "",
+        )
 
     def _try_book(self, text: str) -> None:
         """Deterministic booking: offer slots, match the caller's choice, book it.

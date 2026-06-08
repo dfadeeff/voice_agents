@@ -33,6 +33,59 @@ class CalendarService:
         finally:
             conn.close()
 
+    def upsert_caller_sync(
+        self,
+        call_id: str,
+        name: str = "",
+        phone: str = "",
+        email: str = "",
+        legal_area: str = "",
+        matter_type: str = "",
+        matter_summary: str = "",
+        case_reference: str = "",
+        insurance_number: str = "",
+        outcome: str = "",
+        preferred_time: str = "",
+    ) -> None:
+        """Insert or update the caller row for this call (one row per call_id).
+
+        Called after every key decision so captured data is persisted immediately,
+        not only on a clean disconnect.
+        """
+        cols = dict(
+            name=name,
+            phone=phone,
+            email=email,
+            legal_area=legal_area,
+            matter_type=matter_type,
+            matter_summary=matter_summary,
+            case_reference=case_reference,
+            insurance_number=insurance_number,
+            outcome=outcome,
+            preferred_time=preferred_time,
+        )
+        conn = sqlite3.connect(self._db_path)
+        try:
+            row = conn.execute(
+                "SELECT id FROM callers WHERE call_id = ? ORDER BY id DESC LIMIT 1", [call_id]
+            ).fetchone()
+            if row:
+                assignments = ", ".join(f"{c} = ?" for c in cols)
+                conn.execute(
+                    f"UPDATE callers SET {assignments} WHERE id = ?",
+                    [*cols.values(), row[0]],
+                )
+            else:
+                names = ", ".join(["call_id", *cols])
+                placeholders = ", ".join("?" * (len(cols) + 1))
+                conn.execute(
+                    f"INSERT INTO callers ({names}) VALUES ({placeholders})",
+                    [call_id, *cols.values()],
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
     def book_slot_sync(
         self,
         slot_id: int,

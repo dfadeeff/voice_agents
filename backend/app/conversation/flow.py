@@ -16,7 +16,9 @@ PHASE_TOOLS: dict[CallPhase, list[str]] = {
     CallPhase.QUALIFICATION: ["capture_caller_details", "route_call", "request_handoff"],
     CallPhase.INFORMATION: ["route_call", "request_handoff"],
     CallPhase.CAPTURE: ["capture_caller_details", "confirm_caller_detail", "request_handoff"],
-    CallPhase.BOOKING: ["check_availability", "book_consultation", "request_handoff"],
+    # Booking (slot offer/select/book) is fully deterministic in the manager;
+    # the LLM only keeps an escalation path here.
+    CallPhase.BOOKING: ["request_handoff"],
     CallPhase.CONFIRMATION: [],
     CallPhase.ESCALATION: ["capture_caller_details", "confirm_caller_detail", "request_handoff"],
 }

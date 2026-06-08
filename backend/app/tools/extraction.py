@@ -176,6 +176,13 @@ async def capture_caller_details(args: dict, ctx: ConversationManager) -> dict:
             rejected.append(field_name)
             continue
 
+        # Single authoritative writer: the deterministic layer owns these fields.
+        # The LLM tool only fills gaps it never captured, so the two never conflict.
+        existing = ctx.state.entities.get(field_name)
+        if existing and existing.confirmed:
+            rejected.append(field_name)
+            continue
+
         if field_name == "phone":
             normalized = normalize_phone_text(value)
             if normalized:

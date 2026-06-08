@@ -230,9 +230,9 @@ class TestPhaseTools:
 
     def test_booking_tools(self):
         tools = PHASE_TOOLS[CallPhase.BOOKING]
-        assert "check_availability" in tools
-        assert "book_consultation" in tools
         assert "request_handoff" in tools
+        assert "check_availability" not in tools
+        assert "book_consultation" not in tools
 
     def test_confirmation_has_no_tools(self):
         assert PHASE_TOOLS[CallPhase.CONFIRMATION] == []
