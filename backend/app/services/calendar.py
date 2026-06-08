@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import UTC, datetime
 
 import aiosqlite
@@ -6,6 +7,67 @@ import aiosqlite
 class CalendarService:
     def __init__(self, db_path: str = "data/voice_agent.db"):
         self._db_path = db_path
+
+    # --- Synchronous helpers for deterministic in-turn booking -------------
+    # The conversation manager drives the booking flow in code (no LLM), so it
+    # needs sync slot access. SQLite handles a single writer fine for one call.
+
+    def available_slots_sync(
+        self, legal_area: str = "", exclude_ids: list[int] | None = None, limit: int = 3
+    ) -> list[dict]:
+        exclude_ids = exclude_ids or []
+        query = "SELECT * FROM slots WHERE is_booked = 0"
+        params: list = []
+        if legal_area and legal_area != "unknown":
+            query += " AND (legal_area = ? OR legal_area IS NULL)"
+            params.append(legal_area)
+        if exclude_ids:
+            query += f" AND id NOT IN ({','.join('?' * len(exclude_ids))})"
+            params.extend(exclude_ids)
+        query += " ORDER BY date, time LIMIT ?"
+        params.append(limit)
+        conn = sqlite3.connect(self._db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            return [dict(r) for r in conn.execute(query, params).fetchall()]
+        finally:
+            conn.close()
+
+    def book_slot_sync(
+        self,
+        slot_id: int,
+        call_id: str,
+        caller_name: str = "",
+        caller_email: str = "",
+        caller_phone: str = "",
+        matter_type: str = "",
+    ) -> dict | None:
+        conn = sqlite3.connect(self._db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            cur = conn.execute(
+                "UPDATE slots SET is_booked = 1 WHERE id = ? AND is_booked = 0", [slot_id]
+            )
+            if cur.rowcount == 0:
+                conn.commit()
+                return None  # already taken
+            now = datetime.now(UTC).isoformat()
+            cur = conn.execute(
+                """INSERT INTO bookings
+                   (slot_id, call_id, caller_name, caller_email, caller_phone,
+                    matter_type, matter_description, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, '', ?)""",
+                [slot_id, call_id, caller_name, caller_email, caller_phone, matter_type, now],
+            )
+            conn.commit()
+            row = conn.execute(
+                """SELECT b.*, s.date, s.time, s.lawyer_name, s.duration_minutes
+                   FROM bookings b JOIN slots s ON b.slot_id = s.id WHERE b.id = ?""",
+                [cur.lastrowid],
+            ).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
 
     async def init_db(self) -> None:
         async with aiosqlite.connect(self._db_path) as db:

@@ -23,6 +23,8 @@ class ConversationState:
     booking_confirmed: bool = False
     booked_slot: dict | None = None
     offered_slot_ids: list[int] = field(default_factory=list)
+    # Slots currently offered to the caller (deterministic booking).
+    offered_slots: list[dict] = field(default_factory=list)
     # Traffic-only: True once the insurance/claim number has been asked and the
     # caller answered (with a number or a clear "none"). Gates qualification so
     # the step cannot be skipped by the model.

@@ -46,6 +46,72 @@ def _spoken_phone(value: str, lang: str) -> str:
     return value
 
 
+_MONTHS = {
+    "de": [
+        "",
+        "Januar",
+        "Februar",
+        "März",
+        "April",
+        "Mai",
+        "Juni",
+        "Juli",
+        "August",
+        "September",
+        "Oktober",
+        "November",
+        "Dezember",
+    ],
+    "en": [
+        "",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ],
+}
+
+
+def _fmt_date(date: str, lang: str) -> str:
+    try:
+        _, month, day = date.split("-")
+    except ValueError:
+        return date
+    months = _MONTHS.get(lang, _MONTHS["en"])
+    name = months[int(month)]
+    return f"{int(day)}. {name}" if lang == "de" else f"{name} {int(day)}"
+
+
+def _fmt_time(time: str, lang: str) -> str:
+    hh, _, mm = time.partition(":")
+    hour = int(hh)
+    if lang == "de":
+        return f"{hour} Uhr" if mm in ("00", "") else f"{hour}:{mm} Uhr"
+    return time
+
+
+def _fmt_slot(slot: dict, lang: str) -> str:
+    date = _fmt_date(slot["date"], lang)
+    time = _fmt_time(slot["time"], lang)
+    return f"{date} um {time}" if lang == "de" else f"{date} at {time}"
+
+
+def _fmt_slots(slots: list[dict], lang: str) -> str:
+    parts = [_fmt_slot(s, lang) for s in slots]
+    if len(parts) <= 1:
+        return parts[0] if parts else ""
+    joiner = " oder " if lang == "de" else " or "
+    return ", ".join(parts[:-1]) + joiner + parts[-1]
+
+
 def scripted_line(state: ConversationState, lang: str = "de") -> str | None:
     """Return the deterministic next line for a structured step, or None for the LLM.
 
@@ -98,6 +164,20 @@ def scripted_line(state: ConversationState, lang: str = "de") -> str | None:
         if callback and not state.preferred_time:
             return scripts["ask_callback_time"]
         return None  # all done → CONFIRMATION (callback) or BOOKING (booking)
+
+    # Booking: present available slots (the manager fetches them and books the choice).
+    if state.phase == CallPhase.BOOKING and not state.booking_confirmed:
+        if state.offered_slots:
+            return scripts["slot_offer"].format(options=_fmt_slots(state.offered_slots, lang))
+        return scripts["no_slots"]
+
+    if not callback and state.phase == CallPhase.CONFIRMATION and state.booked_slot:
+        slot = state.booked_slot
+        return scripts["booking_done"].format(
+            date=_fmt_date(slot["date"], lang),
+            time=_fmt_time(slot["time"], lang),
+            lawyer=slot.get("lawyer_name", ""),
+        )
 
     if callback and state.phase == CallPhase.CONFIRMATION:
         # Say the closing only once, even if the caller adds "Tschüss" afterwards.

@@ -808,9 +808,8 @@ class TestBookingCaptureSplit:
         ctx.add_user_message("0151 598 32614")
         ctx.add_assistant_message(self._line(ctx))
         ctx.add_user_message("Ja, das stimmt")
-        # All contacts confirmed → BOOKING; the LLM takes over for slots.
+        # All contacts confirmed → BOOKING (slot selection handled deterministically).
         assert ctx.state.phase == CallPhase.BOOKING
-        assert self._line(ctx) is None
         assert ctx.state.entities["email"].value == "max@gmail.com"
         assert ctx.state.entities["phone"].confirmed is True
 
@@ -830,3 +829,74 @@ class TestBookingCaptureSplit:
         ctx.add_user_message("Nein, das ist falsch")
         assert "email" not in ctx.state.entities
         assert "mail" in self._line(ctx).lower()
+
+
+class TestDeterministicBooking:
+    """Slot selection is done in code (no LLM): offer, choose, book, confirm."""
+
+    def _calendar(self, times):
+        import asyncio
+        import sqlite3
+        import tempfile
+
+        from app.services.calendar import CalendarService
+
+        db = tempfile.mktemp(suffix=".db")
+        cal = CalendarService(db_path=db)
+        asyncio.run(cal.init_db())
+        conn = sqlite3.connect(db)
+        for t in times:
+            conn.execute(
+                "INSERT INTO slots (date,time,legal_area,lawyer_name,is_booked) VALUES (?,?,?,?,0)",
+                ("2026-06-15", t, "employment", "Sarah Mitchell"),
+            )
+        conn.commit()
+        conn.close()
+        return cal
+
+    def _ready_to_book(self, cal):
+        ctx = ConversationManager(call_id="bk", lang="de", calendar=cal)
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        for f, v in [("matter_type", "dismissal"), ("matter_details", "Frist"), ("name", "Anna")]:
+            ctx.store_entity(f, v, 1.0)
+            ctx.confirm_entity(f)
+        ctx.state.email_skipped = True
+        # Capture + confirm the phone via real turns so the BOOKING transition
+        # (and the slot fetch inside add_user_message) fires like in a live call.
+        ctx.add_assistant_message("Unter welcher Telefonnummer können wir Sie erreichen?")
+        ctx.add_user_message("0151 598 32614")
+        ctx.add_assistant_message("Ich habe Ihre Nummer notiert. Ist das korrekt?")
+        ctx.add_user_message("Ja, das stimmt")
+        return ctx
+
+    def _line(self, ctx):
+        from app.conversation.script import scripted_line
+
+        return scripted_line(ctx.state, "de")
+
+    def test_offer_choose_book_confirm(self):
+        cal = self._calendar(["09:00", "09:30", "10:00"])
+        ctx = self._ready_to_book(cal)
+        assert ctx.state.phase == CallPhase.BOOKING
+        assert "9 Uhr" in self._line(ctx)  # slots offered deterministically
+        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_user_message("Die erste passt")
+        assert ctx.state.booking_confirmed is True
+        assert ctx.state.phase == CallPhase.CONFIRMATION
+        assert "gebucht" in self._line(ctx)
+
+    def test_unavailable_offers_alternatives(self):
+        cal = self._calendar(["09:00", "09:30", "10:00", "14:00", "14:30"])
+        ctx = self._ready_to_book(cal)
+        first = self._line(ctx)
+        ctx.add_assistant_message(first)
+        ctx.add_user_message("Die passen mir nicht")
+        alts = self._line(ctx)
+        assert "14 Uhr" in alts and alts != first  # different slots offered
+
+    def test_choose_by_time(self):
+        cal = self._calendar(["09:00", "14:00"])
+        ctx = self._ready_to_book(cal)
+        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_user_message("14 Uhr bitte")
+        assert ctx.state.booked_slot["time"] == "14:00"

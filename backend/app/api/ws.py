@@ -93,7 +93,11 @@ async def websocket_call(websocket: WebSocket, call_id: str = "new"):
         llm = create_llm(settings)
         tts = create_tts(settings)
 
-        conversation = ConversationManager(call_id=call_id, lang=settings.language)
+        conversation = ConversationManager(
+            call_id=call_id,
+            lang=settings.language,
+            calendar=websocket.app.state.calendar,
+        )
         tools = websocket.app.state.tool_registry
 
         use_tools = settings.llm_provider != "ollama" or settings.use_tools_local

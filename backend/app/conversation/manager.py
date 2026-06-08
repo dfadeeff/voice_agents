@@ -110,6 +110,54 @@ _CALLBACK_TIME_ASK_RE = re.compile(r"zurückrufen|call you back", re.IGNORECASE)
 # Cue that the agent's last turn asked for the email address.
 _EMAIL_ASK_RE = re.compile(r"e-?mail", re.IGNORECASE)
 
+# Slot selection (deterministic booking): ordinal words → index, or a clock time.
+_ORDINAL = {
+    "erste": 0,
+    "erster": 0,
+    "ersten": 0,
+    "first": 0,
+    "zweite": 1,
+    "zweiter": 1,
+    "zweiten": 1,
+    "second": 1,
+    "dritte": 2,
+    "dritter": 2,
+    "dritten": 2,
+    "third": 2,
+}
+_SLOT_TIME_RE = re.compile(r"\b(\d{1,2})(?::(\d{2}))?\s*(?:uhr|o'?clock)?\b", re.IGNORECASE)
+_SLOT_DECLINE_RE = re.compile(
+    r"\b(?:nein|nö|nee|anders|andere[rn]?|später|spaeter|nichts\s+dabei|"
+    r"no|none|other|later|something\s+else)\b|pass\w*\s+(?:mir\s+)?nicht|"
+    r"doesn'?t\s+work|don'?t\s+work",
+    re.IGNORECASE,
+)
+
+
+def _match_slot_choice(text: str, slots: list[dict]) -> dict | None:
+    """Map a caller reply ('die erste', '10 Uhr') to one of the offered slots."""
+    if not slots:
+        return None
+    low = text.lower()
+    for word, idx in _ORDINAL.items():
+        if re.search(rf"\b{word}\b", low) and idx < len(slots):
+            return slots[idx]
+    m = re.search(r"\boption\s*(\d)\b", low)
+    if m:
+        idx = int(m.group(1)) - 1
+        if 0 <= idx < len(slots):
+            return slots[idx]
+    tm = _SLOT_TIME_RE.search(low)
+    if tm:
+        hour, minute = int(tm.group(1)), tm.group(2)
+        for slot in slots:
+            sh, _, sm = slot["time"].partition(":")
+            if int(sh) == hour and (minute is None or sm == minute):
+                return slot
+    if len(slots) == 1 and _CONFIRM_YES_RE.search(low):
+        return slots[0]
+    return None
+
 
 def _parse_email(text: str) -> str | None:
     """Convert a spoken email ('max at gmail punkt com') to an address."""
@@ -150,12 +198,14 @@ def _extract_reference(text: str) -> str | None:
 
 
 class ConversationManager:
-    def __init__(self, call_id: str, lang: str = "de"):
+    def __init__(self, call_id: str, lang: str = "de", calendar=None):
         self.lang = lang
         self.state = ConversationState(call_id=call_id)
         self.state.messages = [{"role": "system", "content": get_system_prompt_base(lang)}]
         self._llm_context = None
         self._tools_builder: Callable[[list[str]], Any] | None = None
+        # Optional CalendarService for deterministic in-code booking (sync access).
+        self._calendar = calendar
 
     def set_llm_context(self, context) -> None:
         self._llm_context = context
@@ -213,6 +263,53 @@ class ConversationManager:
         self._try_capture_contact(text, skip_phone=captured_insurance)
         self._try_skip_email(text)
         self._try_capture_preferred_time(text)
+        self._try_book(text)
+
+    def _try_book(self, text: str) -> None:
+        """Deterministic booking: offer slots, match the caller's choice, book it.
+
+        Replaces the LLM's check_availability/book_consultation turns so booking is
+        reliable. Declining offers the next batch (the unavailable-slot path).
+        """
+        if self._calendar is None or self.state.callback_requested:
+            return
+        if self.state.phase != CallPhase.BOOKING or self.state.booking_confirmed:
+            return
+        area = self.state.legal_area.value
+
+        if not self.state.offered_slots:
+            self.state.offered_slots = self._calendar.available_slots_sync(area, limit=3)
+            self._update_llm_context()
+            return
+
+        choice = _match_slot_choice(text, self.state.offered_slots)
+        if choice:
+            ents = self.state.entities
+            booking = self._calendar.book_slot_sync(
+                slot_id=choice["id"],
+                call_id=self.state.call_id,
+                caller_name=ents["name"].value if "name" in ents else "",
+                caller_email=ents["email"].value if "email" in ents else "",
+                caller_phone=ents["phone"].value if "phone" in ents else "",
+                matter_type=ents["matter_type"].value if "matter_type" in ents else area,
+            )
+            if booking:
+                logger.info("Deterministic booking: slot %s booked", choice["id"])
+                self.state.booking_confirmed = True
+                self.state.booked_slot = booking
+                self.advance_phase()
+                return
+            # Slot was taken between offer and booking — drop it and re-offer.
+            self.state.offered_slot_ids.append(choice["id"])
+        elif _SLOT_DECLINE_RE.search(text.lower()):
+            self.state.offered_slot_ids.extend(s["id"] for s in self.state.offered_slots)
+        else:
+            return  # unrecognised reply → re-present the same offer
+
+        self.state.offered_slots = self._calendar.available_slots_sync(
+            area, exclude_ids=self.state.offered_slot_ids, limit=3
+        )
+        self._update_llm_context()
 
     def _try_skip_email(self, text: str) -> None:
         """Mark email as skipped when the agent asked for it and the caller has none."""

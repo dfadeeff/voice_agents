@@ -290,6 +290,14 @@ SCRIPTED = {
     "ask_phone": ("Vielen Dank. Unter welcher Telefonnummer können wir Sie erreichen?"),
     "confirm_phone": ("Ich habe Ihre Nummer notiert: {phone}. Ist das korrekt?"),
     "ask_callback_time": ("Und wann dürfen wir Sie am besten zurückrufen?"),
+    "slot_offer": ("Ich kann Ihnen folgende Termine anbieten: {options}. Welcher passt Ihnen?"),
+    "no_slots": (
+        "Im Moment habe ich leider keine freien Termine. Das Team meldet sich bei Ihnen, "
+        "um einen passenden Termin zu finden. Auf Wiederhören!"
+    ),
+    "booking_done": (
+        "Ihr Termin ist gebucht: {date} um {time} bei {lawyer}. Vielen Dank für Ihren Anruf!"
+    ),
     "callback_done": (
         "Vielen Dank. Ich habe Ihren Rückrufwunsch notiert. "
         "{person} ruft Sie {time} zurück. Auf Wiederhören!"

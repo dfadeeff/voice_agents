@@ -265,6 +265,14 @@ SCRIPTED = {
     "ask_phone": ("Thank you. What is the best phone number to reach you?"),
     "confirm_phone": ("I've noted your number: {phone}. Is that correct?"),
     "ask_callback_time": ("And when would be a good time to call you back?"),
+    "slot_offer": ("I can offer you these appointments: {options}. Which one works for you?"),
+    "no_slots": (
+        "I'm afraid I have no free slots right now. The team will reach out to arrange "
+        "one that suits you. Goodbye!"
+    ),
+    "booking_done": (
+        "Your appointment is booked: {date} at {time} with {lawyer}. Thank you for calling!"
+    ),
     "callback_done": (
         "Thank you. I've recorded your callback request. "
         "{person} will call you back {time}. Goodbye!"
