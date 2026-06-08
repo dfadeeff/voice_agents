@@ -242,6 +242,44 @@ class TestContextAwareInsuranceCapture:
         assert "insurance_number" not in ctx.state.entities
 
 
+class TestEnforcedInsuranceStep:
+    """Traffic qualification cannot skip the insurance question (state-gated)."""
+
+    def test_phase_stays_in_qualification_until_insurance_resolved(self):
+        ctx = ConversationManager(call_id="enf1", lang="de")
+        ctx.add_user_message("Ich hatte einen Unfall")
+        ctx.add_user_message("Ja, das ist korrekt.")
+        assert ctx.state.entities["matter_type"].value == "accident"
+        # Gated: matter_type known but insurance not yet asked → still qualifying.
+        assert ctx.state.phase == CallPhase.QUALIFICATION
+        assert ctx.state.insurance_resolved is False
+
+    def test_full_traffic_booking_path(self):
+        ctx = ConversationManager(call_id="enf2", lang="de")
+        ctx.add_user_message("Ich hatte einen Unfall")
+        ctx.add_user_message("Ja, das ist korrekt.")
+        ctx.add_assistant_message("Haben Sie eine Schadensnummer oder Versicherungsnummer?")
+        ctx.add_user_message("Ja, VS 4455 6677")
+        assert ctx.state.entities["insurance_number"].value == "VS44556677"
+        assert ctx.state.phase == CallPhase.CAPTURE
+        for f, v in [("name", "Daniel Steinmeier"), ("email", "d@example.com")]:
+            ctx.store_entity(f, v, 0.95)
+            ctx.confirm_entity(f)
+        ctx.store_entity("phone", "+4915112345678", 0.95)
+        ctx.confirm_entity("phone")
+        assert ctx.state.phase == CallPhase.BOOKING
+
+    def test_caller_without_insurance_number_still_advances(self):
+        ctx = ConversationManager(call_id="enf3", lang="de")
+        ctx.add_user_message("Ich hatte einen Unfall")
+        ctx.add_user_message("Ja, genau")
+        ctx.add_assistant_message("Haben Sie eine Versicherungsnummer?")
+        ctx.add_user_message("Nein, leider noch keine")
+        assert ctx.state.insurance_resolved is True
+        assert "insurance_number" not in ctx.state.entities
+        assert ctx.state.phase == CallPhase.CAPTURE
+
+
 class TestHumanHandoffScenario:
     """Caller explicitly asks for a human at any point."""
 

@@ -34,6 +34,7 @@ class TestTrafficArea:
         ctx.state.turn_count = 3
         ctx.state.caller_intent = CallerIntent.BOOK_CONSULTATION
         ctx.state.legal_area = LegalArea.TRAFFIC
+        ctx.state.insurance_resolved = True
         ctx.state.entities = {
             "matter_type": _confirmed("matter_type", "accident"),
             "matter_details": _confirmed("matter_details", "police on scene"),
@@ -54,6 +55,7 @@ class TestEmailRequired:
         ctx.state.turn_count = 3
         ctx.state.caller_intent = CallerIntent.BOOK_CONSULTATION
         ctx.state.legal_area = LegalArea.TRAFFIC
+        ctx.state.insurance_resolved = True
         ctx.state.entities = {
             "matter_type": _confirmed("matter_type", "accident"),
             "matter_details": _confirmed("matter_details", "police on scene"),
@@ -68,6 +70,7 @@ class TestEmailRequired:
         ctx.state.turn_count = 3
         ctx.state.caller_intent = CallerIntent.BOOK_CONSULTATION
         ctx.state.legal_area = LegalArea.TRAFFIC
+        ctx.state.insurance_resolved = True
         ctx.state.entities = {
             "matter_type": _confirmed("matter_type", "accident"),
             "matter_details": _confirmed("matter_details", "police on scene"),

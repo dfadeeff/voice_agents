@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from app.config import Settings
 from app.conversation.flow import CALLBACK_REQUIRED_FIELDS, CONTACT_FIELDS
 from app.conversation.locales import get_locale
-from app.models.schemas import CallPhase
+from app.models.schemas import CallPhase, LegalArea
 
 if TYPE_CHECKING:
     from app.conversation.state import ConversationState
@@ -55,10 +55,13 @@ def build_system_prompt(state: ConversationState, lang: str = "de") -> str:
         qual_prompts = getattr(locale, "QUALIFICATION_PROMPTS", {})
         area_key = state.legal_area.value
         has_matter_type = "matter_type" in state.entities
-        if has_matter_type:
-            phase_prompt = qual_prompts.get(f"{area_key}_details", "")
-        else:
+        is_traffic = state.legal_area == LegalArea.TRAFFIC
+        if not has_matter_type:
             phase_prompt = qual_prompts.get(f"{area_key}_type", "")
+        elif is_traffic and not state.insurance_resolved:
+            phase_prompt = qual_prompts.get("traffic_insurance", "")
+        else:
+            phase_prompt = qual_prompts.get(f"{area_key}_details", "")
     else:
         phase_prompt = locale.PHASE_PROMPTS.get(state.phase, "")
 

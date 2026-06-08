@@ -234,6 +234,17 @@ QUALIFICATION_PROMPTS = {
         "Speichere NUR matter_type — NICHT den Namen des Anrufers.\n"
         "- Stelle KEINE rechtlichen Detailfragen."
     ),
+    "traffic_insurance": (
+        "Die Art des Verkehrsproblems ist geklärt. Jetzt brauchst du die "
+        "Versicherungs- bzw. Schadensnummer.\n"
+        "Frage GENAU EINE Frage: 'Haben Sie bereits eine Schadensnummer "
+        "oder eine Versicherungsnummer?'\n"
+        "- Wenn der Anrufer eine Nummer nennt: speichere sie mit "
+        "capture_caller_details und insurance_number.\n"
+        "- Wenn der Anrufer keine hat ('nein', 'noch keine'): das ist in Ordnung, "
+        "bestätige kurz und mache weiter.\n"
+        "- Stelle in diesem Schritt KEINE andere Frage."
+    ),
     "traffic_details": (
         "Du kennst bereits die Art des verkehrsrechtlichen Problems.\n"
         "Frage: 'War die Polizei vor Ort? Und gibt es bereits ein Aktenzeichen "

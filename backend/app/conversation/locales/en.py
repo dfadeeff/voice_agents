@@ -210,6 +210,17 @@ QUALIFICATION_PROMPTS = {
         "Store ONLY matter_type — NOT the caller's name.\n"
         "- Do NOT ask detailed legal questions."
     ),
+    "traffic_insurance": (
+        "The type of traffic matter is settled. Now you need the insurance or "
+        "claim number.\n"
+        "Ask EXACTLY ONE question: 'Do you already have a claim number "
+        "or an insurance number?'\n"
+        "- If the caller gives a number: store it with capture_caller_details "
+        "and insurance_number.\n"
+        "- If the caller has none ('no', 'not yet'): that's fine, acknowledge "
+        "briefly and move on.\n"
+        "- Do NOT ask any other question in this step."
+    ),
     "traffic_details": (
         "You already know the type of traffic issue.\n"
         "Ask: 'Were the police called to the scene? "

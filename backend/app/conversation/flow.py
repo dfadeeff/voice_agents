@@ -73,7 +73,13 @@ def next_phase(state) -> CallPhase:
     if "matter_type" not in state.entities:
         return CallPhase.QUALIFICATION
 
-    if "matter_details" not in state.entities:
+    # Traffic: the insurance/claim number must be asked before moving on — either
+    # a number was captured or the caller was asked and had none. Other areas use
+    # the matter_details follow-up instead.
+    if state.legal_area == LegalArea.TRAFFIC:
+        if "insurance_number" not in state.entities and not state.insurance_resolved:
+            return CallPhase.QUALIFICATION
+    elif "matter_details" not in state.entities:
         return CallPhase.QUALIFICATION
 
     if not all_contacts_confirmed(state.entities):

@@ -163,24 +163,28 @@ class ConversationManager:
         return ""
 
     def _try_capture_insurance(self, text: str) -> bool:
-        """Capture insurance_number only when the agent's last turn asked for it.
+        """Resolve the traffic insurance step once the agent has asked for it.
 
-        Returns True if a reference was stored, so phone capture can stand down
-        and not mistake the insurance digits for a phone number.
+        Sets ``insurance_resolved`` so the qualification gate advances whether the
+        caller gives a number or has none. Returns True if a number was stored, so
+        phone capture stands down and won't mistake insurance digits for a phone.
         """
         if self.state.legal_area != LegalArea.TRAFFIC:
             return False
-        if "insurance_number" in self.state.entities:
+        if self.state.insurance_resolved or "insurance_number" in self.state.entities:
             return False
         if not _INSURANCE_ASK_RE.search(self._recent_agent_text()):
             return False
         value = _extract_reference(text)
-        if not value:
-            return False
-        logger.info("Deterministic capture (LLM fallback): insurance_number=%r", value)
-        self.update_and_confirm_entity("insurance_number", value)
-        self._update_llm_context()
-        return True
+        if value:
+            logger.info("Deterministic capture (LLM fallback): insurance_number=%r", value)
+            self.update_and_confirm_entity("insurance_number", value)
+        else:
+            logger.info("Insurance step resolved: caller has no number")
+        # Asked and answered → resolved either way, so the gate advances.
+        self.state.insurance_resolved = True
+        self.advance_phase()
+        return bool(value)
 
     def _try_capture_matter_type(self, text: str) -> None:
         """Deterministic fallback for matter_type when the LLM skips the tool.
