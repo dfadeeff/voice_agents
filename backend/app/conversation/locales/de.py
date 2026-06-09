@@ -283,6 +283,14 @@ SCRIPTED = {
         "Mängel in der Wohnung oder ein anderes Problem mit Ihrem Vermieter?"
     ),
     "traffic_insurance": ("Haben Sie bereits eine Schadensnummer oder eine Versicherungsnummer?"),
+    "employment_details": (
+        "Gibt es eine Frist, die beachtet werden muss? Bei einer Kündigung muss eine "
+        "Klage zum Beispiel innerhalb von drei Wochen eingereicht werden."
+    ),
+    "tenancy_details": (
+        "Haben Sie das Problem bereits schriftlich bei Ihrem Vermieter angezeigt? "
+        "Und wissen Sie, ob es eine Frist gibt, die beachtet werden muss?"
+    ),
     "ask_name": (
         "Gerne nehme ich Ihren Rückrufwunsch auf. "
         "Dafür benötige ich kurz Ihren Namen und Ihre Telefonnummer. "
@@ -299,6 +307,7 @@ SCRIPTED = {
     ),
     "ask_email_retry": ("Entschuldigung. Wie lautet die E-Mail-Adresse korrekt?"),
     "confirm_email": ("Ich habe notiert: {email} — ist das korrekt?"),
+    "confirm_name": ("Ich habe Ihren Namen als {name} notiert — ist das korrekt?"),
     "ask_phone": ("Vielen Dank. Unter welcher Telefonnummer können wir Sie erreichen?"),
     "confirm_phone": ("Ich habe Ihre Nummer notiert: {phone} — ist das korrekt?"),
     "ask_callback_time": ("Und wann dürfen wir Sie am besten zurückrufen?"),

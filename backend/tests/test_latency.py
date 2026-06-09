@@ -104,29 +104,28 @@ class TestFastPathDetection:
         proc = TranscriptProcessor(ws, logger, conv)
         return proc, conv
 
-    def test_callback_entry_defers_to_llm(self):
-        """After callback request, LLM drives asking for name — no fast-path."""
+    def test_callback_entry_is_scripted(self):
+        """After a callback request, the name ask is scripted (deterministic spine)."""
         proc, conv = self._make_processor("de")
-        old_phase = conv.state.phase
         conv.add_user_message("Ich möchte bitte Herrn Schmid sprechen.")
-        new_phase = conv.state.phase
-        result = proc._check_fast_path(old_phase, new_phase)
-        assert result is None
+        line = proc._check_fast_path(conv.state.phase, conv.state.phase)
+        assert line is not None
+        assert conv.state.awaiting == "name"
 
-    def test_callback_entry_defers_to_llm_en(self):
+    def test_callback_entry_is_scripted_en(self):
         proc, conv = self._make_processor("en")
-        old_phase = conv.state.phase
         conv.add_user_message("I'd like to speak to Mr Smith please.")
-        new_phase = conv.state.phase
-        result = proc._check_fast_path(old_phase, new_phase)
-        assert result is None
+        line = proc._check_fast_path(conv.state.phase, conv.state.phase)
+        assert line is not None
+        assert conv.state.awaiting == "name"
 
-    def test_area_confirmation_defers_to_llm(self):
-        """Area confirmation and qualification are LLM-driven, not fast-path."""
+    def test_area_confirmation_is_scripted(self):
+        """Area confirmation / matter-type question is scripted, not LLM-driven."""
         proc, conv = self._make_processor("de")
         conv.add_user_message("Ich wurde letzte Woche gekündigt.")
-        result = proc._check_fast_path(conv.state.phase, conv.state.phase)
-        assert result is None
+        line = proc._check_fast_path(conv.state.phase, conv.state.phase)
+        assert line is not None
+        assert conv.state.awaiting == "matter_type"
 
     def test_no_fast_path_for_ambiguous_routing(self):
         proc, conv = self._make_processor("de")
@@ -135,15 +134,15 @@ class TestFastPathDetection:
         assert result is None
 
     def test_phone_readback_is_scripted_in_callback(self):
-        """Phone read-back is accuracy-critical and stays scripted in LLM-first flow."""
+        """The whole callback capture spine is scripted; phone is read back exactly."""
         proc, conv = self._make_processor("de")
         conv.add_user_message("Ich möchte bitte Herrn Schmid sprechen.")
         assert conv.state.phase == CallPhase.CAPTURE
-        assert proc._check_fast_path(conv.state.phase, conv.state.phase) is None
-        conv.add_assistant_message("Gerne. Wie ist Ihr Name?")
+        # Scripted name ask.
+        assert proc._check_fast_path(conv.state.phase, conv.state.phase) is not None
         conv.add_user_message("Max Mustermann")
-        assert proc._check_fast_path(conv.state.phase, conv.state.phase) is None
-        conv.add_assistant_message("Unter welcher Nummer können wir Sie erreichen?")
+        # Scripted phone ask.
+        assert proc._check_fast_path(conv.state.phase, conv.state.phase) is not None
         conv.add_user_message("0151 598 32614")
         line = proc._check_fast_path(conv.state.phase, conv.state.phase)
         assert line is not None

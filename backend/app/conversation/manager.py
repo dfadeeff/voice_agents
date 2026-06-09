@@ -10,8 +10,13 @@ from app.conversation.flow import PHASE_TOOLS, next_phase
 from app.conversation.phone import normalize_phone_text
 from app.conversation.policy import extract_target_person, is_explicit_handoff_request
 from app.conversation.prompts import build_system_prompt, get_system_prompt_base
+from app.conversation.script import compute_prompt
 from app.conversation.state import ConversationState
 from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity, LegalArea
+
+# STT confidence below this stores a contact field unconfirmed, forcing a
+# read-back (the "double-check when unsure" path).
+LOW_CONFIDENCE_THRESHOLD = 0.75
 
 logger = logging.getLogger(__name__)
 
@@ -24,13 +29,6 @@ _NAME_TRIGGER_RE = re.compile(
     re.IGNORECASE,
 )
 _CAPWORDS_RE = re.compile(r"([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){0,2})")
-# Cue that the agent's last turn asked for the name, so a bare reply ("Daniel
-# Stein") is the name even without a "Mein Name ist" trigger.
-_NAME_ASK_RE = re.compile(
-    r"\b(?:ihren?\s+namen|ihr\s+name|wie\s+(?:hei(?:ß|ss)en\s+sie|ist\s+ihr\s+name)|"
-    r"your\s+name|may\s+i\s+(?:have|take|ask)\b)",
-    re.IGNORECASE,
-)
 # Capitalised sentence-starters that are not names (guards the bare-reply path).
 _NAME_STOPWORDS = {
     "ich",
@@ -78,13 +76,6 @@ _MATTER_KEYWORDS: dict[LegalArea, tuple[tuple[str, tuple[str, ...]], ...]] = {
     ),
 }
 
-# Cue that the agent's last turn asked for an insurance/claim/damage number, so a
-# number in the caller's reply is that reference (context-aware, not a blind grab).
-_INSURANCE_ASK_RE = re.compile(
-    r"versicherungs(?:nummer|nr)|schadens(?:nummer|nr|referenz)|policen(?:nummer|nr)|"
-    r"insurance\s+number|claim\s+number|policy\s+number|damage\s+number",
-    re.IGNORECASE,
-)
 _REF_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9\-/]*")
 
 # Negation cue used by the insurance step ("nein", "noch keine").
@@ -105,10 +96,6 @@ _CONFIRM_YES_RE = re.compile(
     re.IGNORECASE,
 )
 _EMAIL_VALID_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$")
-# Cue that the agent's last turn asked for the preferred callback time.
-_CALLBACK_TIME_ASK_RE = re.compile(r"zurückrufen|call you back", re.IGNORECASE)
-# Cue that the agent's last turn asked for the email address.
-_EMAIL_ASK_RE = re.compile(r"e-?mail", re.IGNORECASE)
 
 # Slot selection (deterministic booking): ordinal words → index, or a clock time.
 _ORDINAL = {
@@ -249,6 +236,17 @@ class ConversationManager:
             logger.info("Phase advanced: %s → %s", old_phase.value, new_phase.value)
         return self.state.phase
 
+    def next_prompt(self) -> str | None:
+        """Deterministic next question for the scripted spine; sets state.awaiting.
+
+        Returns the line to speak (the LLM is then skipped for this turn), or None
+        to let the LLM drive (ROUTING / INFORMATION). Called by the pipeline after
+        add_user_message on each turn. The reply parser dispatches on awaiting.
+        """
+        line, awaiting = compute_prompt(self.state, self.lang)
+        self.state.awaiting = awaiting
+        return line
+
     def _update_llm_context(self) -> None:
         prompt = build_system_prompt(self.state, self.lang)
         if self.state.messages:
@@ -281,17 +279,54 @@ class ConversationManager:
         self.advance_phase()
         if not was_callback and self.state.callback_requested:
             self._update_llm_context()
-        # Skip matter_type backfill on the routing turn so the area-confirmation
-        # question still gets asked; capture it on later turns / handoffs instead.
-        if not just_routed:
+
+        # Reply parsing dispatches on what the last scripted question asked for
+        # (state.awaiting), not on regex over the agent's own prior sentence.
+        awaiting = self.state.awaiting
+
+        # The caller denies the area-confirmation ("nein, es geht um etwas
+        # anderes") → re-route instead of recording a matter type.
+        if awaiting == "matter_type" and _AREA_DENIAL_RE.search(text.lower()):
+            self._reroute_after_denial(text)
+        elif not just_routed:
+            # Opportunistic: keyword-map the matter type from this turn / the
+            # original complaint. Skipped on the routing turn so the area-
+            # confirmation question still gets asked.
             self._try_capture_matter_type(text)
+
+        self._try_capture_matter_details(text)
         self._try_confirm_readback(text)
         captured_insurance = self._try_capture_insurance(text)
         self._try_capture_contact(text, skip_phone=captured_insurance)
         self._try_skip_email(text)
+        # Email re-ask: we asked for the email but couldn't parse one (and it
+        # wasn't a "no email" skip) → next prompt apologises and asks again.
+        if awaiting == "email":
+            self.state.email_misheard = (
+                "email" not in self.state.entities and not self.state.email_skipped
+            )
         self._try_capture_preferred_time(text)
         self._try_book(text)
         self._persist()
+
+    def _reroute_after_denial(self, text: str) -> None:
+        """Caller rejected the area-confirmation; try to re-route, else hand back
+        to the LLM routing step."""
+        self.state.caller_intent = CallerIntent.UNKNOWN
+        self._try_auto_route(text)
+        if self.state.caller_intent == CallerIntent.UNKNOWN:
+            self.state.legal_area = LegalArea.UNKNOWN
+        self.advance_phase()
+
+    def _try_capture_matter_details(self, text: str) -> None:
+        """Store the free-text matter detail when it was the awaited reply
+        (employment/tenancy follow-up; traffic uses the insurance step instead)."""
+        if self.state.awaiting != "matter_details":
+            return
+        if "matter_details" in self.state.entities:
+            return
+        self.update_and_confirm_entity("matter_details", text.strip())
+        self._update_llm_context()
 
     def _persist(self) -> None:
         """Write the caller row immediately after each turn so a dropped call
@@ -374,14 +409,12 @@ class ConversationManager:
         self._update_llm_context()
 
     def _try_skip_email(self, text: str) -> None:
-        """Mark email as skipped when the agent asked for it and the caller has none."""
+        """Mark email as skipped when we asked for it and the caller has none."""
         if self.state.callback_requested or self.state.email_skipped:
             return
-        if self.state.phase not in (CallPhase.CAPTURE, CallPhase.ESCALATION):
+        if self.state.awaiting != "email":
             return
         if "email" in self.state.entities:
-            return
-        if not _EMAIL_ASK_RE.search(self._recent_agent_text()):
             return
         if not _NEGATE_RE.search(text.lower()):
             return
@@ -398,57 +431,43 @@ class ConversationManager:
 
     def _try_capture_preferred_time(self, text: str) -> None:
         """Store the caller's preferred callback time once it has been asked."""
-        if not self.state.callback_requested or self.state.preferred_time:
-            return
-        name = self.state.entities.get("name")
-        phone = self.state.entities.get("phone")
-        if not (name and name.confirmed and phone and phone.confirmed):
-            return
-        if not _CALLBACK_TIME_ASK_RE.search(self._recent_agent_text()):
+        if self.state.awaiting != "callback_time" or self.state.preferred_time:
             return
         self.state.preferred_time = text.strip()
         logger.info("Deterministic capture: preferred_time=%r", self.state.preferred_time)
         self.advance_phase()
 
+    _CONFIRM_FIELDS = {"email_confirm": "email", "phone_confirm": "phone", "name_confirm": "name"}
+
     def _try_confirm_readback(self, text: str) -> None:
-        """Handle the caller's reply to a scripted email/phone read-back.
+        """Handle the caller's reply to a scripted name/email/phone read-back.
 
-        'Ja, stimmt' confirms the field; a denial drops it so it is asked again
-        (a re-stated value is then re-captured from the same turn). Acts on the
-        first unconfirmed contact field, matching the scripted read-back order.
+        'Ja, stimmt' confirms the awaited field; a denial drops it so it is asked
+        again (a re-stated value is then re-captured from the same turn).
         """
-        if self.state.phase not in (CallPhase.CAPTURE, CallPhase.ESCALATION):
+        field = self._CONFIRM_FIELDS.get(self.state.awaiting or "")
+        if not field:
             return
-        for field in ("email", "phone"):
-            entity = self.state.entities.get(field)
-            if not entity or entity.confirmed:
-                continue
-            lowered = text.lower()
-            if _AREA_DENIAL_RE.search(lowered):
-                del self.state.entities[field]
-                self.advance_phase()
-            elif _CONFIRM_YES_RE.search(lowered):
-                self.confirm_entity(field)
+        entity = self.state.entities.get(field)
+        if not entity or entity.confirmed:
             return
-
-    def _recent_agent_text(self) -> str:
-        for msg in reversed(self.state.messages):
-            if msg.get("role") == "assistant" and msg.get("content"):
-                return str(msg["content"])
-        return ""
+        lowered = text.lower()
+        if _AREA_DENIAL_RE.search(lowered):
+            del self.state.entities[field]
+            self.advance_phase()
+        elif _CONFIRM_YES_RE.search(lowered):
+            self.confirm_entity(field)
 
     def _try_capture_insurance(self, text: str) -> bool:
-        """Resolve the traffic insurance step once the agent has asked for it.
+        """Resolve the traffic insurance step once we have asked for it.
 
         Sets ``insurance_resolved`` so the qualification gate advances whether the
         caller gives a number or has none. Returns True if a number was stored, so
         phone capture stands down and won't mistake insurance digits for a phone.
         """
-        if self.state.legal_area != LegalArea.TRAFFIC:
+        if self.state.awaiting != "insurance":
             return False
         if self.state.insurance_resolved or "insurance_number" in self.state.entities:
-            return False
-        if not _INSURANCE_ASK_RE.search(self._recent_agent_text()):
             return False
         value = _extract_reference(text)
         negative = bool(_NEGATE_RE.search(text.lower()))
@@ -506,16 +525,27 @@ class ConversationManager:
 
     def _extract_name(self, text: str) -> str | None:
         """Get the caller's name from a trigger phrase, or from a bare reply when
-        the agent just asked for it (e.g. 'Daniel Stein')."""
+        we just asked for the name (e.g. 'Daniel Stein')."""
         trigger = _NAME_TRIGGER_RE.search(text)
         if trigger:
             match = _CAPWORDS_RE.match(text[trigger.end() :].strip())
             return match.group(1).strip() if match else None
-        if _NAME_ASK_RE.search(self._recent_agent_text()):
+        if self.state.awaiting == "name":
             match = _CAPWORDS_RE.match(text.strip())
             if match and match.group(1).split()[0].lower() not in _NAME_STOPWORDS:
                 return match.group(1).strip()
         return None
+
+    def _store_name(self, name: str) -> None:
+        """Store the name, leaving it unconfirmed (forcing a read-back) when the
+        STT confidence for this turn was low — the 'double-check when unsure' path."""
+        conf = self.state.last_transcription_confidence
+        if conf is not None and conf < LOW_CONFIDENCE_THRESHOLD:
+            logger.info("Deterministic capture: name=%r (low conf %.2f → confirm)", name, conf)
+            self.store_entity("name", name, conf)
+        else:
+            logger.info("Deterministic capture: name=%r", name)
+            self.update_and_confirm_entity("name", name)
 
     def _try_capture_contact(self, text: str, skip_phone: bool = False) -> None:
         """Deterministic fallback for name/phone when the LLM skips the tool.
@@ -533,8 +563,7 @@ class ConversationManager:
         if not (existing_name and existing_name.confirmed):
             name = self._extract_name(text)
             if name:
-                logger.info("Deterministic capture (LLM fallback): name=%r", name)
-                self.update_and_confirm_entity("name", name)
+                self._store_name(name)
                 captured = True
 
         existing_email = self.state.entities.get("email")

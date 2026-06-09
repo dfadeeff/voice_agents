@@ -56,14 +56,6 @@ CAPTURE_SCHEMA = {
                 "(Versicherungsnummer/Schadensnummer) for traffic cases."
             ),
         },
-        "preferred_date": {
-            "type": "string",
-            "description": "Preferred consultation date (YYYY-MM-DD or natural language).",
-        },
-        "preferred_time": {
-            "type": "string",
-            "description": "Preferred time (morning/afternoon or specific time like 14:00).",
-        },
     },
 }
 

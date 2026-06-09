@@ -27,6 +27,9 @@ class Settings(BaseSettings):
 
     piper_model_path: str = "models/piper/de_DE-eva_k-x_low.onnx"
     piper_data_path: str = "models/piper/de_DE-eva_k-x_low.onnx.json"
+    # Silence appended after each synthesized sentence so consecutive sentences
+    # don't run together in the audio. ~150-200ms reads as a natural breath.
+    piper_sentence_pause_ms: int = 180
 
     elevenlabs_api_key: str = ""
 

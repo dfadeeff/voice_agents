@@ -43,23 +43,22 @@ voice_agent/
 │   │   │
 │   │   ├── conversation/
 │   │   │   ├── flow.py              # Deterministic state machine (next_phase, phase tools)
-│   │   │   ├── state.py             # ConversationState dataclass (serializable)
-│   │   │   ├── manager.py           # Manages state per call, phase transitions
+│   │   │   ├── state.py             # ConversationState dataclass (serializable, incl. `awaiting`)
+│   │   │   ├── manager.py           # State per call, phase transitions, next_prompt(), reply parsing
+│   │   │   ├── script.py            # compute_prompt(): the scripted question driver (the spine)
+│   │   │   ├── phone.py             # Spoken-number normalization
+│   │   │   ├── policy.py            # Handoff-request detection, target-person extraction
 │   │   │   ├── prompts.py           # System prompt builder (locale-aware)
-│   │   │   └── locales/             # Per-language prompt constants
-│   │   │       ├── de.py            # German (default) — preamble, phase prompts, fragments
+│   │   │   └── locales/             # Per-language prompt + scripted-line constants
+│   │   │       ├── de.py            # German (default) — preamble, phase prompts, SCRIPTED lines
 │   │   │       └── en.py            # English
 │   │   │
 │   │   ├── tools/
 │   │   │   ├── registry.py          # Tool name -> callable + JSON schema
-│   │   │   ├── intent.py            # classify_caller_intent
-│   │   │   ├── routing.py           # classify_legal_area
-│   │   │   ├── intake.py            # complete_intake
-│   │   │   ├── extraction.py        # extract_caller_details + confidence + regex validation
-│   │   │   ├── conflict.py          # record_conflict_info (employer + insurance)
-│   │   │   ├── additional.py        # record_additional_info
-│   │   │   ├── booking.py           # check_availability, book_consultation
-│   │   │   └── escalation.py        # escalate_to_human
+│   │   │   ├── route.py             # route_call (intent + legal area, one step)
+│   │   │   ├── extraction.py        # capture_caller_details, confirm_caller_detail (+ regex/conf validation)
+│   │   │   ├── booking.py           # calendar tools (booking itself is deterministic in the manager)
+│   │   │   └── handoff.py           # request_handoff
 │   │   │
 │   │   ├── services/
 │   │   │   └── calendar.py          # SQLite calendar: slots, bookings, call logs
@@ -130,14 +129,14 @@ voice_agent/
 │                     │                     │                  │    │
 │                     ▼                     ▼                  ▼    │
 │              ┌───────────┐         ┌───────────┐     ┌──────────┐│
-│              │classify_  │         │extract_   │     │check_    ││
-│              │intent /   │         │entities   │     │availabil.││
-│              │legal_area │         │+ regex    │     │book_     ││
-│              │           │         │+ STT conf │     │consult.  ││
-│              │employment │         │           │     │          ││
-│              │tenancy    │         │name: 0.92 │     │  SQLite  ││
-│              │traffic    │         │email: 0.45│     │  calendar││
-│              │unknown    │         │  -> SPELL │     │          ││
+│              │route_call │         │deterministic│   │ book     ││
+│              │(LLM)      │         │parse +      │   │(in-code) ││
+│              │intent +   │         │regex + STT  │   │          ││
+│              │legal_area │         │conf, gated  │   │ SQLite   ││
+│              │employment │         │on awaiting  │   │ calendar ││
+│              │tenancy    │         │name: 0.92   │   │ slots +  ││
+│              │traffic    │         │email: 0.45  │   │ bookings ││
+│              │unknown    │         │ -> read back│   │          ││
 │              └─────┬─────┘         └─────┬─────┘     └────┬─────┘│
 │                    │                     │                 │      │
 │                    └─────────┬───────────┘                 │      │
@@ -167,15 +166,29 @@ voice_agent/
 └───────────────────────────────────────────────────────────────────┘
 ```
 
-## Conversation Design: Hybrid State Machine + LLM
+## Conversation Design: Scripted Spine + LLM at the Edges
 
-The call is always in one explicit phase. Code controls transitions; the LLM handles language understanding and natural phrasing.
+The call is always in one explicit phase. With a local 7B model that intermittently
+drops tool calls and drifts, the **data-collection spine is driven deterministically**:
+the state machine knows what it just asked (`state.awaiting`), speaks a **scripted**
+question (`manager.next_prompt()` → `script.compute_prompt()`), and parses the caller's
+reply against `awaiting` — never against the agent's own previous sentence. On the
+scripted phases the LLM is fast-pathed out entirely, so it cannot hallucinate, ask the
+wrong thing, skip a field, or fake a booking.
+
+The LLM keeps the two jobs it is genuinely good at and cannot corrupt:
+- **ROUTING** — interpreting messy free speech into intent + legal area (keyword fallback backs it up)
+- **INFORMATION** — open-ended answers about what the firm handles
 
 ```
-State machine = brainstem / process controller
-LLM = language and reasoning layer
-Tools = calendar, validators, extraction functions
+State machine   = process controller (phases, gates)
+Scripted spine  = every data-collection question + deterministic reply parsing
+LLM             = routing classification + general-info answers
+Tools           = calendar, validators, extraction (cloud/fallback)
 ```
+
+> The balance is deliberately tilted to deterministic for the **local** model. A cloud
+> model (reliable tool-calling) can re-enable LLM-driven capture without touching the spine.
 
 ### Why not LLM-driven flow?
 
@@ -192,14 +205,16 @@ A state machine makes all of this explicit, testable, and deterministic.
 
 | Decision | Owner | Why |
 |---|---|---|
-| Caller intent | LLM proposes → state manager validates | LLM interprets messy speech; code enforces valid values |
-| Legal area | LLM classifies → code checks supported values | Unknown areas trigger escalation, not a retry loop |
-| Required fields | Code (`REQUIRED_FIELDS`) | Business requirement, not LLM judgment |
-| Field confidence | STT scores + regex + code policy | LLM cannot assess audio quality |
-| Slot availability | Calendar tool (SQLite) | Source of truth is the database |
+| Caller intent + legal area | LLM `route_call` → code validates (keyword fallback) | LLM interprets messy speech; unknown areas escalate, not retry |
+| Which question to ask next | Code (`compute_prompt`, gated on `state`) | The spine must not depend on the LLM remembering the flow |
+| Reply interpretation (name/email/phone/insurance/slot) | Code, dispatched on `state.awaiting` | Deterministic parsers; reliable on a local 7B |
+| Required fields | Code (`flow.py` gates) | Business requirement, not LLM judgment |
+| Field confidence | STT scores + regex + code policy | LLM cannot assess audio quality; low conf → read-back |
+| Slot availability + booking | Calendar (SQLite) + code | Source of truth is the DB; booking writes are deterministic |
 | Booking permission | Code (all fields confirmed) | Safety gate the LLM cannot bypass |
 | When to escalate | Code policy + LLM signal | LLM detects distress; code enforces policy |
-| Spoken wording | LLM (phase-constrained) | Natural language is what LLMs are good at |
+| Routing / general-info wording | LLM (phase-constrained) | The two open-ended spots; natural language is the LLM's strength |
+| Scripted-phase wording | Code (locale `SCRIPTED` templates) | Exact, drift-free; accuracy-critical read-backs must be verbatim |
 
 ### Why not a rigid phone tree?
 
@@ -213,150 +228,74 @@ Real callers give multiple details at once ("Hi, I'm Dmitry, I need help with my
 `next_phase()` is a **projection from accumulated state to phase** — it doesn't step forward, it computes where we should be based on what data has been collected:
 
 ```
-                          ┌───────────┐
-                          │ GREETING  │
-                          │ "Hello,   │
-                          │ how can I │  turn_count >= 1
-                          │ help?"    │──────────────────┐
-                          └───────────┘                  │
-                                                         ▼
-                                                   ┌───────────┐
-                                                   │ INTENT    │
-                                                   │ DETECTION │
-                                                   │           │  intent classified
-                                                   │ classify_ │──────────────────┐
-                                                   │ caller_   │                  │
-                                                   │ intent    │                  │
-                                                   └───────────┘                  │
-                                                                                  ▼
-                                                                            ┌───────────┐
-                                                                            │ ROUTING   │
-                                                                            │           │
-                                                                            │ classify_ │
-                                                                            │ legal_area│
-                                                                            └─────┬─────┘
-                                                                                  │
-                                           ┌──────────────────────────────────────┤
-                                           │                                      │
-                              area == UNKNOWN                      area known + intent
-                                           │                                      │
-                                           ▼                    ┌─────────────────┤
-                                     ┌───────────┐              │                 │
-                                     │ ESCALATION│    GENERAL_INFO     BOOK_CONSULTATION
-                                     │           │              │                 │
-                                     │ hand off  │              ▼                 ▼
-                                     │ to human  │        ┌───────────┐    ┌───────────┐
-                                     └───────────┘        │INFORMATION│    │ INTAKE    │
-                                           ▲              │           │    │           │
-                                           │              │ answer Qs │    │ follow-up │
-                                 at ANY point:            │ offer to  │    │ questions │
-                                 - caller asks            │ book      │    │ complete_ │
-                                 - 3+ misunderstandings   └───────────┘    │ intake    │
-                                 - escalation_requested                    └─────┬─────┘
-                                                                                │
-                                                                     intake complete
-                                                                                │
-                                                                                ▼
-                                                                          ┌───────────┐
-                                                                          │ CAPTURE   │
-                                                                          │           │
-                                                                          │ name ✓?   │◄─┐
-                                                                          │ email ✓?  │  │
-                                                                          │ phone ✓?  │──┘
-                                                                          └─────┬─────┘
-                                                                                │
-                                                                     all confirmed
-                                                                                │
-                                                                                ▼
-                                                                          ┌───────────┐
-                                                                          │ CONFLICT  │
-                                                                          │ CHECK     │
-                                                                          │           │
-                                                                          │ employer? │
-                                                                          │ insurance?│
-                                                                          └─────┬─────┘
-                                                                                │
-                                                                                ▼
-                                                                          ┌───────────┐
-                                                                          │ADDITIONAL │
-                                                                          │   INFO    │
-                                                                          │           │
-                                                                          │"anything  │
-                                                                          │ else?"    │
-                                                                          └─────┬─────┘
-                                                                                │
-                                                                                ▼
-                                                                          ┌───────────┐
-                                                                          │ BOOKING   │
-                                                                          │           │
-                                                                          │ check     │
-                                                                          │ available │◄─┐
-                                                                          │ book slot │  │
-                                                                          └─────┬─────┘  │
-                                                                                │        │
-                                                                     slot unavailable?───┘
-                                                                                │
-                                                                       booking confirmed
-                                                                                │
-                                                                                ▼
-                                                                         ┌────────────┐
-                                                                         │CONFIRMATION│
-                                                                         │            │
-                                                                         │ read back  │
-                                                                         │ all details│
-                                                                         └──────┬─────┘
-                                                                                │
-                                                                                ▼
-                                                                          ┌───────────┐
-                                                                          │ FAREWELL  │
-                                                                          └───────────┘
+GREETING ──(turn>=1)──> ROUTING ──(intent + area known)──┐
+                          │                              │
+              area==unknown / handoff             GENERAL_INFO ── INFORMATION
+                          ▼                              │            │ (wants to book)
+                     ESCALATION                          └─────┬──────┘
+                          ▲                                    ▼
+        at ANY point: caller asks for a human,         QUALIFICATION
+        3+ misunderstandings, out-of-scope area      matter_type → matter_details
+                                                       (traffic: → insurance)
+                                                             │
+                                                             ▼
+                                                          CAPTURE
+                                                  name → email → phone
+                                                  (email/phone read back)
+                                                             │ all confirmed
+                                                             ▼
+                                                          BOOKING
+                                                  offer slots → choose → book
+                                                  (declined → offer alternatives)
+                                                             │ booked
+                                                             ▼
+                                                       CONFIRMATION  (read back, goodbye)
 ```
 
-### Per-Phase LLM Constraints
+### Per-Phase Ownership
 
-Each phase gives the LLM a narrow, specific task — not the full call flow:
+The eight phases (`CallPhase`). On scripted phases the spoken turn comes from
+`compute_prompt()` and the LLM is skipped; only ROUTING and INFORMATION run the LLM.
 
-| Phase | LLM's job | Available tools |
-|-------|-----------|-----------------|
-| GREETING | Greet warmly, ask how to help | none |
-| INTENT_DETECTION | Classify: general info or consultation? | classify_caller_intent |
-| ROUTING | Classify legal area (employment/tenancy/traffic) | classify_legal_area |
-| INTAKE | Area-specific follow-up questions, summarize issue | complete_intake |
-| INFORMATION | Answer questions about the legal area | classify_caller_intent (to switch to booking) |
-| CAPTURE | Extract caller details, confirm uncertain ones | extract_caller_details |
-| CONFLICT_CHECK | Ask about employer and legal insurance | record_conflict_info |
-| ADDITIONAL_INFO | "Anything else?" before booking | record_additional_info |
-| BOOKING | Help caller find and book a slot | check_availability, book_consultation |
-| CONFIRMATION | Read back all booking details | none |
-| ESCALATION | Explain handoff, be reassuring | escalate_to_human |
-| FAREWELL | Thank caller, wish well | none |
+| Phase | Driver | What happens | Tools available to LLM |
+|-------|--------|--------------|------------------------|
+| GREETING | Scripted | Greeting spoken on connect | none |
+| ROUTING | **LLM** | Classify intent + legal area | `route_call`, `request_handoff` |
+| QUALIFICATION | Scripted | Area-confirm + matter_type, then matter_details (or insurance for traffic) | `request_handoff` |
+| INFORMATION | **LLM** | Answer general questions about the area | `route_call`, `request_handoff` |
+| CAPTURE | Scripted | name → email → phone, with read-back confirmations | `request_handoff` |
+| BOOKING | Scripted | Offer slots, match choice, book (deterministic) | `request_handoff` |
+| CONFIRMATION | Scripted | Read back the booked slot / callback | none |
+| ESCALATION | LLM / Scripted | Callback capture is scripted; out-of-scope escalation is LLM-driven | `capture_caller_details`, `confirm_caller_detail`, `request_handoff` |
 
-### How Tool Calls Drive State
+`state.awaiting` (one of `matter_type, matter_details, insurance, name, name_confirm,
+email, email_confirm, phone, phone_confirm, slot, callback_time`) records what the last
+scripted question asked for; the reply parser in `manager.add_user_message` dispatches on it.
+
+### How a Turn Drives State
 
 ```
 Caller: "I was unfairly dismissed from my job"
   │
   ▼
-LLM calls classify_caller_intent(intent="book_consultation")
+manager.add_user_message():
+  intent UNKNOWN → keyword fallback (or LLM route_call) sets
+  intent=book_consultation, legal_area=employment
+  advance_phase() → QUALIFICATION (matter_type missing)
   │
   ▼
-Tool handler stores intent → advance_phase() computes:
-  intent known, legal_area unknown → ROUTING
+manager.next_prompt() → compute_prompt():
+  QUALIFICATION + no matter_type → speak SCRIPTED `employment_confirm`,
+  set state.awaiting = "matter_type"   (LLM is skipped this turn)
   │
   ▼
-System prompt updates to ROUTING phase:
-  "Determine the caller's legal area. Call classify_legal_area."
+Caller: "Yes, a dismissal"
   │
   ▼
-LLM calls classify_legal_area(legal_area="employment")
-  │
-  ▼
-Tool handler stores area → advance_phase() computes:
-  intent=book, area=employment, intake not complete → INTAKE
-  │
-  ▼
-System prompt updates to INTAKE phase:
-  "Capture a brief summary of the caller's employment issue."
+add_user_message(): awaiting=="matter_type" → keyword-map → matter_type="dismissal"
+  advance_phase() → QUALIFICATION (matter_details missing)
+  next_prompt() → SCRIPTED `employment_details`, awaiting="matter_details"
+  … → CAPTURE (name → email → phone) → BOOKING (offer/choose/book) → CONFIRMATION
 ```
 
 ### Confidence-Aware Entity Extraction
@@ -398,28 +337,25 @@ Caller speaks: "My email is d fadeev at gmail maybe no wait fadejeff at gmail"
            │
            ▼
     ┌──────────────┐
-    │ LLM          │  phase: CAPTURE → constrained to extraction task
-    │ (Qwen2.5-7B) │  calls: extract_caller_details(email="fadejeff@gmail.com")
+    │ Deterministic│  phase: CAPTURE, state.awaiting == "email"
+    │ parser       │  _parse_email("… fadejeff at gmail") → "fadejeff@gmail.com"
+    │ (manager)    │  1. regex validates email format → OK
+    │              │  2. stores entity unconfirmed (email always read back)
+    │              │  3. advance_phase() → still CAPTURE (unconfirmed field)
     └──────┬───────┘
            │
            ▼
     ┌──────────────┐
-    │ Tool handler │  1. regex validates email format → OK
-    │ (extraction) │  2. STT confidence for "fadejeff" → 0.61 (below 0.7)
-    │              │  3. stores entity, marks needs_confirmation
-    │              │  4. advance_phase() → still CAPTURE (unconfirmed field)
+    │ next_prompt()│  email present + unconfirmed → SCRIPTED confirm_email,
+    │ (script.py)  │  awaiting = "email_confirm". The LLM is skipped this turn.
+    │              │  "Ich habe notiert: fadejeff@gmail.com — ist das korrekt?"
     └──────┬───────┘
            │
            ▼
     ┌──────────────┐
-    │ LLM          │  system prompt says: "Email needs confirmation. Read back."
-    │ (response)   │  generates: "I heard fadejeff@gmail.com. Is that correct?"
-    └──────┬───────┘
-           │
-           ▼
-    ┌──────────────┐
-    │ TTS          │  speaks response to caller
+    │ TTS          │  speaks the read-back; reply parsed against "email_confirm"
     └──────────────┘
+    (low STT confidence or an unparseable reply → ask_email_not_understood, re-ask)
 ```
 
 ## Provider Abstraction
@@ -518,8 +454,8 @@ The agent escalates to a human when any of these conditions are met:
 
 | Trigger | Detection | Implementation |
 |---|---|---|
-| Caller asks for a human | LLM calls `escalate_to_human` | `reason: caller_requested_human` |
-| Out-of-scope legal area | `classify_legal_area(area="unknown")` | Sets `escalation_requested=True` in routing.py |
+| Caller asks for a human | `policy.is_explicit_handoff_request` (deterministic) or LLM `request_handoff` | `callback_requested=True` (named-person callback) |
+| Out-of-scope legal area | `route_call(legal_area="unknown")` | Sets `escalation_requested=True` in route.py |
 | 3+ consecutive misunderstandings | State machine checks `misunderstanding_streak >= 3` | `next_phase()` returns ESCALATION |
 | Complex multi-party situation | LLM judgment | `reason: complex_situation` |
 | Caller frustrated or distressed | LLM judgment | `reason: caller_frustrated` |
@@ -547,7 +483,7 @@ Dial human recipient (lawyer / intake team)
   └── Timeout (SIP 408) / Unavailable (SIP 480) → try backup route
 ```
 
-The `escalate_to_human` tool already builds `context_for_human` with all collected state — this is the payload that would be sent to the receiving human agent.
+The `request_handoff` tool (and the deterministic handoff path) already records the escalation reason, target person, and all collected state — this is the payload that would be sent to the receiving human agent.
 
 ## TTS Preprocessing
 
@@ -564,6 +500,13 @@ Two layers of text sanitization in the pipeline:
 - **Email addresses**: locale-aware expansion (`@` → `at`, `.` → `Punkt` in German, `dot` in English)
 - Second pass of tool name stripping and false booking guard
 - Logs cleaned text to transcript and sends to frontend
+
+**Inter-sentence pause** (`LocalPiperTTSService`)
+- Pipecat feeds Piper one sentence per call, and Piper emits no trailing silence, so
+  consecutive sentences run together ("…der Kanzlei.Ich nehme…"). The local Piper
+  subclass appends ~180ms of silence per synthesized sentence (`PIPER_SENTENCE_PAUSE_MS`).
+  Email "." is expanded to " Punkt " before TTS, so addresses are never split — the pause
+  is per sentence, not per period. Cloud TTS (ElevenLabs) renders prosody natively.
 
 Production improvements would add:
 - Date/time formatting (`2026-06-09T14:00` → `Dienstag, 9. Juni um 14 Uhr`)

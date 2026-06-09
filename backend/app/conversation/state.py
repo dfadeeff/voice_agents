@@ -34,8 +34,17 @@ class ConversationState:
     # Booking: True once email was asked and the caller had none — email is
     # optional, a phone number is enough to book.
     email_skipped: bool = False
+    # True when we asked for the email but couldn't parse one from the reply, so
+    # the next prompt apologises and asks again (the "didn't catch it" path).
+    email_misheard: bool = False
     misunderstanding_streak: int = 0
     last_transcription_confidence: float | None = None
+    # The specific datum the agent's last scripted question asked for. Set by
+    # ConversationManager.next_prompt(); the deterministic reply parser dispatches
+    # on this instead of regex-matching the agent's own previous sentence.
+    # One of: area_confirm, matter_type, matter_details, insurance, name,
+    # name_confirm, email, email_confirm, phone, phone_confirm, slot, callback_time.
+    awaiting: str | None = None
     started_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
@@ -60,6 +69,7 @@ class ConversationState:
             "booking_confirmed": self.booking_confirmed,
             "offered_slot_ids": self.offered_slot_ids,
             "last_transcription_confidence": self.last_transcription_confidence,
+            "awaiting": self.awaiting,
         }
 
     def to_json(self) -> str:
