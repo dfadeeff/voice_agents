@@ -144,16 +144,9 @@ def _fmt_time(time: str, lang: str) -> str:
 def _fmt_slot(slot: dict, lang: str) -> str:
     date = _fmt_date(slot["date"], lang)
     time = _fmt_time(slot["time"], lang)
-    lawyer = slot.get("lawyer_name", "")
     if lang == "de":
-        s = f"{date} um {time}"
-        if lawyer:
-            s += f" bei {lawyer}"
-        return s
-    s = f"{date} at {time}"
-    if lawyer:
-        s += f" with {lawyer}"
-    return s
+        return f"{date} um {time}"
+    return f"{date} at {time}"
 
 
 def _fmt_slots(slots: list[dict], lang: str) -> str:
@@ -205,6 +198,9 @@ def scripted_line(state: ConversationState, lang: str = "de") -> str | None:
         # number is enough, so the caller can decline. A callback skips email.
         if not callback:
             if not email and not state.email_skipped:
+                last = _last_agent_text(state)
+                if "notiert" in last or "noted" in last:
+                    return scripts.get("ask_email_retry", scripts["ask_email"])
                 return scripts["ask_email"]
             if email and not email.confirmed:
                 return scripts["confirm_email"].format(email=email.value)
@@ -228,7 +224,6 @@ def scripted_line(state: ConversationState, lang: str = "de") -> str | None:
         return scripts["booking_done"].format(
             date=_fmt_date(slot["date"], lang),
             time=_fmt_time(slot["time"], lang),
-            lawyer=slot.get("lawyer_name", ""),
         )
 
     if callback and state.phase == CallPhase.CONFIRMATION:

@@ -88,7 +88,7 @@ PHASE_PROMPTS: dict[CallPhase, str] = {
     ),
     CallPhase.CONFIRMATION: (
         "The appointment is booked. Read back ALL the details clearly: "
-        "date, time, lawyer name. "
+        "date and time. "
         "Say: 'I've noted everything down and will pass it to our team. "
         "Thank you for calling and all the best!'"
     ),
@@ -258,9 +258,18 @@ SCRIPTED = {
         "or another issue with your landlord?"
     ),
     "traffic_insurance": ("Do you already have a claim number or an insurance number?"),
-    "ask_name": ("I'll take down your callback request. What is your name, please?"),
-    "ask_name_booking": ("Of course. What is your name, please?"),
+    "ask_name": (
+        "I'll take down your callback request. "
+        "I'll just need your name and phone number. "
+        "What is your name, please?"
+    ),
+    "ask_name_booking": (
+        "Of course, let's book a consultation for you. "
+        "I'll just need your name, email address and phone number. "
+        "What is your name, please?"
+    ),
     "ask_email": ("Thank you. What is your email address?"),
+    "ask_email_retry": ("Sorry about that. What is the correct email address?"),
     "confirm_email": ("I've noted: {email}. Is that correct?"),
     "ask_phone": ("Thank you. What is the best phone number to reach you?"),
     "confirm_phone": ("I've noted your number: {phone}. Is that correct?"),
@@ -270,9 +279,7 @@ SCRIPTED = {
         "I'm afraid I have no free slots right now. The team will reach out to arrange "
         "one that suits you. Goodbye!"
     ),
-    "booking_done": (
-        "Your appointment is booked: {date} at {time} with {lawyer}. Thank you for calling!"
-    ),
+    "booking_done": ("Your appointment is booked: {date} at {time}. Thank you for calling!"),
     "callback_done": (
         "Thank you. I've recorded your callback request. "
         "{person} will call you back {time}. Goodbye!"

@@ -126,7 +126,8 @@ _ORDINAL = {
     "third": 2,
 }
 _SLOT_TIME_RE = re.compile(
-    r"\b(\d{1,2})\s*(?:uhr|o'?clock)\s*(\d{1,2})?\b" r"|\b(\d{1,2}):(\d{2})\s*(?:uhr|o'?clock)?\b",
+    r"\b(\d{1,2})\s*(?:uhr|o'?clock)\s*(\d{1,2})?\b"
+    r"|\b(\d{1,2})[:.]\s*(\d{2})\s*(?:uhr|o'?clock)?\b",
     re.IGNORECASE,
 )
 _SLOT_DECLINE_RE = re.compile(

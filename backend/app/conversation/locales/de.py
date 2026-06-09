@@ -105,7 +105,7 @@ PHASE_PROMPTS: dict[CallPhase, str] = {
     ),
     CallPhase.CONFIRMATION: (
         "Der Termin ist gebucht. Lies ALLE Details klar vor: "
-        "Datum, Uhrzeit, Name des Anwalts. "
+        "Datum und Uhrzeit. "
         "Sage: 'Ich habe alle Informationen aufgenommen und leite sie "
         "an unser Team weiter. Vielen Dank für Ihren Anruf und alles Gute!'"
     ),
@@ -283,11 +283,18 @@ SCRIPTED = {
         "Mängel in der Wohnung oder ein anderes Problem mit Ihrem Vermieter?"
     ),
     "traffic_insurance": ("Haben Sie bereits eine Schadensnummer oder eine Versicherungsnummer?"),
-    "ask_name": ("Gerne nehme ich Ihren Rückrufwunsch auf. Wie ist Ihr Name, bitte?"),
+    "ask_name": (
+        "Gerne nehme ich Ihren Rückrufwunsch auf. "
+        "Dafür benötige ich kurz Ihren Namen und Ihre Telefonnummer. "
+        "Wie ist Ihr Name, bitte?"
+    ),
     "ask_name_booking": (
-        "Sehr gut, dann vereinbaren wir einen Beratungstermin. Wie ist Ihr Name, bitte?"
+        "Sehr gut, dann vereinbaren wir gerne einen Beratungstermin für Sie. "
+        "Dafür benötige ich kurz Ihren Namen, Ihre E-Mail-Adresse und Ihre Telefonnummer. "
+        "Wie ist Ihr Name, bitte?"
     ),
     "ask_email": ("Danke. Wie lautet Ihre E-Mail-Adresse?"),
+    "ask_email_retry": ("Entschuldigung. Wie lautet die E-Mail-Adresse korrekt?"),
     "confirm_email": ("Ich habe notiert: {email} — ist das korrekt?"),
     "ask_phone": ("Vielen Dank. Unter welcher Telefonnummer können wir Sie erreichen?"),
     "confirm_phone": ("Ich habe Ihre Nummer notiert: {phone} — ist das korrekt?"),
@@ -297,9 +304,7 @@ SCRIPTED = {
         "Im Moment habe ich leider keine freien Termine. Das Team meldet sich bei Ihnen, "
         "um einen passenden Termin zu finden. Auf Wiederhören!"
     ),
-    "booking_done": (
-        "Ihr Termin ist gebucht: {date} um {time} bei {lawyer}. Vielen Dank für Ihren Anruf!"
-    ),
+    "booking_done": ("Ihr Termin ist gebucht: {date} um {time}. Vielen Dank für Ihren Anruf!"),
     "callback_done": (
         "Vielen Dank. Ich habe Ihren Rückrufwunsch notiert. "
         "{person} ruft Sie {time} zurück. Auf Wiederhören!"

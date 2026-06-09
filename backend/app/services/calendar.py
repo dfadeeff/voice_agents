@@ -26,13 +26,23 @@ class CalendarService:
             query += f" AND id NOT IN ({','.join('?' * len(exclude_ids))})"
             params.extend(exclude_ids)
         query += " ORDER BY date, time LIMIT ?"
-        params.append(limit)
+        params.append(limit * 4)
         conn = sqlite3.connect(self._db_path)
         conn.row_factory = sqlite3.Row
         try:
-            return [dict(r) for r in conn.execute(query, params).fetchall()]
+            rows = [dict(r) for r in conn.execute(query, params).fetchall()]
         finally:
             conn.close()
+        seen: set[tuple[str, str]] = set()
+        deduped: list[dict] = []
+        for row in rows:
+            key = (row["date"], row["time"])
+            if key not in seen:
+                seen.add(key)
+                deduped.append(row)
+                if len(deduped) >= limit:
+                    break
+        return deduped
 
     def upsert_caller_sync(
         self,
