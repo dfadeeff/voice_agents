@@ -224,6 +224,13 @@ class TestGermanTTSPreprocessing:
         result = _tts_preprocess("+49 176 12345678", lang="de")
         assert "plus" in result
 
+    def test_sentences_glued_without_space_are_separated(self):
+        # Scripted lines concatenate sentences ("Tag!Hier", "können.Wobei"); TTS
+        # needs a space so it pauses between them instead of slurring the junction.
+        out = _tts_preprocess("Guten Tag!Hier ist Claudia. Kanzlei.Ich helfe.", lang="de")
+        assert "Tag! Hier" in out
+        assert "Kanzlei. Ich" in out
+
     def test_normal_text_unchanged(self):
         text = "Verstanden, es geht um eine Kündigung."
         assert _tts_preprocess(text, lang="de") == text

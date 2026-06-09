@@ -46,6 +46,19 @@ class TestCartesia:
         assert Language(Settings().language) is Language.DE
 
 
+class TestElevenLabs:
+    def test_missing_voice_id_raises_helpful_error(self):
+        # Same guard as Cartesia: don't build the default English voice silently.
+        from app.providers.tts import _build_elevenlabs
+
+        with pytest.raises(ValueError, match="ELEVENLABS_VOICE_ID"):
+            _build_elevenlabs(Settings(elevenlabs_api_key="k", elevenlabs_voice_id=""))
+
+    def test_multilingual_model_is_default(self):
+        # German correctness comes from the multilingual model, not the voice.
+        assert Settings().elevenlabs_model == "eleven_multilingual_v2"
+
+
 class TestConversationAware:
     def test_local_whisper_is_conversation_aware(self):
         from app.pipeline.local_whisper import LocalWhisperSTTService

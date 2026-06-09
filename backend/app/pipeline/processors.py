@@ -309,6 +309,12 @@ def _tts_preprocess(text: str, lang: str = "de") -> str:
     text = re.sub(r"(?<=\d)\s*/\s*(?=\d)", " ", text)
     text = _PHONE_RE.sub(_expand_phone, text)
     text = re.sub(r"(\d)\.$", r"\1", text)
+    # Scripted lines concatenate sentences without a space ("Tag!Hier",
+    # "können.Wobei"). Insert a space after sentence-ending punctuation when it's
+    # glued to the next (capitalised) word, so TTS pauses between sentences and
+    # doesn't slur the junction. Runs after email/number expansion, so domain
+    # dots ("gmail Punkt com") and spelled digits are already gone.
+    text = re.sub(r"([.!?])([A-ZÄÖÜ])", r"\1 \2", text)
     return text
 
 

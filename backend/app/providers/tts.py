@@ -33,7 +33,22 @@ def _build_piper(settings: Settings) -> Any:
 def _build_elevenlabs(settings: Settings) -> Any:
     from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
 
-    return ElevenLabsTTSService(api_key=settings.elevenlabs_api_key)
+    if not settings.elevenlabs_voice_id:
+        raise ValueError(
+            "ElevenLabs needs ELEVENLABS_VOICE_ID — pick a German voice in the "
+            "ElevenLabs Voice Library (filter by language = German) and set it in "
+            "your env."
+        )
+    # The multilingual model (default) renders German from the German text; the
+    # voice supplies the accent. (Language isn't forced — eleven_multilingual_v2
+    # auto-detects per text, and not every model accepts a language_code.)
+    return ElevenLabsTTSService(
+        api_key=settings.elevenlabs_api_key,
+        settings=ElevenLabsTTSService.Settings(
+            model=settings.elevenlabs_model,
+            voice=settings.elevenlabs_voice_id,
+        ),
+    )
 
 
 def _build_cartesia(settings: Settings) -> Any:
@@ -45,13 +60,16 @@ def _build_cartesia(settings: Settings) -> Any:
             "Cartesia needs CARTESIA_VOICE_ID — pick a multilingual voice in the "
             "Cartesia dashboard (German-capable) and set it in your env."
         )
+    # Use the current Settings API (the old voice_id/model/params kwargs are
+    # deprecated). `language=Language.DE` makes the multilingual model render
+    # German rather than reading it with English pronunciation.
     return CartesiaTTSService(
         api_key=settings.cartesia_api_key,
-        voice_id=settings.cartesia_voice_id,
-        model=settings.cartesia_model,
-        # Speak the configured language (e.g. "de" -> Language.DE) so a
-        # multilingual voice renders German rather than defaulting to English.
-        params=CartesiaTTSService.InputParams(language=Language(settings.language)),
+        settings=CartesiaTTSService.Settings(
+            model=settings.cartesia_model,
+            voice=settings.cartesia_voice_id,
+            language=Language(settings.language),
+        ),
     )
 
 

@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     piper_sentence_pause_ms: int = 180
 
     elevenlabs_api_key: str = ""
+    # ElevenLabs (cloud TTS). voice_id is required; the multilingual model speaks
+    # German from German text, while the *voice* determines the accent — pick a
+    # German voice in the ElevenLabs Voice Library for a native accent.
+    elevenlabs_voice_id: str = ""
+    elevenlabs_model: str = "eleven_multilingual_v2"
 
     # Cartesia (cloud TTS) — streaming-first, lowest first-audio latency. voice_id
     # is required and must be a multilingual voice for German; sonic-2 is the
