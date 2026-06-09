@@ -1,0 +1,99 @@
+Empfang / KI-Sprachassistent
+Gesprächsskript: Verkehrsunfall und Terminvereinbarung
+
+Teilnehmer:
+- Empfang / KI-Sprachassistent: Claudia
+- Anrufer: Moritz Lang
+
+---
+
+Empfang:
+Guten Tag! Hier ist Claudia, die KI-Anrufannahme der Kanzlei. Ich nehme gerne Ihr Anliegen auf und gebe es sofort an unser Team weiter, damit wir Ihnen schnellstmöglich weiterhelfen können. Wobei können wir behilflich sein?
+
+Anrufer:
+Ich hatte einen Autounfall.
+
+Empfang:
+Habe ich Sie richtig verstanden, dass es um ein verkehrsrechtliches Thema geht? Handelt es sich um einen Verkehrsunfall, einen Kfz-Schaden oder ein Problem mit einer Versicherung?
+
+Anrufer:
+Verkehrsunfall.
+
+Empfang:
+Haben Sie bereits eine Schadensnummer oder eine Versicherungsnummer?
+
+Anrufer:
+Eine Versicherungsnummer: F 6 2 3 1 4 7 5 8.
+
+Empfang:
+Sehr gut, dann vereinbaren wir gerne einen Beratungstermin für Sie. Dafür benötige ich kurz Ihren Namen, Ihre E-Mail-Adresse und Ihre Telefonnummer. Wie ist Ihr Name, bitte?
+
+Anrufer:
+Mein Name ist Moritz Lang.
+
+Empfang:
+Ich habe Ihren Namen als Moritz Lang notiert. Ist das korrekt?
+
+Anrufer:
+Ja, das ist korrekt.
+
+Empfang:
+Danke. Wie lautet Ihre E-Mail-Adresse?
+
+Anrufer:
+Die E-Mail-Adresse ist lang at gmail.com.
+
+Empfang:
+Ich habe notiert: lang@gmail.com. Ist das korrekt?
+
+Anrufer:
+Ja, das ist auch korrekt.
+
+Empfang:
+Vielen Dank. Unter welcher Telefonnummer können wir Sie erreichen?
+
+Anrufer:
+0151 597 386 94.
+
+Empfang:
+Ich habe Ihre Nummer notiert: 0 1 5 1 5 9 7 3 8 6 9 4. Ist das korrekt?
+
+Anrufer:
+Ja, ist korrekt.
+
+Empfang:
+Ich kann Ihnen folgende Termine anbieten: 10. Juni um 9 Uhr, 10. Juni um 9:30 Uhr oder 10. Juni um 10 Uhr. Welcher passt Ihnen?
+
+Anrufer:
+10. Juni um 10 Uhr.
+
+Empfang:
+Ihr Termin ist gebucht: 10. Juni um 10 Uhr. Vielen Dank für Ihren Anruf!
+
+---
+
+Strukturierte Zusammenfassung:
+
+Anliegen:
+- Verkehrsunfall / Autounfall
+
+Rechtsgebiet:
+- Verkehrsrecht
+
+Anrufer:
+- Moritz Lang
+
+E-Mail:
+- lang@gmail.com
+
+Telefon:
+- 0151 597 386 94
+
+Versicherungsnummer:
+- F62314758
+
+Gebuchter Termin:
+- 10. Juni um 10:00 Uhr
+
+Status:
+- Termin erfolgreich gebucht
