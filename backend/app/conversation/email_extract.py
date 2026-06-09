@@ -26,12 +26,16 @@ _SYSTEM_PROMPT = (
     "You convert a spoken email dictation into a single email address. The text was "
     "produced by speech-to-text over a noisy phone line, so expect: spaces inside the "
     "local part that should be joined ('lang m' -> 'langm'), spoken connectors "
-    "('at'/'ät' -> @, 'punkt'/'dot'/'point' -> .), filler words, and minor mishearings. "
+    "('at'/'ät' -> @, 'punkt'/'dot'/'point' -> .), filler/lead-in words to drop "
+    "('ja', 'es ist', 'meine E-Mail-Adresse ist'), and minor mishearings. "
+    "If a caller name is given, the local part is usually derived from it, so prefer "
+    "the spelling that matches the name when the dictation is a close match "
+    "(e.g. name 'Leon Sigmar' + heard 'sigma' -> 'sigmar'). "
     "Reply with ONLY the most likely email address in lowercase and nothing else. "
     "If the text clearly contains no email at all, reply with the single word NONE."
 )
 
-EmailExtractor = Callable[[str], Awaitable[str | None]]
+EmailExtractor = Callable[[str, str], Awaitable[str | None]]
 
 
 def make_email_extractor(settings: Settings) -> EmailExtractor | None:
@@ -53,13 +57,14 @@ def make_email_extractor(settings: Settings) -> EmailExtractor | None:
         client = AsyncOpenAI(base_url=f"{settings.ollama_base_url}/v1", api_key="ollama")
         model = settings.ollama_model
 
-    async def extract(text: str) -> str | None:
+    async def extract(text: str, name_hint: str = "") -> str | None:
+        user = f"Caller name: {name_hint}\nDictation: {text}" if name_hint else text
         try:
             resp = await client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": _SYSTEM_PROMPT},
-                    {"role": "user", "content": text},
+                    {"role": "user", "content": user},
                 ],
                 temperature=0,
                 max_tokens=30,

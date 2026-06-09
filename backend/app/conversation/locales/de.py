@@ -315,6 +315,10 @@ SCRIPTED = {
     "confirm_phone": ("Ich habe Ihre Nummer notiert: {phone} — ist das korrekt?"),
     "ask_callback_time": ("Und wann dürfen wir Sie am besten zurückrufen?"),
     "slot_offer": ("Ich kann Ihnen folgende Termine anbieten: {options}. Welcher passt Ihnen?"),
+    "slot_unavailable": (
+        "Um {time} habe ich leider keinen freien Termin. "
+        "Ich kann Ihnen anbieten: {options}. Welcher passt Ihnen?"
+    ),
     "no_slots": (
         "Im Moment habe ich leider keine freien Termine. Das Team meldet sich bei Ihnen, "
         "um einen passenden Termin zu finden. Auf Wiederhören!"

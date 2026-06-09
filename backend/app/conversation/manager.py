@@ -194,6 +194,52 @@ def _match_slot_choice(text: str, slots: list[dict]) -> dict | None:
     return None
 
 
+# German spoken hour words (12h/24h). Used to recognise a *requested* time that
+# wasn't among the offered slots, so the caller can ask for a different one.
+_HOUR_WORDS = {
+    "ein": 1,
+    "eins": 1,
+    "zwei": 2,
+    "drei": 3,
+    "vier": 4,
+    "fünf": 5,
+    "fuenf": 5,
+    "sechs": 6,
+    "sieben": 7,
+    "acht": 8,
+    "neun": 9,
+    "zehn": 10,
+    "elf": 11,
+    "zwölf": 12,
+    "zwoelf": 12,
+    "dreizehn": 13,
+    "vierzehn": 14,
+    "fünfzehn": 15,
+    "fuenfzehn": 15,
+    "sechzehn": 16,
+    "siebzehn": 17,
+    "achtzehn": 18,
+}
+_REQUEST_TIME_RE = re.compile(
+    r"\b(?:um\s+)?(\d{1,2}|" + "|".join(_HOUR_WORDS) + r")\s*uhr(?:\s*(dreißig|dreissig|30))?",
+    re.IGNORECASE,
+)
+
+
+def _parse_requested_time(text: str) -> str | None:
+    """Extract a specific clock time the caller asked for ('dreizehn Uhr' → '13:00',
+    'neun Uhr dreißig' → '09:30'). Returns 'HH:MM' or None."""
+    m = _REQUEST_TIME_RE.search(text.lower())
+    if not m:
+        return None
+    token = m.group(1)
+    hour = int(token) if token.isdigit() else _HOUR_WORDS.get(token)
+    if hour is None or not 0 <= hour <= 23:
+        return None
+    minute = 30 if m.group(2) else 0
+    return f"{hour:02d}:{minute:02d}"
+
+
 _DOMAIN_CORRECTIONS = {
     "smail": "gmail",
     "gmeil": "gmail",
@@ -208,8 +254,9 @@ _DOMAIN_CORRECTIONS = {
 # Spoken lead-in before the address proper ("meine E-Mail-Adresse lautet …"),
 # stripped so it isn't glued onto the local part.
 _EMAIL_LEADIN_RE = re.compile(
-    r"^(?:\s*\b(?:ja|nein|also|genau|ähm|äh|meine?|die|das|ich|e[-\s]?mail|email|mail|"
-    r"adresse|lautet|ist|wäre|my|the|email|address|it'?s|is)\b[\s.:,!?-]*)+",
+    r"^(?:\s*\b(?:ja|nein|also|genau|ähm|äh|meine?|die|das|es|und|hier|war|ich|"
+    r"e[-\s]?mail|email|mail|adresse|lautet|ist|wäre|my|the|email|address|it'?s|is)\b"
+    r"[\s.:,!?-]*)+",
     re.IGNORECASE,
 )
 
@@ -241,6 +288,51 @@ def _parse_email(text: str) -> str | None:
         parts[0] = _DOMAIN_CORRECTIONS.get(parts[0], parts[0])
     candidate = f"{local}@{'.'.join(parts)}"
     return candidate if _EMAIL_VALID_RE.match(candidate) else None
+
+
+def _levenshtein(a: str, b: str) -> int:
+    """Edit distance between two short strings (iterative, O(len*len))."""
+    if a == b:
+        return 0
+    if not a or not b:
+        return len(a) + len(b)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def _anchor_email_to_name(email: str, name: str) -> str:
+    """Rewrite a local part that is a near-miss of the caller's name.
+
+    Spoken email over a phone line loses letters ('sigma' for 'Sigmar'). When the
+    captured name is known and the local part is a close match (edit distance 1-2)
+    to a name-derived form, snap it to that form. Only near-matches are touched, so
+    a genuinely different address ('leon.legal') is left alone — and the scripted
+    read-back still lets the caller reject it.
+    """
+    if not name or "@" not in email:
+        return email
+    local, _, domain = email.partition("@")
+    if len(local) < 3:
+        return email
+    parts = [p for p in re.split(r"\s+", name.lower().strip()) if p]
+    if not parts:
+        return email
+    candidates = {parts[0], parts[-1], "".join(parts), ".".join(parts)}
+    if len(parts) >= 2:
+        candidates.add(f"{parts[0]}.{parts[-1]}")
+    best, best_d = None, 99
+    for cand in candidates:
+        d = _levenshtein(local, cand)
+        if d < best_d:
+            best, best_d = cand, d
+    if best and 0 < best_d <= 2 and best_d < len(local):
+        return f"{best}@{domain}"
+    return email
 
 
 def _extract_reference(text: str) -> str | None:
@@ -323,6 +415,16 @@ class ConversationManager:
         self._store_matter_type(label)
         self._persist()
 
+    def _anchor_email(self, email: str) -> str:
+        """Snap a near-miss local part to the caller's captured name (e.g. STT
+        'sigma' → 'sigmar'). No-op when no name is known or the match isn't close."""
+        name_ent = self.state.entities.get("name")
+        name = name_ent.value if name_ent else ""
+        anchored = _anchor_email_to_name(email, name)
+        if anchored != email:
+            logger.info("Email anchored to name %r: %r → %r", name, email, anchored)
+        return anchored
+
     async def resolve_email_if_pending(self, text: str) -> None:
         """LLM rescue when we asked for the email but regex couldn't parse one.
 
@@ -335,8 +437,10 @@ class ConversationManager:
             return
         if "email" in self.state.entities:
             return  # regex already got it this turn
+        name_ent = self.state.entities.get("name")
+        name_hint = name_ent.value if name_ent else ""
         try:
-            candidate = await extractor(text)
+            candidate = await extractor(text, name_hint)
         except Exception as e:
             logger.warning("Email extractor raised: %s", e)
             return
@@ -345,6 +449,7 @@ class ConversationManager:
         candidate = candidate.strip().lower()
         if not _EMAIL_VALID_RE.match(candidate):
             return
+        candidate = self._anchor_email(candidate)
         logger.info("LLM email rescue: %r → %r", text, candidate)
         # Undo the miss the deterministic path may have just recorded.
         self.state.email_skipped = False
@@ -544,6 +649,9 @@ class ConversationManager:
             return
         if self.state.phase != CallPhase.BOOKING or self.state.booking_confirmed:
             return
+        # One-shot apology flag: cleared each turn, re-set below if the caller's
+        # requested time is unavailable (so the apology shows for exactly one offer).
+        self.state.unavailable_time = None
         area = self.state.legal_area.value
 
         if not self.state.offered_slots:
@@ -553,20 +661,7 @@ class ConversationManager:
 
         choice = _match_slot_choice(text, self.state.offered_slots)
         if choice:
-            ents = self.state.entities
-            booking = self._calendar.book_slot_sync(
-                slot_id=choice["id"],
-                call_id=self.state.call_id,
-                caller_name=ents["name"].value if "name" in ents else "",
-                caller_email=ents["email"].value if "email" in ents else "",
-                caller_phone=ents["phone"].value if "phone" in ents else "",
-                matter_type=ents["matter_type"].value if "matter_type" in ents else area,
-            )
-            if booking:
-                logger.info("Deterministic booking: slot %s booked", choice["id"])
-                self.state.booking_confirmed = True
-                self.state.booked_slot = booking
-                self.advance_phase()
+            if self._book_slot(choice):
                 return
             # Slot was taken between offer and booking — drop it and re-offer.
             self.state.offered_slot_ids.append(choice["id"])
@@ -576,11 +671,40 @@ class ConversationManager:
             self.state.declined_slot_times.extend(
                 f"{s['date']} {s['time']}" for s in self.state.offered_slots
             )
+        elif (requested := _parse_requested_time(text)) is not None:
+            # Caller named a specific time that wasn't offered ("Können wir 13 Uhr
+            # machen?"). Honour it if free; otherwise apologise and re-offer.
+            slot = self._calendar.find_slot_sync(requested, area, self._requested_lawyer_surname())
+            if slot and self._book_slot(slot):
+                return
+            self.state.unavailable_time = requested
         else:
             return  # unrecognised reply → re-present the same offer
 
         self.state.offered_slots = self._available_slots(area)
         self._update_llm_context()
+
+    def _book_slot(self, slot: dict) -> bool:
+        """Book a calendar slot and advance to confirmation. Returns False if the
+        slot was taken between offer and booking (caller should be re-offered)."""
+        ents = self.state.entities
+        booking = self._calendar.book_slot_sync(
+            slot_id=slot["id"],
+            call_id=self.state.call_id,
+            caller_name=ents["name"].value if "name" in ents else "",
+            caller_email=ents["email"].value if "email" in ents else "",
+            caller_phone=ents["phone"].value if "phone" in ents else "",
+            matter_type=ents["matter_type"].value
+            if "matter_type" in ents
+            else self.state.legal_area.value,
+        )
+        if not booking:
+            return False
+        logger.info("Deterministic booking: slot %s booked", slot["id"])
+        self.state.booking_confirmed = True
+        self.state.booked_slot = booking
+        self.advance_phase()
+        return True
 
     def _requested_lawyer_surname(self) -> str:
         """Surname of the lawyer the caller asked for, e.g. 'Frau Hoffmann' → 'Hoffmann'."""
@@ -803,6 +927,7 @@ class ConversationManager:
         if not (existing_email and existing_email.confirmed):
             email = _parse_email(text)
             if email:
+                email = self._anchor_email(email)
                 logger.info("Deterministic capture (LLM fallback): email=%r", email)
                 self.store_entity("email", email, 0.9)
                 captured = True
