@@ -1187,6 +1187,16 @@ class TestSpokenEmailParsing:
         assert _parse_email("Gmail.com") is None
         assert _parse_email("Wie bitte?") is None
 
+    def test_spoken_at_between_dots_does_not_leave_stray_dot(self):
+        from app.conversation.manager import _parse_email
+
+        # Regression: Whisper renders a spoken "at" between dots
+        # ("baum.at.gmail.com"), which used to parse to "baum.@gmail.com" — an
+        # invalid local part. The dot touching the @ must be collapsed away.
+        assert _parse_email("baum.at.gmail.com") == "baum@gmail.com"
+        assert _parse_email("baum.at gmail.com") == "baum@gmail.com"
+        assert _parse_email("baum at gmail punkt com") == "baum@gmail.com"
+
     def test_llm_rescue_recovers_email_regex_missed(self):
         """When regex fails and an extractor is configured, the LLM rescue stores it."""
         import asyncio

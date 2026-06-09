@@ -229,6 +229,10 @@ def _parse_email(text: str) -> str | None:
     t = re.sub(r"\s*\.\s*", ".", t)
     t = re.sub(r"\s+", "", t).strip(".,;:!?")
     t = t.replace("@www.", "@")
+    # When a spoken "at" sat between dots ("baum.at.gmail.com" / "baum at gmail
+    # dot com"), the connector→@ swap leaves a stray dot touching the @. Collapse
+    # ".@" / "@." so it doesn't produce an invalid local part ("baum.@gmail.com").
+    t = re.sub(r"\.*@\.*", "@", t)
     if "@" not in t:
         return None
     local, _, domain = t.partition("@")

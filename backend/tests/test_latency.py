@@ -202,18 +202,19 @@ class TestWhisperTurnHotwords:
         svc.set_conversation(conv)
         return svc, conv
 
-    def test_email_turn_adds_email_hotwords(self):
-        svc, conv = self._service()
-        conv.state.awaiting = "email"
-        hw = svc._hotwords_for_turn()
-        assert "gmail.com" in hw
-        assert "punkt" in hw
-
     def test_phone_turn_adds_digit_hotwords(self):
         svc, conv = self._service()
         conv.state.awaiting = "phone"
         hw = svc._hotwords_for_turn()
         assert "fünf" in hw
+
+    def test_email_turn_is_not_biased(self):
+        # Biasing "at"/"punkt" made Whisper emit them as literal tokens, which is
+        # harder to parse than a plain mishearing — email stays unbiased.
+        svc, conv = self._service()
+        conv.state.awaiting = "email"
+        hw = svc._hotwords_for_turn()
+        assert "punkt" not in hw
         assert "gmail.com" not in hw
 
     def test_other_turn_uses_only_legal_hotwords(self):
@@ -221,4 +222,3 @@ class TestWhisperTurnHotwords:
         conv.state.awaiting = "name"
         hw = svc._hotwords_for_turn()
         assert "Mietrecht" in hw
-        assert "gmail.com" not in hw
