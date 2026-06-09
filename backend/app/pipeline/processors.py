@@ -237,7 +237,12 @@ class PreTTSSanitizer(FrameProcessor):
     async def _push_sanitized(self, text: str, direction: FrameDirection) -> None:
         sanitized = self._sanitize(text)
         if sanitized:
-            await self.push_frame(TextFrame(text=sanitized), direction)
+            # _sanitize strips each sentence, and we emit one frame per sentence.
+            # The downstream TTS aggregator concatenates frames verbatim, so
+            # without a trailing separator adjacent sentences glue together
+            # ("Danke." + "Wie…" → "Danke.Wie…"), which Cartesia mispronounces
+            # (no pause, period spoken). Re-add the inter-sentence space here.
+            await self.push_frame(TextFrame(text=sanitized + " "), direction)
 
     async def _flush_sentences(self, direction: FrameDirection) -> None:
         while sentence_end := match_endofsentence(self._buffer):
