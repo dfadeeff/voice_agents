@@ -153,6 +153,16 @@ class TestFastPathDetection:
         result = proc._check_fast_path(CallPhase.CAPTURE, CallPhase.CAPTURE)
         assert result is None
 
+    def test_duplicate_fast_path_suppressed_within_window(self):
+        # A split utterance re-fires the same scripted line; the repeat must be
+        # suppressed so the agent doesn't speak it twice.
+        proc, _ = self._make_processor("de")
+        line = "Ich habe notiert: klein@hotmail.de — ist das korrekt?"
+        assert proc._is_duplicate_fast_path(line, now=100.0) is False  # first → speak
+        assert proc._is_duplicate_fast_path(line, now=101.0) is True  # 1s later → suppress
+        assert proc._is_duplicate_fast_path("Wie ist Ihr Name?", now=101.5) is False
+        assert proc._is_duplicate_fast_path(line, now=120.0) is False  # later turn → allowed
+
     def test_greeting_fast_path_in_locale(self):
         locale = get_locale("de")
         greeting = locale.FAST_PATH_RESPONSES["greeting"]

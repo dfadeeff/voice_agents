@@ -447,10 +447,21 @@ class ConversationManager:
             return
         if "email" in self.state.entities:
             return  # regex already got it this turn
+        # Use the accumulated buffer so a split dictation is rescued as a whole.
+        source = self.state.email_buffer or text
+        # Don't let the model invent a domain suffix the caller hasn't spoken yet —
+        # it loves to guess ".com" (e.g. "Klein at Hotmail" → klein@hotmail.com)
+        # when the TLD arrives in a separate, split utterance. Only rescue once a
+        # suffix was actually said ("punkt/dot/point" or a literal ".de"/".com").
+        if not re.search(r"\b(?:punkt|dot|point)\b", source, re.IGNORECASE) and not re.search(
+            r"\.[a-zA-Z]{2,}", source
+        ):
+            logger.info("Email rescue skipped: no spoken domain suffix in %r", source)
+            return
         name_ent = self.state.entities.get("name")
         name_hint = name_ent.value if name_ent else ""
         try:
-            candidate = await extractor(text, name_hint)
+            candidate = await extractor(source, name_hint)
         except Exception as e:
             logger.warning("Email extractor raised: %s", e)
             return
@@ -460,11 +471,12 @@ class ConversationManager:
         if not _EMAIL_VALID_RE.match(candidate):
             return
         candidate = self._anchor_email(candidate)
-        logger.info("LLM email rescue: %r → %r", text, candidate)
+        logger.info("LLM email rescue: %r → %r", source, candidate)
         # Undo the miss the deterministic path may have just recorded.
         self.state.email_skipped = False
         self.state.email_misheard = False
         self.state.email_attempts = max(0, self.state.email_attempts - 1)
+        self.state.email_buffer = ""
         self.store_entity("email", candidate, 0.9)  # unconfirmed → scripted read-back
         self._update_llm_context()
         self._persist()
@@ -783,6 +795,7 @@ class ConversationManager:
             logger.info("Email skipped after %d failed attempts", self.state.email_attempts)
             self.state.email_skipped = True
             self.state.email_misheard = False
+            self.state.email_buffer = ""
             self.advance_phase()
         else:
             self.state.email_misheard = True
@@ -944,11 +957,20 @@ class ConversationManager:
 
         existing_email = self.state.entities.get("email")
         if not (existing_email and existing_email.confirmed):
-            email = _parse_email(text)
+            # Email is often dictated in chunks across split turns ("Klein at
+            # Hotmail" | "Punkt de"). When we asked for it, accumulate the turn
+            # text and parse the whole buffer so the address reassembles.
+            if self.state.awaiting == "email":
+                self.state.email_buffer = f"{self.state.email_buffer} {text}".strip()
+                source = self.state.email_buffer
+            else:
+                source = text
+            email = _parse_email(source)
             if email:
                 email = self._anchor_email(email)
                 logger.info("Deterministic capture (LLM fallback): email=%r", email)
                 self.store_entity("email", email, 0.9)
+                self.state.email_buffer = ""
                 captured = True
 
         existing_phone = self.state.entities.get("phone")

@@ -1280,6 +1280,41 @@ class TestSpokenEmailParsing:
         )
         assert _anchor_email_to_name("x@gmail.com", "") == "x@gmail.com"  # no name → no-op
 
+    def _email_ready_ctx(self, call_id):
+        ctx = ConversationManager(call_id=call_id, lang="de")
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        for f, v in [
+            ("matter_type", "dismissal"),
+            ("matter_details", "Frist"),
+            ("name", "Albert Klein"),
+        ]:
+            ctx.store_entity(f, v, 1.0)
+            ctx.confirm_entity(f)
+        ctx.advance_phase()
+        ctx.next_prompt()  # awaiting email
+        return ctx
+
+    def test_split_email_is_accumulated_across_turns(self):
+        # The live regression: caller dictates "Klein at Hotmail" then (after a
+        # pause that split the turn) "Punkt de" — the halves must reassemble.
+        ctx = self._email_ready_ctx("split-email")
+        ctx.add_user_message("Klein at Hotmail")
+        assert "email" not in ctx.state.entities  # incomplete — still collecting
+        ctx.add_user_message("Punkt de")
+        assert ctx.state.entities["email"].value == "klein@hotmail.de"
+
+    def test_rescue_does_not_invent_tld_without_spoken_suffix(self):
+        import asyncio
+
+        async def fake_llm(_text, _name=""):
+            return "klein@hotmail.com"  # the model's ".com" guess
+
+        ctx = self._email_ready_ctx("no-tld")
+        ctx.set_email_extractor(fake_llm)
+        ctx.add_user_message("Klein at Hotmail")  # no "punkt/dot" spoken yet
+        asyncio.run(ctx.resolve_email_if_pending("Klein at Hotmail"))
+        assert "email" not in ctx.state.entities  # must NOT lock in hotmail.com
+
     def test_anchoring_applied_when_capturing_email_after_name(self):
         ctx = ConversationManager(call_id="anchor-e2e", lang="de")
         ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.TRAFFIC)
@@ -1311,7 +1346,8 @@ class TestSpokenEmailParsing:
         ctx.confirm_entity("name")
 
         ctx.next_prompt()  # ask_email, awaiting email
-        garbled = "ähm Lang M Gmail irgendwas"
+        # A spoken suffix ("punkt com") is present, so the rescue is allowed to run.
+        garbled = "ähm Lang M Gmail punkt com irgendwas"
         ctx.add_user_message(garbled)
         assert "email" not in ctx.state.entities  # regex couldn't parse it
         asyncio.run(ctx.resolve_email_if_pending(garbled))

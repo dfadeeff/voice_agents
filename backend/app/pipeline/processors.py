@@ -498,6 +498,11 @@ class TranscriptProcessor(FrameProcessor):
         self._logger = call_logger
         self._conversation = conversation
         self._filler_injector = filler_injector
+        # A split utterance ("Klein at Hotmail" | "Punkt de") arrives as two rapid
+        # STT finals; each would re-fire the same scripted line, speaking it twice.
+        # Suppress an identical fast-path repeated within this window.
+        self._last_fast_path: str | None = None
+        self._last_fast_path_at: float = 0.0
 
     def _display_transcript(self, text: str) -> str:
         """Tidy the caller transcript shown in the UI.
@@ -516,6 +521,16 @@ class TranscriptProcessor(FrameProcessor):
             if normalized and len(re.sub(r"\D", "", normalized)) >= 7:
                 return normalized
         return text
+
+    def _is_duplicate_fast_path(self, line: str, now: float, window_s: float = 5.0) -> bool:
+        """True when ``line`` is identical to the one just emitted within window_s
+        (a split utterance re-firing the same scripted prompt). Records the line
+        when it's not a duplicate."""
+        if line == self._last_fast_path and now - self._last_fast_path_at < window_s:
+            return True
+        self._last_fast_path = line
+        self._last_fast_path_at = now
+        return False
 
     def _check_fast_path(self, old_phase: CallPhase, new_phase: CallPhase) -> str | None:
         # The data-collection spine is fully state-determined, so speak the next
@@ -565,6 +580,10 @@ class TranscriptProcessor(FrameProcessor):
 
             fast_path = self._check_fast_path(old_phase, new_phase)
             if fast_path:
+                if self._is_duplicate_fast_path(fast_path, time.monotonic()):
+                    # Same line we just spoke (split-utterance double) — don't repeat it.
+                    logger.info("Suppressed duplicate fast-path (split utterance): %s", fast_path)
+                    return
                 logger.info("FAST PATH: %s", fast_path)
                 self._logger.log("agent", fast_path)
                 await self.push_frame(
