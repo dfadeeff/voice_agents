@@ -36,7 +36,7 @@ This prototype follows the production-standard cascaded STT → LLM → TTS arch
 | Mode | Purpose | Stack |
 |---|---|---|
 | **Local demo** (default) | Zero-key evaluation | faster-whisper + Ollama/Qwen + Piper |
-| **Best demo quality** | Better voice and tool reliability | Whisper/Deepgram + GPT-4o-mini + ElevenLabs |
+| **Best demo quality** | Lower latency + better voice/tools | Deepgram + GPT-4o + Cartesia (or ElevenLabs) |
 | **Production** | Scale, reliability, observability | Streaming STT + low-latency LLM + streaming TTS + telephony + monitoring |
 
 ## Prerequisites
@@ -480,7 +480,7 @@ Low-confidence, failed, or escalated calls would be sampled for human review and
 The prototype is production-shaped, not production-grade. It runs locally with zero API keys to make evaluation easy, but production would require the upgrades described in the table at the top.
 
 - **STT latency**: faster-whisper processes complete utterances and can take several seconds on CPU. Cloud Deepgram would stream interim results during speech.
-- **TTS quality**: Piper is functional but noticeably synthetic compared to ElevenLabs. This is the most obvious "not production" tell in a demo.
+- **TTS quality**: Piper is functional but noticeably synthetic compared to cloud TTS. This is the most obvious "not production" tell in a demo. Cloud swap: Cartesia (lowest first-audio latency, set `TTS_PROVIDER=cartesia`) or ElevenLabs (most natural).
 - **End-to-end latency**: hardware and utterance dependent; local Whisper is currently the largest latency contributor. A cloud streaming stack would be substantially faster.
 - **Local tool calling**: Works best with Qwen models. llama3.1:8b was unreliable in my tests — outputs raw JSON text instead of using the tool calling API. Results may vary with different Ollama versions.
 - **Single-process**: One Uvicorn worker handles all calls. Production would use multiple workers behind a load balancer, with Redis for shared state.
