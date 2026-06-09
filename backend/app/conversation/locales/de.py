@@ -291,6 +291,9 @@ SCRIPTED = {
         "Haben Sie das Problem bereits schriftlich bei Ihrem Vermieter angezeigt? "
         "Und wissen Sie, ob es eine Frist gibt, die beachtet werden muss?"
     ),
+    "disambiguate_area": (
+        "Damit ich Sie richtig zuordne: Geht es bei Ihrem Anliegen eher um {options}?"
+    ),
     "ask_name": (
         "Gerne nehme ich Ihren Rückrufwunsch auf. "
         "Dafür benötige ich kurz Ihren Namen und Ihre Telefonnummer. "

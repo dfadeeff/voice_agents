@@ -47,8 +47,10 @@ _CJK_RE = re.compile(r"[⺀-鿿豈-﫿︰-﹏\U00020000-\U0002FA1F]+")
 
 
 _FALSE_BOOKING_RE = re.compile(
-    r"\b(termin\s+\w*\s*(ist\s+)?(gebucht|bestätigt|reserviert)|"
-    r"ich\s+habe\s+.*?termin.*?(gebucht|bestätigt|reserviert)|"
+    r"\b(termin\s+\w*\s*(ist\s+|wurde\s+)?(gebucht|bestätigt|reserviert|vereinbart)|"
+    r"ich\s+habe\s+.*?termin.*?(gebucht|bestätigt|reserviert|vereinbart)|"
+    # Future-tense fabrication: "(Frau X) wird … einen Termin … buchen".
+    r"wird\s+.*?\btermin\b.*?\b(buchen|gebucht|reservier\w*|vereinbar\w*)|"
     r"termin\s+steht)\b",
     re.IGNORECASE,
 )

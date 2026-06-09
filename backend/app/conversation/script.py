@@ -142,6 +142,22 @@ def _fmt_slots(slots: list[dict], lang: str) -> str:
     return ", ".join(parts[:-1]) + joiner + parts[-1]
 
 
+_AREA_NAMES = {
+    "de": {"employment": "Arbeitsrecht", "tenancy": "Mietrecht", "traffic": "Verkehrsrecht"},
+    "en": {"employment": "employment law", "tenancy": "tenancy law", "traffic": "traffic law"},
+}
+
+
+def _format_area_options(options: list[str], lang: str) -> str:
+    """'Arbeitsrecht oder Mietrecht' for the disambiguation question."""
+    names = _AREA_NAMES.get(lang, _AREA_NAMES["en"])
+    parts = [names.get(o, o) for o in options]
+    if len(parts) <= 1:
+        return parts[0] if parts else ""
+    joiner = " oder " if lang == "de" else " or "
+    return ", ".join(parts[:-1]) + joiner + parts[-1]
+
+
 def compute_prompt(state: ConversationState, lang: str = "de") -> tuple[str | None, str | None]:
     """Compute the next deterministic question/line and what it asks for.
 
@@ -187,6 +203,13 @@ def compute_prompt(state: ConversationState, lang: str = "de") -> tuple[str | No
             done = scripts["callback_done"].format(person=person, time=state.preferred_time or "")
             return done, None
         return None, None
+
+    # The opening matched more than one legal area → ask a scripted
+    # disambiguation question (deterministic) instead of leaving the call in the
+    # LLM-driven ROUTING phase, where it could hallucinate a booking.
+    if phase == CallPhase.ROUTING and state.area_options:
+        options = _format_area_options(state.area_options, lang)
+        return scripts["disambiguate_area"].format(options=options), "area"
 
     # ----- Booking / intake branch -----
     area = state.legal_area.value

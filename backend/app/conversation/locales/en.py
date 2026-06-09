@@ -267,6 +267,7 @@ SCRIPTED = {
         "Have you raised this in writing with your landlord yet? "
         "And are there any deadlines you need to be aware of?"
     ),
+    "disambiguate_area": ("Just so I route you correctly: is your matter mainly about {options}?"),
     "ask_name": (
         "I'll take down your callback request. "
         "I'll just need your name and phone number. "

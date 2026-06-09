@@ -28,6 +28,10 @@ class ConversationState:
     declined_slot_times: list[str] = field(default_factory=list)
     # Slots currently offered to the caller (deterministic booking).
     offered_slots: list[dict] = field(default_factory=list)
+    # Candidate legal areas when the opening utterance matched more than one
+    # (e.g. "Mietvertrag gekündigt" → tenancy + employment). Triggers a scripted
+    # disambiguation question instead of leaving the call stalled in ROUTING.
+    area_options: list[str] = field(default_factory=list)
     # Traffic-only: True once the insurance/claim number has been asked and the
     # caller answered (with a number or a clear "none"). Gates qualification so
     # the step cannot be skipped by the model.

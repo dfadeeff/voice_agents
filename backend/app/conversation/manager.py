@@ -80,6 +80,37 @@ _MATTER_KEYWORDS: dict[LegalArea, tuple[tuple[str, tuple[str, ...]], ...]] = {
     ),
 }
 
+# Maps a disambiguation reply ("Mietrecht" / "Wohnung") to a legal area. Includes
+# the spoken area names so the reply resolves even when the opening was multi-area
+# (e.g. "Mietvertrag gekündigt" → tenancy + employment).
+_AREA_DISAMBIG_KEYWORDS: dict[LegalArea, tuple[str, ...]] = {
+    LegalArea.EMPLOYMENT: ("arbeitsrecht", "arbeit", "arbeitgeber", "job", "employment", "work"),
+    LegalArea.TENANCY: (
+        "mietrecht",
+        "miete",
+        "mietvertrag",
+        "wohnung",
+        "vermieter",
+        "kaution",
+        "tenancy",
+        "rent",
+        "landlord",
+        "flat",
+    ),
+    LegalArea.TRAFFIC: (
+        "verkehrsrecht",
+        "verkehr",
+        "unfall",
+        "auto",
+        "kfz",
+        "fahrzeug",
+        "traffic",
+        "accident",
+        "car",
+        "vehicle",
+    ),
+}
+
 _REF_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9\-/]*")
 
 # Negation cue used by the insurance step ("nein", "noch keine").
@@ -353,6 +384,12 @@ class ConversationManager:
         # (state.awaiting), not on regex over the agent's own prior sentence.
         awaiting = self.state.awaiting
 
+        # The caller is answering "which area?" after an ambiguous opening.
+        if awaiting == "area":
+            self._handle_area_choice(text)
+            if self.state.legal_area != LegalArea.UNKNOWN:
+                just_routed = True
+
         # The caller denies the area-confirmation ("nein, es geht um etwas
         # anderes") → re-route instead of recording a matter type.
         if awaiting == "matter_type" and _AREA_DENIAL_RE.search(text.lower()):
@@ -372,6 +409,31 @@ class ConversationManager:
         self._try_capture_preferred_time(text)
         self._try_book(text)
         self._persist()
+
+    def _handle_area_choice(self, text: str) -> None:
+        """Resolve the legal area from the caller's disambiguation reply.
+
+        Restricted to the candidate areas when known, so "Mietrecht" / "Wohnung"
+        reliably maps to tenancy even though the opening also mentioned a
+        Kündigung. Keeps the call moving deterministically out of ROUTING.
+        """
+        if self.state.legal_area != LegalArea.UNKNOWN:
+            self.state.area_options = []  # already routed (e.g. by keyword) this turn
+            return
+        options = [LegalArea(v) for v in self.state.area_options] or [
+            LegalArea.EMPLOYMENT,
+            LegalArea.TENANCY,
+            LegalArea.TRAFFIC,
+        ]
+        low = text.lower()
+        picked = {a for a in options if any(kw in low for kw in _AREA_DISAMBIG_KEYWORDS[a])}
+        if len(picked) == 1:
+            area = picked.pop()
+            self.state.legal_area = area
+            self.state.caller_intent = CallerIntent.BOOK_CONSULTATION
+            self.state.area_options = []
+            logger.info("Disambiguated area: %s", area.value)
+            self.advance_phase()
 
     def _reroute_after_denial(self, text: str) -> None:
         """Caller rejected the area-confirmation; try to re-route, else hand back
@@ -772,6 +834,15 @@ class ConversationManager:
             self.state.caller_intent = CallerIntent.BOOK_CONSULTATION
             self.state.legal_area = area
             self.state.matter_summary = text
+        elif len(matches) > 1:
+            # The matter touches more than one area (e.g. "Mietvertrag gekündigt"):
+            # we cannot guess. Record the candidates so the scripted spine asks a
+            # disambiguation question instead of leaving the call stalled in ROUTING
+            # (where the LLM is otherwise free to hallucinate a booking).
+            self.state.area_options = [area.value for area, _ in matches]
+            self.state.caller_intent = CallerIntent.BOOK_CONSULTATION
+            self.state.matter_summary = text
+            logger.info("Routing ambiguous %s → will disambiguate", self.state.area_options)
 
     def set_transcription_confidence(self, confidence: float | None) -> None:
         self.state.last_transcription_confidence = confidence
