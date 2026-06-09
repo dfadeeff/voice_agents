@@ -23,6 +23,9 @@ class ConversationState:
     booking_confirmed: bool = False
     booked_slot: dict | None = None
     offered_slot_ids: list[int] = field(default_factory=list)
+    # (date, time) pairs the caller declined — excluded from future offers so a
+    # decline never re-surfaces the same time via another lawyer's slot.
+    declined_slot_times: list[str] = field(default_factory=list)
     # Slots currently offered to the caller (deterministic booking).
     offered_slots: list[dict] = field(default_factory=list)
     # Traffic-only: True once the insurance/claim number has been asked and the

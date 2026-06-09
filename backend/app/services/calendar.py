@@ -13,9 +13,15 @@ class CalendarService:
     # needs sync slot access. SQLite handles a single writer fine for one call.
 
     def available_slots_sync(
-        self, legal_area: str = "", exclude_ids: list[int] | None = None, limit: int = 3
+        self,
+        legal_area: str = "",
+        exclude_ids: list[int] | None = None,
+        exclude_times: list[str] | None = None,
+        lawyer: str = "",
+        limit: int = 3,
     ) -> list[dict]:
         exclude_ids = exclude_ids or []
+        exclude_times = exclude_times or []
         now = datetime.now()
         today = now.date().isoformat()
         min_time = (now + timedelta(hours=4)).strftime("%H:%M")
@@ -24,9 +30,18 @@ class CalendarService:
         if legal_area and legal_area != "unknown":
             query += " AND (legal_area = ? OR legal_area IS NULL)"
             params.append(legal_area)
+        # Prefer a specific lawyer (caller asked for them by name).
+        if lawyer:
+            query += " AND lawyer_name LIKE ?"
+            params.append(f"%{lawyer}%")
         if exclude_ids:
             query += f" AND id NOT IN ({','.join('?' * len(exclude_ids))})"
             params.extend(exclude_ids)
+        # Exclude whole (date, time) pairs the caller already declined — so a
+        # decline never re-offers the same time via a different lawyer's slot.
+        if exclude_times:
+            query += f" AND (date || ' ' || time) NOT IN ({','.join('?' * len(exclude_times))})"
+            params.extend(exclude_times)
         query += " ORDER BY date, time LIMIT ?"
         params.append(limit * 4)
         conn = sqlite3.connect(self._db_path)

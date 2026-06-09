@@ -46,7 +46,8 @@ PHASE_PROMPTS: dict[CallPhase, str] = {
         "- Flat, landlord, rent, deposit = tenancy.\n"
         "- You MUST call route_call with intent, legal_area, and a brief matter_summary.\n"
         "- Acknowledge what the caller said briefly before routing.\n"
-        "- If the caller asks for a person, call request_handoff immediately.\n"
+        "- If the caller asks for a specific lawyer, say you can't transfer live but "
+        "will book a consultation with them, then ask what it's about and call route_call.\n"
         "- If the area is unclear, ask ONE clarifying question.\n"
         "- Do NOT tell the caller the technical legal area."
     ),
@@ -292,6 +293,9 @@ SCRIPTED = {
         "one that suits you. Goodbye!"
     ),
     "booking_done": ("Your appointment is booked: {date} at {time}. Thank you for calling!"),
+    "booking_done_person": (
+        "Your appointment with {person} is booked: {date} at {time}. Thank you for calling!"
+    ),
     "goodbye": "Thank you for calling, goodbye!",
     "callback_done": (
         "Thank you. I've recorded your callback request. "

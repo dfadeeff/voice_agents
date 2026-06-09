@@ -41,6 +41,23 @@ def is_explicit_handoff_request(text: str, lang: str = "de") -> bool:
     return any(pattern.search(text) for pattern in patterns)
 
 
+_CALLBACK_REQUEST_RE = re.compile(
+    r"\b(?:zur(?:ü|ue)ckruf\w*|zur(?:ü|ue)ck\s*rufen|"
+    r"rufen\s+sie\s+mich\s+(?:bitte\s+)?zur(?:ü|ue)ck|"
+    r"call\s+me\s+back|callback|call\s+back)\b",
+    re.IGNORECASE,
+)
+
+
+def wants_callback(text: str, lang: str = "de") -> bool:
+    """Return whether the caller explicitly asks to be called back.
+
+    Distinct from `is_explicit_handoff_request`: asking to speak to a lawyer now
+    leads to a booked consultation, whereas an explicit 'call me back' is recorded
+    as a callback request."""
+    return bool(_CALLBACK_REQUEST_RE.search(text))
+
+
 def extract_target_person(text: str, lang: str = "de") -> str | None:
     """Extract the requested person with honorific, e.g. 'Herrn Schulz' → 'Herr Schulz'."""
     pattern = _DE_PERSON_NAME_RE if lang == "de" else _EN_PERSON_NAME_RE

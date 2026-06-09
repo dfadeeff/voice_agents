@@ -107,14 +107,14 @@ class TestFastPathDetection:
     def test_callback_entry_is_scripted(self):
         """After a callback request, the name ask is scripted (deterministic spine)."""
         proc, conv = self._make_processor("de")
-        conv.add_user_message("Ich möchte bitte Herrn Schmid sprechen.")
+        conv.add_user_message("Bitte rufen Sie mich zurück.")
         line = proc._check_fast_path(conv.state.phase, conv.state.phase)
         assert line is not None
         assert conv.state.awaiting == "name"
 
     def test_callback_entry_is_scripted_en(self):
         proc, conv = self._make_processor("en")
-        conv.add_user_message("I'd like to speak to Mr Smith please.")
+        conv.add_user_message("Could you call me back, please?")
         line = proc._check_fast_path(conv.state.phase, conv.state.phase)
         assert line is not None
         assert conv.state.awaiting == "name"
@@ -136,7 +136,7 @@ class TestFastPathDetection:
     def test_phone_readback_is_scripted_in_callback(self):
         """The whole callback capture spine is scripted; phone is read back exactly."""
         proc, conv = self._make_processor("de")
-        conv.add_user_message("Ich möchte bitte Herrn Schmid sprechen.")
+        conv.add_user_message("Bitte rufen Sie mich zurück.")
         assert conv.state.phase == CallPhase.CAPTURE
         # Scripted name ask.
         assert proc._check_fast_path(conv.state.phase, conv.state.phase) is not None

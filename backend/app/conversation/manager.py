@@ -8,7 +8,11 @@ from typing import Any
 
 from app.conversation.flow import PHASE_TOOLS, next_phase
 from app.conversation.phone import normalize_phone_text
-from app.conversation.policy import extract_target_person, is_explicit_handoff_request
+from app.conversation.policy import (
+    extract_target_person,
+    is_explicit_handoff_request,
+    wants_callback,
+)
 from app.conversation.prompts import build_system_prompt, get_system_prompt_base
 from app.conversation.script import compute_prompt
 from app.conversation.state import ConversationState
@@ -320,16 +324,27 @@ class ConversationManager:
         self.state.turn_count += 1
         self.state.messages.append({"role": "user", "content": text})
         was_callback = self.state.callback_requested
-        if is_explicit_handoff_request(text, self.lang):
+        # An explicit "call me back" → callback request. A request to speak to a
+        # (named) lawyer → book a consultation with them (not a callback): record
+        # the target person and commit to booking; routing then asks the matter.
+        if wants_callback(text, self.lang):
             self.state.callback_requested = True
             target = extract_target_person(text, self.lang)
             if target:
                 self.state.target_person = target
+        elif is_explicit_handoff_request(text, self.lang):
+            target = extract_target_person(text, self.lang)
+            if target:
+                self.state.target_person = target
+            if self.state.caller_intent == CallerIntent.UNKNOWN:
+                self.state.caller_intent = CallerIntent.BOOK_CONSULTATION
         just_routed = False
-        if self.state.caller_intent == CallerIntent.UNKNOWN:
-            area_before = self.state.legal_area
+        # Keyword-route while the legal area is still unknown — including the turn
+        # after a person request, where intent is already 'book' but the area isn't
+        # yet known (so gating on intent would skip routing the matter).
+        if self.state.legal_area == LegalArea.UNKNOWN:
             self._try_auto_route(text)
-            just_routed = self.state.legal_area != area_before
+            just_routed = self.state.legal_area != LegalArea.UNKNOWN
         self.advance_phase()
         if not was_callback and self.state.callback_requested:
             self._update_llm_context()
@@ -424,7 +439,7 @@ class ConversationManager:
         area = self.state.legal_area.value
 
         if not self.state.offered_slots:
-            self.state.offered_slots = self._calendar.available_slots_sync(area, limit=3)
+            self.state.offered_slots = self._available_slots(area)
             self._update_llm_context()
             return
 
@@ -448,14 +463,41 @@ class ConversationManager:
             # Slot was taken between offer and booking — drop it and re-offer.
             self.state.offered_slot_ids.append(choice["id"])
         elif _SLOT_DECLINE_RE.search(text.lower()):
-            self.state.offered_slot_ids.extend(s["id"] for s in self.state.offered_slots)
+            # Caller rejected these times → exclude the whole (date, time) pairs so
+            # the next batch is genuinely different (not the same time, other lawyer).
+            self.state.declined_slot_times.extend(
+                f"{s['date']} {s['time']}" for s in self.state.offered_slots
+            )
         else:
             return  # unrecognised reply → re-present the same offer
 
-        self.state.offered_slots = self._calendar.available_slots_sync(
-            area, exclude_ids=self.state.offered_slot_ids, limit=3
-        )
+        self.state.offered_slots = self._available_slots(area)
         self._update_llm_context()
+
+    def _requested_lawyer_surname(self) -> str:
+        """Surname of the lawyer the caller asked for, e.g. 'Frau Hoffmann' → 'Hoffmann'."""
+        person = self.state.target_person
+        return person.split()[-1] if person else ""
+
+    def _available_slots(self, area: str) -> list[dict]:
+        """Offer the requested lawyer's slots when named; fall back to any lawyer
+        in the area so a request never dead-ends if that lawyer is full."""
+        lawyer = self._requested_lawyer_surname()
+        slots = self._calendar.available_slots_sync(
+            area,
+            exclude_ids=self.state.offered_slot_ids,
+            exclude_times=self.state.declined_slot_times,
+            lawyer=lawyer,
+            limit=3,
+        )
+        if not slots and lawyer:
+            slots = self._calendar.available_slots_sync(
+                area,
+                exclude_ids=self.state.offered_slot_ids,
+                exclude_times=self.state.declined_slot_times,
+                limit=3,
+            )
+        return slots
 
     def _try_skip_email(self, text: str) -> None:
         """Mark email as skipped when we asked for it and the caller has none."""
