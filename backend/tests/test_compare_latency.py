@@ -1,6 +1,7 @@
 """Tests for the latency-comparison harness (pure aggregation/formatting core)."""
 
-from scripts.compare_latency import classify, render, summarize, vendor
+from scripts import compare_latency
+from scripts.compare_latency import classify, record_row, render, summarize, vendor
 
 
 def _comp(avg, samples, lo=0, hi=0):
@@ -79,3 +80,36 @@ class TestRender:
         a = summarize([_log(200, 1, {"OLLamaLLMService#0": _comp(0, 1)})])
         out = render(a, a, "a", "b")
         assert "fast-pathed" in out
+
+
+class TestRecord:
+    def test_record_row_columns(self):
+        s = summarize(
+            [
+                _log(
+                    157,
+                    5,
+                    {
+                        "DeepgramSTTService#0": _comp(390, 5, 0, 800),
+                        "LocalPiperTTSService#0": _comp(126, 6, 0, 300),
+                    },
+                )
+            ]
+        )
+        row = record_row(s, "cloud-deepgram", "2026-06-09 22:19")
+        assert row.startswith("| cloud-deepgram | 1 | 157 ms |")
+        assert "Deepgram 390 ms" in row
+        assert "Piper 126 ms" in row
+        assert "—" in row  # LLM absent → em dash
+        assert row.endswith("2026-06-09 22:19 |")
+
+    def test_append_result_creates_header_then_appends(self, tmp_path, monkeypatch):
+        target = tmp_path / "latency-results.md"
+        monkeypatch.setattr(compare_latency, "RESULTS_FILE", target)
+        compare_latency.append_result("| a | 1 | 100 ms | x | y | z | t |")
+        compare_latency.append_result("| b | 1 | 200 ms | x | y | z | t |")
+        text = target.read_text()
+        assert text.startswith("# Latency results")
+        assert "| config | calls |" in text  # header table written once
+        assert text.count("| config | calls |") == 1
+        assert "| a | 1 |" in text and "| b | 1 |" in text
