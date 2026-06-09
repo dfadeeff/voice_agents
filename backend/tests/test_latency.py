@@ -170,6 +170,49 @@ class TestFastPathDetection:
         assert "?" in greeting
 
 
+class TestPerTurnEndpointTuning:
+    """The VAD end-of-speech window widens only while the next reply is a dictated
+    number/email, so those aren't chopped by a mid-utterance pause."""
+
+    def _proc(self):
+        from pipecat.audio.vad.vad_analyzer import VADParams
+
+        class _FakeVAD:
+            def __init__(self):
+                self.stop_secs = None
+
+            def set_params(self, params):
+                self.stop_secs = params.stop_secs
+
+        vad = _FakeVAD()
+        conv = ConversationManager(call_id="vad-test", lang="de")
+        proc = TranscriptProcessor(
+            AsyncMock(),
+            CallLogger("vad-test"),
+            conv,
+            vad_analyzer=vad,
+            vad_params=VADParams(confidence=0.5, stop_secs=0.8),
+            dictation_stop_secs=2.0,
+        )
+        return proc, conv, vad
+
+    def test_window_for_each_field(self):
+        proc, _, _ = self._proc()
+        for awaiting in ("email", "phone", "insurance", "insurance_confirm"):
+            assert proc._endpoint_secs_for(awaiting) == 2.0  # dictation → wide
+        for awaiting in ("name", "name_confirm", "email_confirm", "slot", None):
+            assert proc._endpoint_secs_for(awaiting) == 0.8  # conversational → snappy
+
+    def test_tune_applies_and_restores_on_the_vad(self):
+        proc, conv, vad = self._proc()
+        conv.state.awaiting = "phone"
+        proc._tune_endpoint()
+        assert vad.stop_secs == 2.0  # widened for the phone dictation
+        conv.state.awaiting = "slot"
+        proc._tune_endpoint()
+        assert vad.stop_secs == 0.8  # restored for a normal turn
+
+
 class TestPhoneTranscriptDisplay:
     """The caller transcript shows a clean phone number, not Whisper's raw
     decimal-littered dictation ('01, 5.1, 5.6, 7.3, 8.6, 9.4')."""

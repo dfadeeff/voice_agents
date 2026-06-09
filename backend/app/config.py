@@ -57,11 +57,14 @@ class Settings(BaseSettings):
     cartesia_model: str = "sonic-2"
 
     vad_threshold: float = 0.5
-    # Silence after which a turn is considered finished (VAD stop_secs). Kept
-    # generous so callers dictating a number/email with mid-utterance pauses
-    # ("F fünf vier … sechs") aren't cut off before they finish. The cost is ~0.5s
-    # added to every turn's end-of-speech detection; lower it for snappier turns.
-    silence_timeout_ms: int = 1200
+    # Silence after which a normal turn is considered finished (VAD stop_secs).
+    # Kept snappy for conversational turns.
+    silence_timeout_ms: int = 800
+    # A longer window used only while the caller is dictating a number/email
+    # (insurance, phone, email) — those are read out with mid-utterance pauses
+    # ("F fünf vier … sechs") that a short window would chop into separate turns.
+    # Applied per-turn based on what the agent just asked for.
+    silence_timeout_dictation_ms: int = 2000
     filler_delay_ms: int = 1500
 
     host: str = "0.0.0.0"

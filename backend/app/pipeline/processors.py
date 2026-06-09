@@ -485,12 +485,19 @@ class TranscriptProcessor(FrameProcessor):
     the frontend via the websocket (the output transport only serializes audio).
     Also advances the conversation state machine on each user turn."""
 
+    # Fields the caller reads out as a number/email, with mid-utterance pauses —
+    # these turns get a longer end-of-speech window so a pause doesn't split them.
+    _DICTATION_AWAITING = frozenset({"email", "phone", "insurance", "insurance_confirm"})
+
     def __init__(
         self,
         websocket,
         call_logger: CallLogger,
         conversation: ConversationManager,
         filler_injector: FillerInjector | None = None,
+        vad_analyzer=None,
+        vad_params=None,
+        dictation_stop_secs: float = 2.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -498,6 +505,13 @@ class TranscriptProcessor(FrameProcessor):
         self._logger = call_logger
         self._conversation = conversation
         self._filler_injector = filler_injector
+        # Per-turn endpoint tuning: widen the VAD stop window while the next reply
+        # is a dictated number/email, restore it otherwise.
+        self._vad = vad_analyzer
+        self._vad_params = vad_params
+        self._normal_stop_secs = vad_params.stop_secs if vad_params else None
+        self._dictation_stop_secs = dictation_stop_secs
+        self._current_stop_secs = self._normal_stop_secs
         # A split utterance ("Klein at Hotmail" | "Punkt de") arrives as two rapid
         # STT finals; each would re-fire the same scripted line, speaking it twice.
         # Suppress an identical fast-path repeated within this window.
@@ -521,6 +535,31 @@ class TranscriptProcessor(FrameProcessor):
             if normalized and len(re.sub(r"\D", "", normalized)) >= 7:
                 return normalized
         return text
+
+    def _endpoint_secs_for(self, awaiting: str | None) -> float | None:
+        """Target VAD stop window for the next reply: a wider window while the
+        caller will be dictating a number/email, the normal window otherwise."""
+        if self._normal_stop_secs is None:
+            return None
+        return (
+            self._dictation_stop_secs
+            if awaiting in self._DICTATION_AWAITING
+            else self._normal_stop_secs
+        )
+
+    def _tune_endpoint(self) -> None:
+        """Adjust the VAD end-of-speech window to match the field the agent just
+        asked for (set after next_prompt has updated state.awaiting)."""
+        if self._vad is None or self._vad_params is None:
+            return
+        target = self._endpoint_secs_for(self._conversation.state.awaiting)
+        if target is None or target == self._current_stop_secs:
+            return
+        self._vad.set_params(self._vad_params.model_copy(update={"stop_secs": target}))
+        self._current_stop_secs = target
+        logger.info(
+            "VAD stop window → %.1fs (awaiting=%s)", target, self._conversation.state.awaiting
+        )
 
     def _is_duplicate_fast_path(self, line: str, now: float, window_s: float = 5.0) -> bool:
         """True when ``line`` is identical to the one just emitted within window_s
@@ -579,6 +618,9 @@ class TranscriptProcessor(FrameProcessor):
                 pass
 
             fast_path = self._check_fast_path(old_phase, new_phase)
+            # next_prompt() (inside _check_fast_path) has set the next awaited field;
+            # widen/restore the end-of-speech window to match it.
+            self._tune_endpoint()
             if fast_path:
                 if self._is_duplicate_fast_path(fast_path, time.monotonic()):
                     # Same line we just spoke (split-utterance double) — don't repeat it.

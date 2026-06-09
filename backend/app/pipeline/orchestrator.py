@@ -177,11 +177,10 @@ async def create_pipeline(
         confidence=settings.vad_threshold,
         stop_secs=settings.silence_timeout_ms / 1000.0,
     )
+    vad_analyzer = SileroVADAnalyzer(params=vad_params)
     context_aggregator = LLMContextAggregatorPair(
         context,
-        user_params=LLMUserAggregatorParams(
-            vad_analyzer=SileroVADAnalyzer(params=vad_params),
-        ),
+        user_params=LLMUserAggregatorParams(vad_analyzer=vad_analyzer),
     )
 
     tool_names = tools.list_tools() if use_tools else []
@@ -193,7 +192,13 @@ async def create_pipeline(
         delay_s=settings.filler_delay_ms / 1000,
     )
     transcript_proc = TranscriptProcessor(
-        websocket, call_logger, conversation, filler_injector=filler_injector
+        websocket,
+        call_logger,
+        conversation,
+        filler_injector=filler_injector,
+        vad_analyzer=vad_analyzer,
+        vad_params=vad_params,
+        dictation_stop_secs=settings.silence_timeout_dictation_ms / 1000.0,
     )
     pre_tts_sanitizer = PreTTSSanitizer(lang=lang, tool_names=tool_names, conversation=conversation)
     agent_text_proc = AgentTextProcessor(
