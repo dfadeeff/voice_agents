@@ -24,3 +24,5 @@ venv/
 
 description/
 artifacts/
+.ruff_cache/
+.pytest_cache/
