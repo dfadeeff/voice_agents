@@ -243,6 +243,23 @@ class TestDeterministicMatterType:
         ctx.add_user_message("Es ist kompliziert")  # unmatched (try 2 → other)
         assert ctx.state.entities["matter_type"].value == "other"
 
+    def test_llm_classifier_rescues_free_phrased_matter(self):
+        """When keywords miss, the LLM rescue maps a free phrasing to a label."""
+        import asyncio
+
+        async def fake_clf(_area, _text):
+            return "eviction"
+
+        ctx = ConversationManager(call_id="mt-llm", lang="de")
+        ctx.set_matter_classifier(fake_clf)
+        ctx.add_user_message("Ich habe ein Problem mit meiner Wohnung")  # → tenancy
+        ctx.next_prompt()  # awaiting matter_type
+        garbled = "Ich wurde aus meiner Wohnung geworfen"  # no keyword hit
+        ctx.add_user_message(garbled)
+        assert "matter_type" not in ctx.state.entities  # keywords missed
+        asyncio.run(ctx.resolve_matter_if_pending(garbled))
+        assert ctx.state.entities["matter_type"].value == "eviction"
+
 
 class TestContextAwareInsuranceCapture:
     """insurance_number is captured only when the agent just asked for it."""

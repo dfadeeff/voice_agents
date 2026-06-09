@@ -274,6 +274,8 @@ class ConversationManager:
         self._tools_builder: Callable[[list[str]], Any] | None = None
         # Optional async LLM rescue for spoken email; None = regex-only (local default).
         self._email_extractor: Callable[[str], Any] | None = None
+        # Optional async LLM rescue for matter-type; None = keyword-only (local default).
+        self._matter_classifier: Callable[[str, str], Any] | None = None
         # Optional CalendarService for deterministic in-code booking (sync access).
         self._calendar = calendar
 
@@ -286,6 +288,36 @@ class ConversationManager:
     def set_email_extractor(self, extractor: Callable[[str], Any] | None) -> None:
         """Optional async LLM rescue for spoken email (regex stays the default)."""
         self._email_extractor = extractor
+
+    def set_matter_classifier(self, classifier: Callable[[str, str], Any] | None) -> None:
+        """Optional async LLM rescue for matter-type (keyword match stays default)."""
+        self._matter_classifier = classifier
+
+    async def resolve_matter_if_pending(self, text: str) -> None:
+        """LLM rescue when we asked for the matter type but keywords couldn't map it.
+
+        Runs after add_user_message (keywords had first go). Only fires when the
+        matter type is still unknown or was filled with the "other" fallback, and
+        upgrades it to a specific label — so a free-phrased answer like "ich wurde
+        aus meiner Wohnung geworfen" still classifies as eviction.
+        """
+        classifier = getattr(self, "_matter_classifier", None)
+        if classifier is None or self.state.awaiting != "matter_type":
+            return
+        existing = self.state.entities.get("matter_type")
+        if existing and existing.value != "other":
+            return  # keywords already classified specifically
+        try:
+            label = await classifier(self.state.legal_area.value, text)
+        except Exception as e:
+            logger.warning("Matter classifier raised: %s", e)
+            return
+        if not label or (existing and label == "other"):
+            return
+        logger.info("LLM matter classification: %r → %s", text, label)
+        self.state.matter_attempts = 0
+        self._store_matter_type(label)
+        self._persist()
 
     async def resolve_email_if_pending(self, text: str) -> None:
         """LLM rescue when we asked for the email but regex couldn't parse one.

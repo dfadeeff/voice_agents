@@ -549,6 +549,9 @@ Production improvements would add:
 - **TTS quality**: Piper is functional but noticeably synthetic vs ElevenLabs or Kokoro.
 - **End-to-end latency**: ~1-2s locally vs ~500-800ms with cloud stack. LLM inference is the bottleneck.
 
+### Open-ended slots: keyword-first, LLM-assisted
+Two slots are genuinely open-ended — **spoken email** and **matter_type** — and keyword/regex is brittle there (it works when the caller echoes an offered option, but misses free phrasings like "ich wurde aus meiner Wohnung geworfen"). For both, the deterministic parse runs first (local default, free, instant) and an **LLM rescue** only fires when it misses: `email_extract.make_email_extractor` reassembles a noisy spoken address, and `matter_classify.make_matter_classifier` maps a free-phrased matter to one of the area's labels. The rescue is implicitly on for the cloud (OpenAI) provider and opt-in on local via `LLM_ASSIST=true`. Safety nets keep the call moving even with no rescue: email skips after 3 misses, and an unrecognised matter is recorded as `"other"` after 2 — and the verbatim answer is always kept in `matter_summary`, so triage never loses information. This is the deliberate split: deterministic for the flow and gates; LLM only for the two slots where language understanding genuinely beats pattern-matching.
+
 ### Design tradeoffs
 - **Hybrid state machine**: More engineering effort than pure LLM-driven, but provides deterministic, testable flow control for business-critical transitions. The LLM cannot skip fields, bypass confirmation, or forget to escalate.
 - **Pipecat framework**: Handles VAD, turn-taking, interruptions, and streaming TTS out of the box. We focus on business logic (tools, prompts, state) instead of audio plumbing.

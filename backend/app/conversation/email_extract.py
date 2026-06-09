@@ -37,10 +37,10 @@ EmailExtractor = Callable[[str], Awaitable[str | None]]
 def make_email_extractor(settings: Settings) -> EmailExtractor | None:
     """Build an async email extractor, or None when LLM assist is disabled.
 
-    Enabled when ``email_llm_assist`` is set, or implicitly for the cloud
-    (OpenAI) provider. Local Ollama stays regex-only unless explicitly enabled.
+    Enabled when ``llm_assist`` is set, or implicitly for the cloud (OpenAI)
+    provider. Local Ollama stays regex-only unless explicitly enabled.
     """
-    enabled = settings.email_llm_assist or settings.llm_provider == "openai"
+    enabled = settings.llm_assist or settings.llm_provider == "openai"
     if not enabled:
         return None
 

@@ -33,6 +33,7 @@ from app.config import Settings
 from app.conversation.email_extract import make_email_extractor
 from app.conversation.locales import get_locale
 from app.conversation.manager import ConversationManager
+from app.conversation.matter_classify import make_matter_classifier
 from app.conversation.prompts import build_system_prompt
 from app.pipeline.processors import (
     AgentTextProcessor,
@@ -162,8 +163,10 @@ async def create_pipeline(
         )
 
     settings = Settings()
-    # Optional LLM rescue for spoken email (cloud-first; regex stays local default).
+    # Optional LLM rescue for the open-ended slots (cloud-first; keyword/regex stays
+    # the local default).
     conversation.set_email_extractor(make_email_extractor(settings))
+    conversation.set_matter_classifier(make_matter_classifier(settings))
     vad_params = VADParams(
         confidence=settings.vad_threshold,
         stop_secs=settings.silence_timeout_ms / 1000.0,
