@@ -275,7 +275,10 @@ class TestPreTTSSanitizer:
         assert pushed == []
 
         await san.process_frame(TextFrame(" legal area."), FrameDirection.DOWNSTREAM)
-        assert [frame.text for frame in pushed] == ["Moment bitte."]
+        # Trailing space is intentional: each sentence is pushed as its own frame
+        # and the downstream TTS aggregator concatenates them verbatim, so the
+        # separator must survive or adjacent sentences glue ("bitte.Wie…").
+        assert [frame.text for frame in pushed] == ["Moment bitte. "]
 
     @pytest.mark.asyncio
     async def test_discards_partial_sentence_on_interruption(self):
@@ -291,7 +294,7 @@ class TestPreTTSSanitizer:
         await san.process_frame(TextFrame("Wie kann ich helfen?"), FrameDirection.DOWNSTREAM)
 
         spoken = [frame.text for frame in pushed if isinstance(frame, TextFrame)]
-        assert spoken == ["Wie kann ich helfen?"]
+        assert spoken == ["Wie kann ich helfen? "]
 
     @pytest.mark.asyncio
     async def test_exact_named_person_failure_is_safe_before_tts(self):
@@ -314,8 +317,8 @@ class TestPreTTSSanitizer:
 
         spoken = [frame.text for frame in pushed if type(frame) is TextFrame]
         assert spoken == [
-            "Vielen Dank für Ihren Anruf.",
-            "Ich kann Ihren Rückrufwunsch aufnehmen und an das Kanzleiteam weitergeben.",
+            "Vielen Dank für Ihren Anruf. ",
+            "Ich kann Ihren Rückrufwunsch aufnehmen und an das Kanzleiteam weitergeben. ",
         ]
 
 
