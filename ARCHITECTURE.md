@@ -268,9 +268,38 @@ The eight phases (`CallPhase`). On scripted phases the spoken turn comes from
 | CONFIRMATION | Scripted | Read back the booked slot / callback | none |
 | ESCALATION | LLM / Scripted | Callback capture is scripted; out-of-scope escalation is LLM-driven | `capture_caller_details`, `confirm_caller_detail`, `request_handoff` |
 
-`state.awaiting` (one of `matter_type, matter_details, insurance, name, name_confirm,
+`state.awaiting` (one of `area, matter_type, matter_details, insurance, name, name_confirm,
 email, email_confirm, phone, phone_confirm, slot, callback_time`) records what the last
 scripted question asked for; the reply parser in `manager.add_user_message` dispatches on it.
+
+### Routing disambiguation — never stall in ROUTING
+
+ROUTING is the one LLM-driven phase, so it is also the one place the agent can go
+off the rails. A regression call exposed this: the opening *"Mein **Mietvertrag**
+wurde **gekündigt** und ich will Frau Hofmann sprechen"* matched **two** areas
+(tenancy via *Mietvertrag*, employment via *gekündigt*), so the keyword router
+abstained — and the local LLM never called `route_call`. The call **stalled in
+ROUTING with `legal_area` unknown**, where the LLM is free-form, and it
+**hallucinated the whole call**: a fake appointment ("übermorgen 10:00") and
+"Telefonnummer ist notiert" — while the deterministic capture/booking code (which
+runs only in CAPTURE/BOOKING) never executed, so **nothing was persisted** (no
+name, email, phone entity, or booking row).
+
+The rule that fixes this class of bug:
+
+- **If keyword routing matches ≥2 areas, the agent MUST ask a deterministic
+  follow-up question to disambiguate** — it does not guess and does not hand the
+  turn to the LLM. `_try_auto_route` records the candidates in `state.area_options`;
+  `compute_prompt` then speaks a scripted `disambiguate_area` question
+  ("Geht es eher um Arbeitsrecht oder Mietrecht?", `awaiting="area"`), and
+  `_handle_area_choice` maps the reply (incl. spoken area names like *Mietrecht*)
+  to a single area in code. The call leaves ROUTING deterministically without
+  depending on the 7B calling a tool.
+- **Safety net:** while no booking is confirmed, the false-booking guard
+  (`processors._guard_false_booking`) also blocks **future-tense** fabrications
+  like "… wird … einen Termin … buchen", not just "… ist gebucht" — so even if the
+  LLM did wander, it cannot voice a booking that did not happen. The genuine offer
+  "ich vereinbare gerne einen Beratungstermin" is preserved.
 
 ### How a Turn Drives State
 

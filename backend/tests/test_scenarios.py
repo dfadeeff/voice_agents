@@ -717,11 +717,45 @@ class TestAutoRouting:
         assert ctx.state.legal_area == LegalArea.UNKNOWN
         assert ctx.state.phase == CallPhase.ROUTING
 
-    def test_multi_area_stays_in_routing(self):
+    def test_multi_area_queues_disambiguation(self):
+        """≥2 matched areas → record candidates + ask a scripted disambiguation,
+        instead of stalling in ROUTING where the LLM could hallucinate a booking."""
         ctx = ConversationManager(call_id="multi", lang="de")
         ctx.add_user_message("Mein Arbeitgeber hat einen Unfall verursacht.")
         assert ctx.state.legal_area == LegalArea.UNKNOWN
         assert ctx.state.phase == CallPhase.ROUTING
+        assert set(ctx.state.area_options) == {"employment", "traffic"}
+        line = ctx.next_prompt()  # scripted disambiguation, LLM skipped
+        assert line is not None and ctx.state.awaiting == "area"
+
+    def test_ambiguous_routing_disambiguates_then_proceeds(self):
+        """The live-call regression: 'Mietvertrag gekündigt' (tenancy + employment)
+        must NOT stall in ROUTING; a follow-up question resolves the area in code."""
+        ctx = ConversationManager(call_id="disambig", lang="de")
+        ctx.add_user_message("Mein Mietvertrag wurde gekündigt und ich will Frau Hofmann sprechen.")
+        assert ctx.state.legal_area == LegalArea.UNKNOWN
+        assert set(ctx.state.area_options) == {"employment", "tenancy"}
+        assert ctx.state.target_person == "Frau Hofmann"  # person request still recorded
+
+        line = ctx.next_prompt()
+        assert ctx.state.awaiting == "area"
+        assert "Arbeitsrecht" in line and "Mietrecht" in line
+
+        ctx.add_user_message("Es geht um Mietrecht.")
+        assert ctx.state.legal_area == LegalArea.TENANCY
+        assert ctx.state.area_options == []
+        assert ctx.state.phase == CallPhase.QUALIFICATION  # moved on deterministically
+
+    def test_future_tense_booking_claim_is_blocked(self):
+        """The hallucinated 'wird … einen Termin … buchen' must be guarded when no
+        booking is confirmed; the genuine 'ich vereinbare gerne …' offer is not."""
+        from app.pipeline.processors import _guard_false_booking
+
+        hallucination = "Frau Hofmann wird übermorgen um 10 Uhr einen Termin für Sie buchen."
+        assert _guard_false_booking(hallucination, booking_confirmed=False) != hallucination
+
+        offer = "Ich vereinbare gerne einen Beratungstermin mit ihr für Sie."
+        assert _guard_false_booking(offer, booking_confirmed=False) == offer
 
 
 class TestNarrationSplit:
