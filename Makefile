@@ -1,4 +1,4 @@
-.PHONY: setup setup-cloud run run-prod seed models test lint benchmark clean
+.PHONY: setup setup-cloud run run-prod seed models test lint benchmark compare-latency clean
 
 setup: models seed
 	pip install -e "backend/.[dev]"
@@ -33,6 +33,11 @@ lint:
 
 benchmark:
 	cd backend && python3 scripts/benchmark_models.py
+
+# Compare per-component latency between two call logs (default: two most recent).
+# Override with ARGS, e.g. make compare-latency ARGS="logs/<local>.json logs/<cloud>.json --labels local cloud"
+compare-latency:
+	cd backend && python3 scripts/compare_latency.py $(ARGS)
 
 clean:
 	rm -rf backend/data/ backend/models/ __pycache__

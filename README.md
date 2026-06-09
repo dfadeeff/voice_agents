@@ -136,15 +136,29 @@ DEEPGRAM_API_KEY=your-key
 
 LLM_PROVIDER=openai
 OPENAI_API_KEY=your-key
-OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL=gpt-4o
 
-TTS_PROVIDER=elevenlabs
-ELEVENLABS_API_KEY=your-key
+# Cartesia = lowest first-audio latency (set a German-capable voice); or elevenlabs
+TTS_PROVIDER=cartesia
+CARTESIA_API_KEY=your-key
+CARTESIA_VOICE_ID=your-german-voice-id
 ```
 
 When `LLM_PROVIDER=openai`, the full tool-calling pipeline activates automatically: intent classification, legal area routing, entity extraction with confidence scoring, availability checking, and consultation booking.
 
-You can mix local and cloud freely — e.g. keep Whisper STT local but use OpenAI for LLM and ElevenLabs for TTS.
+You can mix local and cloud freely — e.g. keep Whisper STT local but use OpenAI for LLM and Cartesia for TTS.
+
+### Comparing latency (local vs cloud)
+
+Every call saves per-component TTFB and end-to-end TTFA to `backend/logs/<call_id>.json`. To quantify a provider swap, run the same scripted call under each `.env`, then diff the two logs:
+
+```bash
+make compare-latency    # compares the two most recent logs
+# or target specific runs:
+make compare-latency ARGS="logs/<local>.json logs/<cloud>.json --labels local cloud"
+```
+
+It prints a side-by-side table of STT / LLM / TTS / TTFA latencies with deltas. (LLM shows ~0 ms on turns the deterministic spine fast-paths — only routing/info turns invoke the model.)
 
 ## What Happens When You Call
 
