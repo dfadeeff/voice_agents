@@ -235,6 +235,8 @@ class ConversationManager:
         self.state.messages = [{"role": "system", "content": get_system_prompt_base(lang)}]
         self._llm_context = None
         self._tools_builder: Callable[[list[str]], Any] | None = None
+        # Optional async LLM rescue for spoken email; None = regex-only (local default).
+        self._email_extractor: Callable[[str], Any] | None = None
         # Optional CalendarService for deterministic in-code booking (sync access).
         self._calendar = calendar
 
@@ -243,6 +245,41 @@ class ConversationManager:
 
     def set_tools_builder(self, builder: Callable[[list[str]], Any]) -> None:
         self._tools_builder = builder
+
+    def set_email_extractor(self, extractor: Callable[[str], Any] | None) -> None:
+        """Optional async LLM rescue for spoken email (regex stays the default)."""
+        self._email_extractor = extractor
+
+    async def resolve_email_if_pending(self, text: str) -> None:
+        """LLM rescue when we asked for the email but regex couldn't parse one.
+
+        Runs after add_user_message (so regex had first go) and only when an
+        extractor is configured. On success the email is stored unconfirmed —
+        the scripted read-back then confirms it like any other email.
+        """
+        extractor = getattr(self, "_email_extractor", None)
+        if extractor is None or self.state.awaiting != "email":
+            return
+        if "email" in self.state.entities:
+            return  # regex already got it this turn
+        try:
+            candidate = await extractor(text)
+        except Exception as e:
+            logger.warning("Email extractor raised: %s", e)
+            return
+        if not candidate:
+            return
+        candidate = candidate.strip().lower()
+        if not _EMAIL_VALID_RE.match(candidate):
+            return
+        logger.info("LLM email rescue: %r → %r", text, candidate)
+        # Undo the miss the deterministic path may have just recorded.
+        self.state.email_skipped = False
+        self.state.email_misheard = False
+        self.state.email_attempts = max(0, self.state.email_attempts - 1)
+        self.store_entity("email", candidate, 0.9)  # unconfirmed → scripted read-back
+        self._update_llm_context()
+        self._persist()
 
     def advance_phase(self) -> CallPhase:
         new_phase = next_phase(self.state)

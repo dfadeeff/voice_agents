@@ -30,6 +30,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.workers.runner import WorkerRunner
 
 from app.config import Settings
+from app.conversation.email_extract import make_email_extractor
 from app.conversation.locales import get_locale
 from app.conversation.manager import ConversationManager
 from app.conversation.prompts import build_system_prompt
@@ -161,6 +162,8 @@ async def create_pipeline(
         )
 
     settings = Settings()
+    # Optional LLM rescue for spoken email (cloud-first; regex stays local default).
+    conversation.set_email_extractor(make_email_extractor(settings))
     vad_params = VADParams(
         confidence=settings.vad_threshold,
         stop_secs=settings.silence_timeout_ms / 1000.0,

@@ -524,6 +524,9 @@ class TranscriptProcessor(FrameProcessor):
 
             old_phase = self._conversation.state.phase
             self._conversation.add_user_message(text)
+            # LLM rescue for spoken email when regex couldn't parse one (no-op
+            # unless an extractor is configured — regex is the local default).
+            await self._conversation.resolve_email_if_pending(text)
             new_phase = self._conversation.state.phase
             if new_phase != old_phase:
                 logger.info("Phase: %s → %s", old_phase.value, new_phase.value)

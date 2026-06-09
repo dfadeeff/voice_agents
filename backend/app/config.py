@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
 
+    # LLM-assisted spoken-email extraction. Regex is the local default; this rescue
+    # only fires when regex fails on an email turn. Implicitly on for the OpenAI
+    # (cloud) provider; set true to also enable it for local Ollama.
+    email_llm_assist: bool = False
+
     piper_model_path: str = "models/piper/de_DE-eva_k-x_low.onnx"
     piper_data_path: str = "models/piper/de_DE-eva_k-x_low.onnx.json"
     # Silence appended after each synthesized sentence so consecutive sentences

@@ -1023,6 +1023,51 @@ class TestSpokenEmailParsing:
         assert _parse_email("Gmail.com") is None
         assert _parse_email("Wie bitte?") is None
 
+    def test_llm_rescue_recovers_email_regex_missed(self):
+        """When regex fails and an extractor is configured, the LLM rescue stores it."""
+        import asyncio
+
+        async def fake_llm(_text):
+            return "langm@gmail.com"
+
+        ctx = ConversationManager(call_id="e2e-llm-email", lang="de")
+        ctx.set_email_extractor(fake_llm)
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        ctx.store_entity("matter_type", "dismissal", 1.0)
+        ctx.confirm_entity("matter_type")
+        ctx.store_entity("matter_details", "Frist", 1.0)
+        ctx.confirm_entity("matter_details")
+        ctx.store_entity("name", "Anna", 1.0)
+        ctx.confirm_entity("name")
+
+        ctx.next_prompt()  # ask_email, awaiting email
+        garbled = "ähm Lang M Gmail irgendwas"
+        ctx.add_user_message(garbled)
+        assert "email" not in ctx.state.entities  # regex couldn't parse it
+        asyncio.run(ctx.resolve_email_if_pending(garbled))
+        assert ctx.state.entities["email"].value == "langm@gmail.com"
+        line = ctx.next_prompt()
+        assert ctx.state.awaiting == "email_confirm"
+        assert "langm@gmail.com" in line
+
+    def test_llm_rescue_is_noop_without_extractor(self):
+        """Local default: no extractor → resolve_email_if_pending does nothing."""
+        import asyncio
+
+        ctx = ConversationManager(call_id="e2e-no-llm", lang="de")
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        ctx.store_entity("matter_type", "dismissal", 1.0)
+        ctx.confirm_entity("matter_type")
+        ctx.store_entity("matter_details", "Frist", 1.0)
+        ctx.confirm_entity("matter_details")
+        ctx.store_entity("name", "Anna", 1.0)
+        ctx.confirm_entity("name")
+
+        ctx.next_prompt()
+        ctx.add_user_message("Lang M Gmail irgendwas")
+        asyncio.run(ctx.resolve_email_if_pending("Lang M Gmail irgendwas"))
+        assert "email" not in ctx.state.entities  # stays regex-only
+
     def test_email_skipped_after_repeated_misses(self):
         ctx = ConversationManager(call_id="e2e-email-skip", lang="de")
         ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
