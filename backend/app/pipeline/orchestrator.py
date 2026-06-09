@@ -177,7 +177,12 @@ async def create_pipeline(
         confidence=settings.vad_threshold,
         stop_secs=settings.silence_timeout_ms / 1000.0,
     )
-    vad_analyzer = SileroVADAnalyzer(params=vad_params)
+    dictation_stop_secs = settings.silence_timeout_dictation_ms / 1000.0
+    # Start wide: the first turn is the free-form "what's your problem" description,
+    # where callers pause mid-sentence. The processor narrows it for short answers.
+    vad_analyzer = SileroVADAnalyzer(
+        params=vad_params.model_copy(update={"stop_secs": dictation_stop_secs})
+    )
     context_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(vad_analyzer=vad_analyzer),
@@ -198,7 +203,7 @@ async def create_pipeline(
         filler_injector=filler_injector,
         vad_analyzer=vad_analyzer,
         vad_params=vad_params,
-        dictation_stop_secs=settings.silence_timeout_dictation_ms / 1000.0,
+        dictation_stop_secs=dictation_stop_secs,
     )
     pre_tts_sanitizer = PreTTSSanitizer(lang=lang, tool_names=tool_names, conversation=conversation)
     agent_text_proc = AgentTextProcessor(
