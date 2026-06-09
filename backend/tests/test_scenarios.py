@@ -718,59 +718,55 @@ class TestAutoRouting:
 
 
 class TestNarrationSplit:
-    """Callback steps are narrated deterministically from state (no LLM drift)."""
+    """LLM-first: only accuracy-critical steps (confirmations, done) are scripted."""
 
     def _line(self, ctx):
         from app.conversation.script import scripted_line
 
         return scripted_line(ctx.state, "de")
 
-    def test_full_callback_scripted_flow(self):
+    def test_full_callback_flow(self):
+        """LLM drives asking; only phone read-back and callback_done are scripted."""
         ctx = ConversationManager(call_id="ns", lang="de")
         ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
-        assert "name" in self._line(ctx).lower()
-        ctx.add_assistant_message(self._line(ctx))
+        assert self._line(ctx) is None  # LLM asks for name
+        ctx.add_assistant_message("Gerne, ich nehme Ihren Rückrufwunsch auf. Wie ist Ihr Name?")
         ctx.add_user_message("Daniel Stein")
-        assert "nummer" in self._line(ctx).lower()
-        ctx.add_assistant_message(self._line(ctx))
+        assert self._line(ctx) is None  # LLM asks for phone
+        ctx.add_assistant_message("Danke, Herr Stein. Unter welcher Nummer sind Sie erreichbar?")
         ctx.add_user_message("0151 598 32614")
-        # Read-back contains the REAL captured number (national format), not invented.
         line = self._line(ctx)
-        assert "015159832614" in line
+        assert line is not None and "015159832614" in line  # accuracy-critical read-back
         ctx.add_assistant_message(line)
         ctx.add_user_message("Ja, das stimmt")
         assert ctx.state.entities["phone"].confirmed is True
-        # Stored value stays international for the database.
         assert ctx.state.entities["phone"].value == "+4915159832614"
-        # Scheduling step asks for a callback time before closing.
-        assert "zurückrufen" in self._line(ctx).lower()
-        ctx.add_assistant_message(self._line(ctx))
+        assert self._line(ctx) is None  # LLM asks for preferred callback time
+        ctx.add_assistant_message("Wann soll Herr Schulz Sie zurückrufen?")
         ctx.add_user_message("Morgen Vormittag")
-        # Final line names the person with honorific and the captured time.
         done = self._line(ctx)
+        assert done is not None
         assert "Herr Schulz" in done
         assert "Morgen Vormittag" in done
 
-    def test_denial_reasks_phone(self):
+    def test_denial_deletes_phone(self):
+        """Phone denial deletes entity; LLM handles re-asking."""
         ctx = ConversationManager(call_id="ns2", lang="de")
         ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
-        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_assistant_message("Gerne. Wie ist Ihr Name?")
         ctx.add_user_message("Daniel Stein")
-        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_assistant_message("Unter welcher Nummer sind Sie erreichbar?")
         ctx.add_user_message("0151 598 32614")
-        ctx.add_assistant_message(self._line(ctx))
+        ctx.add_assistant_message(self._line(ctx))  # confirm_phone (scripted)
         ctx.add_user_message("Nein, das ist falsch")
         assert "phone" not in ctx.state.entities
-        assert "nummer" in self._line(ctx).lower()
+        assert self._line(ctx) is None  # LLM re-asks
 
-    def test_traffic_qualification_is_scripted(self):
-        """Regression: the insurance turn that leaked a tool call is now scripted."""
+    def test_traffic_qualification_defers_to_llm(self):
+        """Area confirmation and qualification are LLM-driven."""
         ctx = ConversationManager(call_id="ns3", lang="de")
         ctx.add_user_message("Ich hatte einen Unfall")
-        assert "verkehrsrechtliches" in self._line(ctx).lower()
-        ctx.add_assistant_message(self._line(ctx))
-        ctx.add_user_message("Ja, das ist korrekt.")
-        assert "versicherungsnummer" in self._line(ctx).lower()
+        assert self._line(ctx) is None
 
     def test_ambiguous_routing_uses_llm(self):
         ctx = ConversationManager(call_id="ns4", lang="de")
@@ -779,41 +775,45 @@ class TestNarrationSplit:
 
 
 class TestBookingCaptureSplit:
-    """Booking contact collection is narrated from state (no LLM until slots)."""
+    """LLM-first: only email/phone confirmations are scripted during capture."""
 
     def _line(self, ctx):
         from app.conversation.script import scripted_line
 
         return scripted_line(ctx.state, "de")
 
-    def test_full_booking_capture_scripted(self):
+    def test_confirmations_are_scripted(self):
+        """LLM asks questions; email and phone read-backs are accuracy-critical."""
         ctx = ConversationManager(call_id="bc", lang="de")
-        ctx.add_user_message("Ich hatte einen Unfall")
-        ctx.add_assistant_message(self._line(ctx))
-        ctx.add_user_message("Ja, korrekt")
-        ctx.add_assistant_message(self._line(ctx))
-        ctx.add_user_message("Nein, keine")  # no insurance number
-        assert "name" in self._line(ctx).lower()
-        ctx.add_assistant_message(self._line(ctx))
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.TRAFFIC)
+        ctx.store_entity("matter_type", "accident", 1.0)
+        ctx.confirm_entity("matter_type")
+        ctx.state.insurance_resolved = True
+        ctx.advance_phase()
+        assert ctx.state.phase == CallPhase.CAPTURE
+        assert self._line(ctx) is None  # LLM asks for name
+        ctx.add_assistant_message("Gerne. Wie ist Ihr Name?")
         ctx.add_user_message("Daniel Stein")
-        assert "mail" in self._line(ctx).lower()
-        ctx.add_assistant_message(self._line(ctx))
+        assert self._line(ctx) is None  # LLM asks for email
+        ctx.add_assistant_message("Danke. Wie ist Ihre E-Mail-Adresse?")
         ctx.add_user_message("max at gmail punkt com")
         line = self._line(ctx)
-        assert "max@gmail.com" in line  # real captured email, read back
+        assert line is not None and "max@gmail.com" in line  # accuracy-critical read-back
         ctx.add_assistant_message(line)
         ctx.add_user_message("Ja, stimmt")
-        assert "telefon" in self._line(ctx).lower() or "nummer" in self._line(ctx).lower()
-        ctx.add_assistant_message(self._line(ctx))
+        assert self._line(ctx) is None  # LLM asks for phone
+        ctx.add_assistant_message("Und unter welcher Nummer sind Sie erreichbar?")
         ctx.add_user_message("0151 598 32614")
-        ctx.add_assistant_message(self._line(ctx))
+        line = self._line(ctx)
+        assert line is not None and "015159832614" in line  # accuracy-critical read-back
+        ctx.add_assistant_message(line)
         ctx.add_user_message("Ja, das stimmt")
-        # All contacts confirmed → BOOKING (slot selection handled deterministically).
         assert ctx.state.phase == CallPhase.BOOKING
         assert ctx.state.entities["email"].value == "max@gmail.com"
         assert ctx.state.entities["phone"].confirmed is True
 
-    def test_email_denial_reasks(self):
+    def test_email_denial_deletes_entity(self):
+        """Email denial deletes entity; LLM handles re-asking."""
         ctx = ConversationManager(call_id="bc2", lang="de")
         ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
         ctx.store_entity("matter_type", "dismissal", 1.0)
@@ -823,12 +823,15 @@ class TestBookingCaptureSplit:
         ctx.store_entity("name", "Anna Schmidt", 0.9)
         ctx.confirm_entity("name")
         assert ctx.state.phase == CallPhase.CAPTURE
-        ctx.add_assistant_message(self._line(ctx))
+        assert self._line(ctx) is None  # LLM asks for email
+        ctx.add_assistant_message("Wie ist Ihre E-Mail-Adresse?")
         ctx.add_user_message("anna at example punkt de")
-        ctx.add_assistant_message(self._line(ctx))
+        line = self._line(ctx)
+        assert line is not None  # email confirmation (scripted)
+        ctx.add_assistant_message(line)
         ctx.add_user_message("Nein, das ist falsch")
         assert "email" not in ctx.state.entities
-        assert "mail" in self._line(ctx).lower()
+        assert self._line(ctx) is None  # LLM re-asks
 
 
 class TestDeterministicBooking:

@@ -104,33 +104,29 @@ class TestFastPathDetection:
         proc = TranscriptProcessor(ws, logger, conv)
         return proc, conv
 
-    def test_callback_entry_triggers_fast_path(self):
+    def test_callback_entry_defers_to_llm(self):
+        """After callback request, LLM drives asking for name — no fast-path."""
         proc, conv = self._make_processor("de")
         old_phase = conv.state.phase
         conv.add_user_message("Ich möchte bitte Herrn Schmid sprechen.")
         new_phase = conv.state.phase
-
         result = proc._check_fast_path(old_phase, new_phase)
-        assert result is not None
-        assert "Name" in result or "namen" in result.lower()
+        assert result is None
 
-    def test_callback_entry_triggers_fast_path_en(self):
+    def test_callback_entry_defers_to_llm_en(self):
         proc, conv = self._make_processor("en")
         old_phase = conv.state.phase
         conv.add_user_message("I'd like to speak to Mr Smith please.")
         new_phase = conv.state.phase
-
         result = proc._check_fast_path(old_phase, new_phase)
-        assert result is not None
-        assert "name" in result.lower()
+        assert result is None
 
-    def test_scripted_area_confirmation_after_routing(self):
-        """The area-confirmation question is now narrated from state, not the LLM."""
+    def test_area_confirmation_defers_to_llm(self):
+        """Area confirmation and qualification are LLM-driven, not fast-path."""
         proc, conv = self._make_processor("de")
         conv.add_user_message("Ich wurde letzte Woche gekündigt.")
         result = proc._check_fast_path(conv.state.phase, conv.state.phase)
-        assert result is not None
-        assert "arbeitsrechtliches" in result.lower()
+        assert result is None
 
     def test_no_fast_path_for_ambiguous_routing(self):
         proc, conv = self._make_processor("de")
@@ -138,19 +134,20 @@ class TestFastPathDetection:
         result = proc._check_fast_path(conv.state.phase, conv.state.phase)
         assert result is None
 
-    def test_scripted_narration_drives_each_callback_step(self):
-        """Narration split: every callback step is spoken from state, not the LLM."""
+    def test_phone_readback_is_scripted_in_callback(self):
+        """Phone read-back is accuracy-critical and stays scripted in LLM-first flow."""
         proc, conv = self._make_processor("de")
-
         conv.add_user_message("Ich möchte bitte Herrn Schmid sprechen.")
         assert conv.state.phase == CallPhase.CAPTURE
-        line_name = proc._check_fast_path(conv.state.phase, conv.state.phase)
-        assert line_name and "name" in line_name.lower()
-        conv.add_assistant_message(line_name)
-
+        assert proc._check_fast_path(conv.state.phase, conv.state.phase) is None
+        conv.add_assistant_message("Gerne. Wie ist Ihr Name?")
         conv.add_user_message("Max Mustermann")
-        line_phone = proc._check_fast_path(conv.state.phase, conv.state.phase)
-        assert line_phone and ("telefon" in line_phone.lower() or "nummer" in line_phone.lower())
+        assert proc._check_fast_path(conv.state.phase, conv.state.phase) is None
+        conv.add_assistant_message("Unter welcher Nummer können wir Sie erreichen?")
+        conv.add_user_message("0151 598 32614")
+        line = proc._check_fast_path(conv.state.phase, conv.state.phase)
+        assert line is not None
+        assert "015159832614" in line
 
     def test_no_fast_path_when_not_callback(self):
         proc, conv = self._make_processor("de")

@@ -541,7 +541,6 @@ class TranscriptProcessor(FrameProcessor):
             if fast_path:
                 logger.info("FAST PATH: %s", fast_path)
                 self._logger.log("agent", fast_path)
-                self._conversation.add_assistant_message(fast_path)
                 await self.push_frame(
                     LLMMessagesAppendFrame(
                         [{"role": "user", "content": text}],
@@ -585,6 +584,7 @@ class AgentTextProcessor(FrameProcessor):
         self._lang = lang
         self._conversation = conversation
         self._first_chunk_this_turn = True
+        self._turn_text_parts: list[str] = []
         if tool_names:
             patterns = []
             for n in tool_names:
@@ -635,6 +635,7 @@ class AgentTextProcessor(FrameProcessor):
                 frame = TTSTextFrame(text=processed, aggregated_by=frame.aggregated_by)
             logger.info("AGENT SPOKEN: %s", processed)
             self._logger.log("agent", processed)
+            self._turn_text_parts.append(processed)
             display_text = _reverse_email_tts(processed)
             try:
                 await self._ws.send_json({"type": "agent_text", "text": display_text})
@@ -646,6 +647,10 @@ class AgentTextProcessor(FrameProcessor):
             and not isinstance(frame, TTSTextFrame)
             and frame.text
         ):
+            if self._turn_text_parts and self._conversation:
+                full_text = " ".join(self._turn_text_parts)
+                self._conversation.add_assistant_message(full_text)
+            self._turn_text_parts = []
             self._first_chunk_this_turn = True
 
         await self.push_frame(frame, direction)
