@@ -40,6 +40,10 @@ class ConversationState:
     # caller answered (with a number or a clear "none"). Gates qualification so
     # the step cannot be skipped by the model.
     insurance_resolved: bool = False
+    # How many times the insurance step was asked without a usable answer (neither
+    # a number nor a clear "no"). The number is optional, so after a couple of
+    # misses we proceed without it instead of re-asking forever.
+    insurance_attempts: int = 0
     # Callback-only: the caller's preferred time to be called back (free text).
     preferred_time: str | None = None
     # Booking: True once email was asked and the caller had none — email is
