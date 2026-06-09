@@ -73,7 +73,9 @@ _MATTER_KEYWORDS: dict[LegalArea, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("contract", ("arbeitsvertrag", "contract")),
     ),
     LegalArea.TENANCY: (
-        ("eviction", ("räumung", "raeumung", "eviction", "evict")),
+        # The agent's tenancy question offers "Kündigung der Wohnung", so a lease
+        # termination must map to eviction here (not employment — area is tenancy).
+        ("eviction", ("räumung", "raeumung", "kündigung", "gekündigt", "eviction", "evict")),
         ("deposit", ("kaution", "deposit")),
         ("rent_increase", ("mieterhöhung", "mieterhoehung", "rent increase")),
         ("repairs", ("mängel", "maengel", "reparatur", "schimmel", "repairs", "mould", "mold")),
@@ -399,6 +401,14 @@ class ConversationManager:
             # original complaint. Skipped on the routing turn so the area-
             # confirmation question still gets asked.
             self._try_capture_matter_type(text)
+            # Loop guard: if we asked for the matter type and still couldn't
+            # recognise the answer, record it as "other" after a couple of tries
+            # rather than re-asking the same question forever.
+            if awaiting == "matter_type" and "matter_type" not in self.state.entities:
+                self.state.matter_attempts += 1
+                if self.state.matter_attempts >= 2:
+                    logger.info("matter_type unresolved → recording 'other'")
+                    self._store_matter_type("other")
 
         self._try_capture_matter_details(text)
         self._try_confirm_readback(text)
