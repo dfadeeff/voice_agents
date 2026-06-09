@@ -525,3 +525,26 @@ Production improvements would add:
 - **Pipecat framework**: Handles VAD, turn-taking, interruptions, and streaming TTS out of the box. We focus on business logic (tools, prompts, state) instead of audio plumbing.
 - **Sentence-level TTS**: Pipecat splits LLM output at sentence boundaries and feeds each to TTS immediately.
 - **State as projection**: `next_phase()` computes the correct phase from accumulated data, not from the previous phase. This makes it idempotent and robust to out-of-order tool calls — important when a caller gives name + email + legal issue in a single sentence.
+
+### Conversation state: scope and limits
+Within a call, everything captured is held in an explicit, typed `ConversationState`
+(`conversation/state.py`): each field is an `ExtractedEntity` with `value`,
+`confidence`, `confirmed`, and `source_turn`, alongside `caller_intent`, `legal_area`,
+`phase`, `awaiting`, `target_person`, `offered_slots`, `booking_confirmed`, and the
+message history. The next question is computed from this state (`next_prompt()` /
+`build_system_prompt` injects the missing/unconfirmed fields), so the agent never
+re-asks what it already knows — the conversational-continuity principle implemented as
+a structured state object rather than raw prompt-chaining. The row is also upserted to
+SQLite every turn (`_persist`), so a dropped call keeps its partial record.
+
+Honest scope note (deliberate "ready but not wired" decisions):
+- **Per-call, in-memory.** State lives in one `ConversationManager` per WebSocket; it is
+  not shared across processes. `to_dict()`/`to_json()` is the serialization seam — moving
+  it to **Redis** (set `REDIS_URL`) is a config change, not a rewrite.
+- **No cross-session memory.** A returning caller starts fresh; there is no caller-history
+  lookup by phone number. Cross-session recall (recognise a repeat caller, pull prior
+  matter/contact details) is the natural next production step and would build on the same
+  `callers` table that already persists every call.
+- For this prototype that scope is intentional — per-call state fully satisfies the
+  user stories; durable/shared/cross-session state is a scaling concern, not a
+  correctness one.
