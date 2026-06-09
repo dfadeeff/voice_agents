@@ -91,8 +91,11 @@ def next_phase(state) -> CallPhase:
     # a number was captured or the caller was asked and had none. Other areas use
     # the matter_details follow-up instead.
     if state.legal_area == LegalArea.TRAFFIC:
-        if "insurance_number" not in state.entities and not state.insurance_resolved:
-            return CallPhase.QUALIFICATION
+        ins = state.entities.get("insurance_number")
+        if ins is None and not state.insurance_resolved:
+            return CallPhase.QUALIFICATION  # still asking for the number
+        if ins is not None and not ins.confirmed:
+            return CallPhase.QUALIFICATION  # reading the number back for confirmation
     elif "matter_details" not in state.entities:
         return CallPhase.QUALIFICATION
 

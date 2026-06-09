@@ -327,6 +327,8 @@ class TestEnforcedInsuranceStep:
         ctx.next_prompt()  # traffic_insurance, awaiting insurance
         ctx.add_user_message("Ja, VS 4455 6677")
         assert ctx.state.entities["insurance_number"].value == "VS44556677"
+        ctx.next_prompt()  # confirm_insurance read-back, awaiting insurance_confirm
+        ctx.add_user_message("Ja, korrekt")  # confirm the number
         assert ctx.state.phase == CallPhase.CAPTURE
         for f, v in [("name", "Daniel Steinmeier"), ("email", "d@example.com")]:
             ctx.store_entity(f, v, 0.95)
@@ -345,6 +347,8 @@ class TestEnforcedInsuranceStep:
         ctx.next_prompt()  # traffic_insurance, awaiting insurance
         ctx.add_user_message("F fünf vier zwei sechs acht neun drei vier sieben")
         assert ctx.state.entities["insurance_number"].value == "F542689347"
+        ctx.next_prompt()  # read-back, awaiting insurance_confirm
+        ctx.add_user_message("Ja")  # confirm
         assert ctx.state.phase == CallPhase.CAPTURE
 
     def test_caller_without_insurance_number_still_advances(self):
@@ -386,6 +390,31 @@ class TestEnforcedInsuranceStep:
         assert ctx.state.insurance_resolved is False
         ctx.add_user_message("sechs acht neun")  # "689" → buffer "F454689" (≥5)
         assert ctx.state.entities["insurance_number"].value == "F454689"
+        # Now read back for confirmation — caller can still add more or confirm.
+        assert ctx.state.entities["insurance_number"].confirmed is False
+        ctx.next_prompt()  # read-back, awaiting insurance_confirm
+        ctx.add_user_message("Ja, korrekt")
+        assert ctx.state.entities["insurance_number"].confirmed is True
+        assert ctx.state.phase == CallPhase.CAPTURE
+
+    def test_insurance_continued_during_readback(self):
+        # The exact live bug: caller pauses after "…acht neun", the number is read
+        # back, and the caller continues "drei vier sieben" — it must be appended,
+        # not treated as a new field, and re-read back before confirming.
+        ctx = ConversationManager(call_id="enf6", lang="de")
+        ctx.add_user_message("Ich hatte einen Autounfall")
+        ctx.next_prompt()
+        ctx.add_user_message("Verkehrsunfall")
+        ctx.next_prompt()
+        ctx.add_user_message("Versicherungsnummer f fünf vier zwei sechs acht neun")  # F542689
+        line = ctx.next_prompt()  # read-back, awaiting insurance_confirm
+        assert ctx.state.awaiting == "insurance_confirm"
+        assert "F, 5, 4, 2, 6, 8, 9" in line
+        ctx.add_user_message("drei vier sieben")  # continuation, not a new turn
+        ctx.next_prompt()  # re-read-back
+        assert ctx.state.entities["insurance_number"].value == "F542689347"
+        ctx.add_user_message("Ja, korrekt")
+        assert ctx.state.entities["insurance_number"].confirmed is True
         assert ctx.state.phase == CallPhase.CAPTURE
 
 
@@ -1108,7 +1137,8 @@ class TestFullScriptedTrafficBooking:
         ctx.next_prompt()  # traffic_insurance, awaiting insurance
         ctx.add_user_message("Ja, Versicherungsnummer F62314759")
         assert ctx.state.entities["insurance_number"].value == "F62314759"
-        # The bug: phase used to be stuck here. It must now advance to CAPTURE.
+        ctx.next_prompt()  # confirm_insurance read-back, awaiting insurance_confirm
+        ctx.add_user_message("Ja, korrekt")  # confirm the number
         assert ctx.state.phase == CallPhase.CAPTURE
 
         ctx.next_prompt()  # ask_name, awaiting name

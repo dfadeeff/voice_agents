@@ -283,6 +283,7 @@ SCRIPTED = {
         "Mängel in der Wohnung oder ein anderes Problem mit Ihrem Vermieter?"
     ),
     "traffic_insurance": ("Haben Sie bereits eine Schadensnummer oder eine Versicherungsnummer?"),
+    "confirm_insurance": ("Ich habe die Versicherungsnummer notiert: {number}. Ist das korrekt?"),
     "employment_details": (
         "Gibt es eine Frist, die beachtet werden muss? Bei einer Kündigung muss eine "
         "Klage zum Beispiel innerhalb von drei Wochen eingereicht werden."

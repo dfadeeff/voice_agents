@@ -259,6 +259,7 @@ SCRIPTED = {
         "or another issue with your landlord?"
     ),
     "traffic_insurance": ("Do you already have a claim number or an insurance number?"),
+    "confirm_insurance": ("I've noted the insurance number: {number}. Is that correct?"),
     "employment_details": (
         "Is there a deadline you're aware of? For example, an unfair dismissal claim "
         "must be filed within three weeks."

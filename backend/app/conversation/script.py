@@ -31,6 +31,12 @@ def _spoken_phone(value: str, lang: str) -> str:
     return value
 
 
+def _spoken_chars(value: str) -> str:
+    """Spell an alphanumeric reference out so TTS reads it character by character
+    ('F542689' → 'F, 5, 4, 2, 6, 8, 9') instead of as one giant number/word."""
+    return ", ".join(value)
+
+
 _MONTHS = {
     "de": [
         "",
@@ -218,7 +224,12 @@ def compute_prompt(state: ConversationState, lang: str = "de") -> tuple[str | No
         if "matter_type" not in ents:
             return scripts.get(f"{area}_confirm"), "matter_type"
         if area == "traffic":
-            if "insurance_number" not in ents and not state.insurance_resolved:
+            ins = ents.get("insurance_number")
+            if ins and not ins.confirmed:
+                return scripts["confirm_insurance"].format(number=_spoken_chars(ins.value)), (
+                    "insurance_confirm"
+                )
+            if not ins and not state.insurance_resolved:
                 return scripts.get("traffic_insurance"), "insurance"
         elif "matter_details" not in ents:
             return scripts.get(f"{area}_details"), "matter_details"

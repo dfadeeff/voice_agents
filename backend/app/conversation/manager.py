@@ -830,54 +830,79 @@ class ConversationManager:
             self.confirm_entity(field)
 
     def _try_capture_insurance(self, text: str) -> bool:
-        """Resolve the traffic insurance step once we have asked for it.
+        """Capture and confirm the traffic insurance reference.
 
-        Sets ``insurance_resolved`` so the qualification gate advances whether the
-        caller gives a number or has none. Returns True if a number was stored, so
-        phone capture stands down and won't mistake insurance digits for a phone.
-        """
-        if self.state.awaiting != "insurance":
+        The number is dictated in fragments across split turns, then read back for
+        confirmation — so the caller can keep adding digits ("…drei vier sieben")
+        or correct it before we move on, instead of locking in a half-number.
+        Sets ``insurance_resolved`` once confirmed (or skipped). Returns True when
+        it consumed the turn (so phone capture stands down)."""
+        if self.state.awaiting not in ("insurance", "insurance_confirm"):
             return False
-        if self.state.insurance_resolved or "insurance_number" in self.state.entities:
+        if self.state.insurance_resolved:
             return False
-        # Spoken references arrive as digit words, often piece by piece across turns
-        # ("F vier" … "fünf vier"). Convert words→digits, then accumulate each
-        # turn's fragment into a buffer until it forms a complete reference.
         chunk = _ref_tokens(digit_words_to_digits(text))
-        negative = bool(_NEGATE_RE.search(text.lower()))
-        says_has_other = bool(re.search(r"\b(?:dafür|aber|habe|have)\b", text, re.IGNORECASE))
+        low = text.lower()
 
+        # Reading the captured number back for confirmation.
+        if self.state.awaiting == "insurance_confirm":
+            if chunk:
+                # More digits → the caller is still dictating; append, read back again.
+                self.state.insurance_buffer += chunk
+                self.store_entity("insurance_number", self.state.insurance_buffer, 0.9)
+                self.state.insurance_attempts = 0
+                return True
+            if _CONFIRM_YES_RE.search(low):
+                self.confirm_entity("insurance_number")
+                self.state.insurance_resolved = True
+                self.advance_phase()
+                return True
+            if _NEGATE_RE.search(low):
+                # Wrong → discard and ask again from scratch.
+                self.state.entities.pop("insurance_number", None)
+                self.state.insurance_buffer = ""
+                self.state.insurance_attempts = 0
+                return False
+            # Unclear reply — don't loop forever; accept what we have after a couple.
+            self.state.insurance_attempts += 1
+            if self.state.insurance_attempts >= 2:
+                self.confirm_entity("insurance_number")
+                self.state.insurance_resolved = True
+                self.advance_phase()
+            return False
+
+        # awaiting == "insurance": collect the number (across fragmented turns).
+        if "insurance_number" in self.state.entities:
+            return False
+        negative = bool(_NEGATE_RE.search(low))
+        says_has_other = bool(re.search(r"\b(?:dafür|aber|habe|have)\b", text, re.IGNORECASE))
         # A clear "no" with nothing dictated (now or earlier) → caller has none.
         if negative and not chunk and not self.state.insurance_buffer and not says_has_other:
             logger.info("Insurance step resolved: caller has no number")
             self.state.insurance_resolved = True
             self.advance_phase()
             return False
-
         if chunk:
             self.state.insurance_buffer += chunk
         buffered = self.state.insurance_buffer
         digits = re.sub(r"[^A-Za-z0-9]", "", buffered)
-
-        # Complete reference assembled → store and advance.
+        # Enough to read back → store UNCONFIRMED; the scripted read-back then lets
+        # the caller confirm or keep adding digits before we advance.
         if len(digits) >= 5:
-            logger.info("Deterministic capture: insurance_number=%r", buffered)
-            self.update_and_confirm_entity("insurance_number", buffered)
-            self.state.insurance_resolved = True
-            self.advance_phase()
+            logger.info("Insurance captured (pending read-back): %r", buffered)
+            self.state.insurance_attempts = 0
+            self.store_entity("insurance_number", buffered, 0.9)
             return True
-
-        # Still incomplete. Give the caller several turns to finish dictating; only
-        # after that give up (keeping a partial reference if we got a few chars).
+        # Still incomplete. Give a few turns to finish; then give up (or read back a
+        # partial if we got a few chars).
         self.state.insurance_attempts += 1
         if self.state.insurance_attempts >= self._MAX_INSURANCE_ATTEMPTS:
             if len(digits) >= 3:
-                logger.info("Insurance partial captured: %r", buffered)
-                self.update_and_confirm_entity("insurance_number", buffered)
+                self.store_entity("insurance_number", buffered, 0.9)  # read it back
             else:
                 logger.info("Insurance unresolved → proceeding without it")
-            self.state.insurance_resolved = True
-            self.advance_phase()
+                self.state.insurance_resolved = True
+                self.advance_phase()
         return False
 
     def _try_capture_matter_type(self, text: str) -> None:
