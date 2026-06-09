@@ -168,21 +168,38 @@ _DOMAIN_CORRECTIONS = {
 }
 
 
+# Spoken lead-in before the address proper ("meine E-Mail-Adresse lautet …"),
+# stripped so it isn't glued onto the local part.
+_EMAIL_LEADIN_RE = re.compile(
+    r"^(?:\s*\b(?:ja|nein|also|genau|ähm|äh|meine?|die|das|ich|e[-\s]?mail|email|mail|"
+    r"adresse|lautet|ist|wäre|my|the|email|address|it'?s|is)\b[\s.:,!?-]*)+",
+    re.IGNORECASE,
+)
+
+
 def _parse_email(text: str) -> str | None:
-    """Convert a spoken email ('max at gmail punkt com') to an address."""
-    t = text.lower()
-    t = re.sub(r"(?<=\w)\.?(?:at|ät)(?=\w)", "@", t)
-    t = re.sub(r"\s+(?:at|ät)\s+", "@", t)
-    t = re.sub(r"\s+(?:punkt|dot|point)\s+", ".", t)
+    """Convert a spoken email to an address.
+
+    Spoken emails arrive in chunks with stray spaces ("Lang M at gmail punkt com")
+    and the local part is often dictated piece by piece. We strip a spoken lead-in,
+    map connectors to symbols, then join the remaining whitespace so a
+    space-separated local part ("lang m") becomes one token ("langm") instead of
+    being truncated to whichever fragment happened to carry the '@'.
+    """
+    t = _EMAIL_LEADIN_RE.sub("", text.lower().strip())
+    t = re.sub(r"\s*(?:\bat\b|\bät\b|@)\s*", "@", t)
+    t = re.sub(r"\s*(?:\bpunkt\b|\bdot\b|\bpoint\b)\s*", ".", t)
+    t = re.sub(r"\s*\.\s*", ".", t)
+    t = re.sub(r"\s+", "", t).strip(".,;:!?")
     t = t.replace("@www.", "@")
-    for token in t.split():
-        token = token.strip(".,;:!?")
-        if _EMAIL_VALID_RE.match(token):
-            local, _, domain = token.partition("@")
-            parts = domain.split(".")
-            parts[0] = _DOMAIN_CORRECTIONS.get(parts[0], parts[0])
-            return f"{local}@{'.'.join(parts)}"
-    return None
+    if "@" not in t:
+        return None
+    local, _, domain = t.partition("@")
+    parts = [p for p in domain.split(".") if p]
+    if local and parts:
+        parts[0] = _DOMAIN_CORRECTIONS.get(parts[0], parts[0])
+    candidate = f"{local}@{'.'.join(parts)}"
+    return candidate if _EMAIL_VALID_RE.match(candidate) else None
 
 
 def _extract_reference(text: str) -> str | None:
@@ -299,12 +316,7 @@ class ConversationManager:
         captured_insurance = self._try_capture_insurance(text)
         self._try_capture_contact(text, skip_phone=captured_insurance)
         self._try_skip_email(text)
-        # Email re-ask: we asked for the email but couldn't parse one (and it
-        # wasn't a "no email" skip) → next prompt apologises and asks again.
-        if awaiting == "email":
-            self.state.email_misheard = (
-                "email" not in self.state.entities and not self.state.email_skipped
-            )
+        self._handle_email_attempt(awaiting)
         self._try_capture_preferred_time(text)
         self._try_book(text)
         self._persist()
@@ -428,6 +440,28 @@ class ConversationManager:
         logger.info("Email skipped: caller has none")
         self.state.email_skipped = True
         self.advance_phase()
+
+    _MAX_EMAIL_ATTEMPTS = 3
+
+    def _handle_email_attempt(self, awaiting: str | None) -> None:
+        """Track failed email attempts; re-ask, then skip after a few misses.
+
+        Spoken email over phone-quality audio is the hardest field. Rather than
+        loop forever, after a few attempts we mark it skipped — a phone number is
+        enough to book or call back."""
+        if awaiting != "email":
+            return
+        if "email" in self.state.entities or self.state.email_skipped:
+            self.state.email_misheard = False
+            return
+        self.state.email_attempts += 1
+        if self.state.email_attempts >= self._MAX_EMAIL_ATTEMPTS:
+            logger.info("Email skipped after %d failed attempts", self.state.email_attempts)
+            self.state.email_skipped = True
+            self.state.email_misheard = False
+            self.advance_phase()
+        else:
+            self.state.email_misheard = True
 
     def _try_capture_preferred_time(self, text: str) -> None:
         """Store the caller's preferred callback time once it has been asked."""

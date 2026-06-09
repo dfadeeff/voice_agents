@@ -1005,3 +1005,39 @@ class TestFullScriptedTrafficBooking:
         assert "Daniel Stein" in line
         ctx.add_user_message("Ja, genau")
         assert ctx.state.entities["name"].confirmed is True
+
+
+class TestSpokenEmailParsing:
+    """Spoken email is the hardest field: chunked local parts and graceful skip."""
+
+    def test_chunked_local_part_is_joined(self):
+        from app.conversation.manager import _parse_email
+
+        # Regression: "Lang M at gmail.com" used to collapse to "m@gmail.com"
+        # because the space before the @-token dropped the "lang" prefix.
+        assert _parse_email("Lang M at gmail.com") == "langm@gmail.com"
+        assert _parse_email("Lang M at gmail punkt com") == "langm@gmail.com"
+        assert _parse_email("meine email ist lang m at gmail punkt com") == "langm@gmail.com"
+        assert _parse_email("max punkt mueller at gmail punkt com") == "max.mueller@gmail.com"
+        # Non-emails must still yield nothing (so we re-ask, not mis-store).
+        assert _parse_email("Gmail.com") is None
+        assert _parse_email("Wie bitte?") is None
+
+    def test_email_skipped_after_repeated_misses(self):
+        ctx = ConversationManager(call_id="e2e-email-skip", lang="de")
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        ctx.store_entity("matter_type", "dismissal", 1.0)
+        ctx.confirm_entity("matter_type")
+        ctx.store_entity("matter_details", "Frist", 1.0)
+        ctx.confirm_entity("matter_details")
+        ctx.store_entity("name", "Anna Schmidt", 1.0)
+        ctx.confirm_entity("name")
+
+        for _ in range(3):
+            ctx.next_prompt()  # asks / re-asks email
+            ctx.add_user_message("was bitte?")  # never parseable
+        # After the cap: email skipped, moves on to the phone ask (no infinite loop).
+        assert ctx.state.email_skipped is True
+        line = ctx.next_prompt()
+        assert ctx.state.awaiting == "phone"
+        assert line is not None

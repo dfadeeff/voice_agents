@@ -37,6 +37,10 @@ class ConversationState:
     # True when we asked for the email but couldn't parse one from the reply, so
     # the next prompt apologises and asks again (the "didn't catch it" path).
     email_misheard: bool = False
+    # How many times the email was asked but not understood. Spoken email is the
+    # hardest field over phone-quality audio; after a few misses we stop looping
+    # and skip it (a phone number is enough to book / call back).
+    email_attempts: int = 0
     misunderstanding_streak: int = 0
     last_transcription_confidence: float | None = None
     # The specific datum the agent's last scripted question asked for. Set by
