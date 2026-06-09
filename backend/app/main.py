@@ -31,6 +31,14 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing database...")
     calendar = CalendarService(db_path=settings.db_url.replace("sqlite+aiosqlite:///", ""))
     await calendar.init_db()
+
+    if await calendar.needs_reseed():
+        logger.info("Calendar slots are stale or empty — reseeding with future dates...")
+        from scripts.seed_calendar import seed
+
+        await seed()
+        logger.info("Calendar reseeded.")
+
     app.state.calendar = calendar
 
     logger.info("Building tool registry...")

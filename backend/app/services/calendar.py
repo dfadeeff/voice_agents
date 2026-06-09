@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import aiosqlite
 
@@ -16,8 +16,9 @@ class CalendarService:
         self, legal_area: str = "", exclude_ids: list[int] | None = None, limit: int = 3
     ) -> list[dict]:
         exclude_ids = exclude_ids or []
-        query = "SELECT * FROM slots WHERE is_booked = 0"
-        params: list = []
+        today = date.today().isoformat()
+        query = "SELECT * FROM slots WHERE is_booked = 0 AND date >= ?"
+        params: list = [today]
         if legal_area and legal_area != "unknown":
             query += " AND (legal_area = ? OR legal_area IS NULL)"
             params.append(legal_area)
@@ -212,6 +213,16 @@ class CalendarService:
             except Exception:
                 pass
             await db.commit()
+
+    async def needs_reseed(self) -> bool:
+        """True when all slots are in the past or no slots exist."""
+        today = date.today().isoformat()
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM slots WHERE date >= ? AND is_booked = 0", [today]
+            ) as cur:
+                count = (await cur.fetchone())[0]
+                return count == 0
 
     async def get_slot_by_id(self, slot_id: int) -> dict | None:
         async with aiosqlite.connect(self._db_path) as db:
