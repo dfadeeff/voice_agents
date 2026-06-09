@@ -55,12 +55,13 @@ def create_tts(settings: Settings):
 
         return ElevenLabsTTSService(api_key=settings.elevenlabs_api_key)
 
-    from pipecat.services.piper.tts import PiperTTSService
+    from app.pipeline.local_piper import LocalPiperTTSService
 
     model_path = Path(settings.piper_model_path)
     if not model_path.is_absolute():
         model_path = _BACKEND_ROOT / model_path
-    return PiperTTSService(
-        settings=PiperTTSService.Settings(voice=model_path.stem),
+    return LocalPiperTTSService(
+        sentence_pause_ms=settings.piper_sentence_pause_ms,
+        settings=LocalPiperTTSService.Settings(voice=model_path.stem),
         download_dir=model_path.parent,
     )

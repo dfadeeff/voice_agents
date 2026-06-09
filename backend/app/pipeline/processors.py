@@ -29,7 +29,6 @@ from pipecat.processors.aggregators.sentence import match_endofsentence
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 from app.conversation.locales import get_locale
-from app.conversation.script import scripted_line
 from app.models.schemas import CallPhase
 
 if TYPE_CHECKING:
@@ -499,9 +498,12 @@ class TranscriptProcessor(FrameProcessor):
         self._filler_injector = filler_injector
 
     def _check_fast_path(self, old_phase: CallPhase, new_phase: CallPhase) -> str | None:
-        # Narration split: callback steps are fully state-determined, so speak them
-        # from a template and skip the LLM (it cannot drift/hallucinate here).
-        return scripted_line(self._conversation.state, self._conversation.lang)
+        # The data-collection spine is fully state-determined, so speak the next
+        # question from a template and skip the LLM (it cannot drift/hallucinate
+        # here). next_prompt() also records what the question asked for
+        # (state.awaiting) so the next reply is parsed deterministically. Returns
+        # None for ROUTING / INFORMATION, where the LLM legitimately drives.
+        return self._conversation.next_prompt()
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -522,6 +524,9 @@ class TranscriptProcessor(FrameProcessor):
 
             old_phase = self._conversation.state.phase
             self._conversation.add_user_message(text)
+            # LLM rescue for spoken email when regex couldn't parse one (no-op
+            # unless an extractor is configured — regex is the local default).
+            await self._conversation.resolve_email_if_pending(text)
             new_phase = self._conversation.state.phase
             if new_phase != old_phase:
                 logger.info("Phase: %s → %s", old_phase.value, new_phase.value)

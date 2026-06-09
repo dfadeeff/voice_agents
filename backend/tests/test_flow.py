@@ -217,15 +217,18 @@ class TestPhaseTools:
         assert "request_handoff" in tools
 
     def test_qualification_tools(self):
+        # Qualification is driven by the scripted spine; the LLM only keeps the
+        # handoff escape hatch (it never gets a turn here).
         tools = PHASE_TOOLS[CallPhase.QUALIFICATION]
-        assert "capture_caller_details" in tools
         assert "request_handoff" in tools
+        assert "capture_caller_details" not in tools
 
     def test_capture_tools(self):
+        # Capture is fully scripted; no LLM extraction tools.
         tools = PHASE_TOOLS[CallPhase.CAPTURE]
-        assert "capture_caller_details" in tools
-        assert "confirm_caller_detail" in tools
         assert "request_handoff" in tools
+        assert "capture_caller_details" not in tools
+        assert "confirm_caller_detail" not in tools
         assert "book_consultation" not in tools
 
     def test_booking_tools(self):

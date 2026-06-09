@@ -258,6 +258,14 @@ SCRIPTED = {
         "or another issue with your landlord?"
     ),
     "traffic_insurance": ("Do you already have a claim number or an insurance number?"),
+    "employment_details": (
+        "Is there a deadline you're aware of? For example, an unfair dismissal claim "
+        "must be filed within three weeks."
+    ),
+    "tenancy_details": (
+        "Have you raised this in writing with your landlord yet? "
+        "And are there any deadlines you need to be aware of?"
+    ),
     "ask_name": (
         "I'll take down your callback request. "
         "I'll just need your name and phone number. "
@@ -274,6 +282,7 @@ SCRIPTED = {
     ),
     "ask_email_retry": ("Sorry about that. What is the correct email address?"),
     "confirm_email": ("I've noted: {email}. Is that correct?"),
+    "confirm_name": ("I've noted your name as {name}. Is that correct?"),
     "ask_phone": ("Thank you. What is the best phone number to reach you?"),
     "confirm_phone": ("I've noted your number: {phone}. Is that correct?"),
     "ask_callback_time": ("And when would be a good time to call you back?"),

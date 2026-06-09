@@ -12,14 +12,19 @@ CALLBACK_REQUIRED_FIELDS = ("name", "phone")
 
 PHASE_TOOLS: dict[CallPhase, list[str]] = {
     CallPhase.GREETING: [],
+    # ROUTING is the one place the local LLM drives: it interprets messy free
+    # speech into intent + legal area (keyword fallback backs it up).
     CallPhase.ROUTING: ["route_call", "request_handoff"],
-    CallPhase.QUALIFICATION: ["capture_caller_details", "route_call", "request_handoff"],
+    # QUALIFICATION, CAPTURE and BOOKING are driven by the scripted spine
+    # (next_prompt fast-paths every turn), so the LLM never runs here — it only
+    # keeps the handoff escape hatch.
+    CallPhase.QUALIFICATION: ["request_handoff"],
     CallPhase.INFORMATION: ["route_call", "request_handoff"],
-    CallPhase.CAPTURE: ["capture_caller_details", "confirm_caller_detail", "request_handoff"],
-    # Booking (slot offer/select/book) is fully deterministic in the manager;
-    # the LLM only keeps an escalation path here.
+    CallPhase.CAPTURE: ["request_handoff"],
     CallPhase.BOOKING: ["request_handoff"],
     CallPhase.CONFIRMATION: [],
+    # Non-callback escalation (out-of-scope area, repeated misunderstanding) is
+    # still LLM-driven, so it keeps the capture tools.
     CallPhase.ESCALATION: ["capture_caller_details", "confirm_caller_detail", "request_handoff"],
 }
 

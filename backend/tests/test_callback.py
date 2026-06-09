@@ -181,7 +181,8 @@ class TestCallbackScenarioWithTools:
         # Name + phone done → scheduling step asks for a callback time.
         assert ctx.state.phase == CallPhase.CAPTURE
 
-        ctx.add_assistant_message("Und wann dürfen wir Sie am besten zurückrufen?")
+        line = ctx.next_prompt()  # scripted callback-time ask → awaiting == "callback_time"
+        assert line is not None and ctx.state.awaiting == "callback_time"
         ctx.add_user_message("Morgen um 10 Uhr")
         assert ctx.state.preferred_time == "Morgen um 10 Uhr"
         assert ctx.state.phase == CallPhase.CONFIRMATION
