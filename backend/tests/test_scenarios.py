@@ -359,20 +359,33 @@ class TestEnforcedInsuranceStep:
         assert ctx.state.phase == CallPhase.CAPTURE
 
     def test_unparseable_insurance_answers_do_not_loop_forever(self):
-        # Regression: caller says they *have* a number but never reads the digits
-        # ("Versicherungsnummer", a cut-off "F"). Neither a number nor a clear "no",
-        # so the step must cap the loop and proceed rather than re-ask forever.
+        # Caller never reads any digits ("Versicherungsnummer", "F", …) → the step
+        # must cap the loop and proceed rather than re-ask forever.
         ctx = ConversationManager(call_id="enf4", lang="de")
         ctx.add_user_message("Ich hatte einen Autounfall")
         ctx.next_prompt()  # area_confirm, awaiting matter_type
         ctx.add_user_message("Verkehrsunfall")
         ctx.next_prompt()  # traffic_insurance, awaiting insurance
-        ctx.add_user_message("Versicherungsnummer")  # miss 1 — still asking
-        assert ctx.state.insurance_resolved is False
-        assert ctx.state.phase == CallPhase.QUALIFICATION
-        ctx.add_user_message("F")  # miss 2 — cap reached, proceed without it
+        for _ in range(4):  # _MAX_INSURANCE_ATTEMPTS — no digits ever given
+            ctx.add_user_message("Versicherungsnummer")
         assert ctx.state.insurance_resolved is True
         assert "insurance_number" not in ctx.state.entities
+        assert ctx.state.phase == CallPhase.CAPTURE
+
+    def test_insurance_dictated_piecewise_across_turns_is_accumulated(self):
+        # The live regression: the number is spoken in short bursts with pauses,
+        # each chunk too short on its own — they must accumulate into one reference.
+        ctx = ConversationManager(call_id="enf5", lang="de")
+        ctx.add_user_message("Ich hatte einen Autounfall")
+        ctx.next_prompt()  # area_confirm, awaiting matter_type
+        ctx.add_user_message("Verkehrsunfall")
+        ctx.next_prompt()  # traffic_insurance, awaiting insurance
+        ctx.add_user_message("Ich habe eine Versicherungsnummer F vier")  # "F4"
+        assert ctx.state.insurance_resolved is False  # still collecting
+        ctx.add_user_message("fünf vier")  # "54" → buffer "F454"
+        assert ctx.state.insurance_resolved is False
+        ctx.add_user_message("sechs acht neun")  # "689" → buffer "F454689" (≥5)
+        assert ctx.state.entities["insurance_number"].value == "F454689"
         assert ctx.state.phase == CallPhase.CAPTURE
 
 
