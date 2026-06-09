@@ -1,4 +1,9 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
+
+# backend/app/config.py → parents[2] is the repo root, where .env lives.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -67,4 +72,7 @@ class Settings(BaseSettings):
 
     use_tools_local: bool = True
 
-    model_config = {"env_file": ".env", "env_prefix": "", "extra": "ignore"}
+    # Pin .env to the repo root: a bare ".env" resolves against the CWD, but
+    # `make run` does `cd backend`, so the root .env would otherwise be missed and
+    # every setting (including cloud API keys) would silently fall back to defaults.
+    model_config = {"env_file": str(_REPO_ROOT / ".env"), "env_prefix": "", "extra": "ignore"}
