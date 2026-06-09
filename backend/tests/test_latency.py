@@ -198,10 +198,13 @@ class TestPerTurnEndpointTuning:
 
     def test_window_for_each_field(self):
         proc, _, _ = self._proc()
-        for awaiting in ("email", "phone", "insurance", "insurance_confirm"):
-            assert proc._endpoint_secs_for(awaiting) == 2.0  # dictation → wide
-        for awaiting in ("name", "name_confirm", "email_confirm", "slot", None):
-            assert proc._endpoint_secs_for(awaiting) == 0.8  # conversational → snappy
+        # Free-form turns (dictated number/email + the open problem-description
+        # turns where awaiting is None) get the wide window.
+        for awaiting in ("email", "phone", "insurance", "insurance_confirm", None):
+            assert proc._endpoint_secs_for(awaiting) == 2.0
+        # Short scripted answers stay snappy.
+        for awaiting in ("name", "name_confirm", "email_confirm", "slot", "matter_type"):
+            assert proc._endpoint_secs_for(awaiting) == 0.8
 
     def test_tune_applies_and_restores_on_the_vad(self):
         proc, conv, vad = self._proc()

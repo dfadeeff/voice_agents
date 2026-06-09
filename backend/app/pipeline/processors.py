@@ -511,7 +511,9 @@ class TranscriptProcessor(FrameProcessor):
         self._vad_params = vad_params
         self._normal_stop_secs = vad_params.stop_secs if vad_params else None
         self._dictation_stop_secs = dictation_stop_secs
-        self._current_stop_secs = self._normal_stop_secs
+        # None until the first turn tunes it — the VAD is initialised wide (the
+        # opening problem-description is free-form), so force the first apply.
+        self._current_stop_secs = None
         # A split utterance ("Klein at Hotmail" | "Punkt de") arrives as two rapid
         # STT finals; each would re-fire the same scripted line, speaking it twice.
         # Suppress an identical fast-path repeated within this window.
@@ -537,15 +539,14 @@ class TranscriptProcessor(FrameProcessor):
         return text
 
     def _endpoint_secs_for(self, awaiting: str | None) -> float | None:
-        """Target VAD stop window for the next reply: a wider window while the
-        caller will be dictating a number/email, the normal window otherwise."""
+        """Target VAD stop window for the next reply. Wide while the caller speaks
+        freely — dictating a number/email, OR describing their problem on the
+        opening/routing/info turns (awaiting is None) where they pause to think.
+        Snappy for the short scripted answers (name, yes/no confirms, slot choice)."""
         if self._normal_stop_secs is None:
             return None
-        return (
-            self._dictation_stop_secs
-            if awaiting in self._DICTATION_AWAITING
-            else self._normal_stop_secs
-        )
+        free_form = awaiting in self._DICTATION_AWAITING or awaiting is None
+        return self._dictation_stop_secs if free_form else self._normal_stop_secs
 
     def _tune_endpoint(self) -> None:
         """Adjust the VAD end-of-speech window to match the field the agent just
