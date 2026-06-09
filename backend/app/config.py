@@ -26,10 +26,12 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
 
     # LLM-assisted extraction for the open-ended slots (spoken email + matter-type
-    # classification). Keyword/regex is the local default; the LLM only runs as a
-    # rescue when the deterministic parse fails. Implicitly on for the OpenAI
-    # (cloud) provider; set true to also enable it for local Ollama.
-    llm_assist: bool = False
+    # classification). Keyword/regex still runs first for free; the LLM only fires
+    # as a rescue when the deterministic parse fails. Spoken email over local
+    # Whisper is the field that most needs this reassembly ("lang m at gmail punkt
+    # com" → langm@gmail.com), so it is on by default (also implicitly on for the
+    # OpenAI provider). Set false to force regex-only.
+    llm_assist: bool = True
 
     piper_model_path: str = "models/piper/de_DE-eva_k-x_low.onnx"
     piper_data_path: str = "models/piper/de_DE-eva_k-x_low.onnx.json"

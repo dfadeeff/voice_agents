@@ -306,7 +306,8 @@ SCRIPTED = {
     ),
     "ask_email": ("Danke. Wie lautet Ihre E-Mail-Adresse?"),
     "ask_email_not_understood": (
-        "Ich habe die E-Mail-Adresse leider nicht verstanden. Können Sie sie bitte nochmal sagen?"
+        "Ich habe die E-Mail-Adresse leider nicht verstanden. Bitte nennen Sie sie noch einmal "
+        "langsam, mit 'at' und 'punkt' — zum Beispiel: max punkt muster at gmail punkt com."
     ),
     "ask_email_retry": ("Entschuldigung. Wie lautet die E-Mail-Adresse korrekt?"),
     "confirm_email": ("Ich habe notiert: {email} — ist das korrekt?"),
