@@ -28,6 +28,10 @@ class ConversationState:
     declined_slot_times: list[str] = field(default_factory=list)
     # Slots currently offered to the caller (deterministic booking).
     offered_slots: list[dict] = field(default_factory=list)
+    # How many times the matter-type question was asked without a recognised
+    # answer; after a couple of misses we record it as "other" and move on
+    # instead of re-asking forever.
+    matter_attempts: int = 0
     # Candidate legal areas when the opening utterance matched more than one
     # (e.g. "Mietvertrag gekündigt" → tenancy + employment). Triggers a scripted
     # disambiguation question instead of leaving the call stalled in ROUTING.

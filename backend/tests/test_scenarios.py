@@ -222,6 +222,44 @@ class TestDeterministicMatterType:
         ctx.add_user_message("Nein, das stimmt nicht")
         assert "matter_type" not in ctx.state.entities
 
+    def test_tenancy_kuendigung_maps_to_eviction(self):
+        """Regression: the tenancy question offers 'Kündigung der Wohnung', so that
+        answer must map to a matter type (eviction) — not loop forever."""
+        ctx = ConversationManager(call_id="mt-evict", lang="de")
+        ctx.add_user_message("Ich habe ein Problem mit meiner Wohnung")  # → tenancy
+        ctx.next_prompt()  # area_confirm, awaiting matter_type
+        ctx.add_user_message("Kündigung der Wohnung")
+        assert ctx.state.entities["matter_type"].value == "eviction"
+
+    def test_unrecognized_matter_falls_back_to_other(self):
+        """Loop guard: an unrecognised matter answer is recorded as 'other' after a
+        couple of tries instead of re-asking the same question forever."""
+        ctx = ConversationManager(call_id="mt-other", lang="de")
+        ctx.add_user_message("Ich habe ein Problem mit meiner Wohnung")  # → tenancy
+        ctx.next_prompt()
+        ctx.add_user_message("Das ist schwer zu erklären")  # unmatched (try 1)
+        assert "matter_type" not in ctx.state.entities
+        ctx.next_prompt()
+        ctx.add_user_message("Es ist kompliziert")  # unmatched (try 2 → other)
+        assert ctx.state.entities["matter_type"].value == "other"
+
+    def test_llm_classifier_rescues_free_phrased_matter(self):
+        """When keywords miss, the LLM rescue maps a free phrasing to a label."""
+        import asyncio
+
+        async def fake_clf(_area, _text):
+            return "eviction"
+
+        ctx = ConversationManager(call_id="mt-llm", lang="de")
+        ctx.set_matter_classifier(fake_clf)
+        ctx.add_user_message("Ich habe ein Problem mit meiner Wohnung")  # → tenancy
+        ctx.next_prompt()  # awaiting matter_type
+        garbled = "Ich wurde aus meiner Wohnung geworfen"  # no keyword hit
+        ctx.add_user_message(garbled)
+        assert "matter_type" not in ctx.state.entities  # keywords missed
+        asyncio.run(ctx.resolve_matter_if_pending(garbled))
+        assert ctx.state.entities["matter_type"].value == "eviction"
+
 
 class TestContextAwareInsuranceCapture:
     """insurance_number is captured only when the agent just asked for it."""

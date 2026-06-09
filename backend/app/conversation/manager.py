@@ -73,7 +73,9 @@ _MATTER_KEYWORDS: dict[LegalArea, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("contract", ("arbeitsvertrag", "contract")),
     ),
     LegalArea.TENANCY: (
-        ("eviction", ("räumung", "raeumung", "eviction", "evict")),
+        # The agent's tenancy question offers "Kündigung der Wohnung", so a lease
+        # termination must map to eviction here (not employment — area is tenancy).
+        ("eviction", ("räumung", "raeumung", "kündigung", "gekündigt", "eviction", "evict")),
         ("deposit", ("kaution", "deposit")),
         ("rent_increase", ("mieterhöhung", "mieterhoehung", "rent increase")),
         ("repairs", ("mängel", "maengel", "reparatur", "schimmel", "repairs", "mould", "mold")),
@@ -272,6 +274,8 @@ class ConversationManager:
         self._tools_builder: Callable[[list[str]], Any] | None = None
         # Optional async LLM rescue for spoken email; None = regex-only (local default).
         self._email_extractor: Callable[[str], Any] | None = None
+        # Optional async LLM rescue for matter-type; None = keyword-only (local default).
+        self._matter_classifier: Callable[[str, str], Any] | None = None
         # Optional CalendarService for deterministic in-code booking (sync access).
         self._calendar = calendar
 
@@ -284,6 +288,36 @@ class ConversationManager:
     def set_email_extractor(self, extractor: Callable[[str], Any] | None) -> None:
         """Optional async LLM rescue for spoken email (regex stays the default)."""
         self._email_extractor = extractor
+
+    def set_matter_classifier(self, classifier: Callable[[str, str], Any] | None) -> None:
+        """Optional async LLM rescue for matter-type (keyword match stays default)."""
+        self._matter_classifier = classifier
+
+    async def resolve_matter_if_pending(self, text: str) -> None:
+        """LLM rescue when we asked for the matter type but keywords couldn't map it.
+
+        Runs after add_user_message (keywords had first go). Only fires when the
+        matter type is still unknown or was filled with the "other" fallback, and
+        upgrades it to a specific label — so a free-phrased answer like "ich wurde
+        aus meiner Wohnung geworfen" still classifies as eviction.
+        """
+        classifier = getattr(self, "_matter_classifier", None)
+        if classifier is None or self.state.awaiting != "matter_type":
+            return
+        existing = self.state.entities.get("matter_type")
+        if existing and existing.value != "other":
+            return  # keywords already classified specifically
+        try:
+            label = await classifier(self.state.legal_area.value, text)
+        except Exception as e:
+            logger.warning("Matter classifier raised: %s", e)
+            return
+        if not label or (existing and label == "other"):
+            return
+        logger.info("LLM matter classification: %r → %s", text, label)
+        self.state.matter_attempts = 0
+        self._store_matter_type(label)
+        self._persist()
 
     async def resolve_email_if_pending(self, text: str) -> None:
         """LLM rescue when we asked for the email but regex couldn't parse one.
@@ -399,6 +433,14 @@ class ConversationManager:
             # original complaint. Skipped on the routing turn so the area-
             # confirmation question still gets asked.
             self._try_capture_matter_type(text)
+            # Loop guard: if we asked for the matter type and still couldn't
+            # recognise the answer, record it as "other" after a couple of tries
+            # rather than re-asking the same question forever.
+            if awaiting == "matter_type" and "matter_type" not in self.state.entities:
+                self.state.matter_attempts += 1
+                if self.state.matter_attempts >= 2:
+                    logger.info("matter_type unresolved → recording 'other'")
+                    self._store_matter_type("other")
 
         self._try_capture_matter_details(text)
         self._try_confirm_readback(text)
