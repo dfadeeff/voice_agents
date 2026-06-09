@@ -15,7 +15,7 @@ from app.conversation.phone import normalize_phone_text
 from app.conversation.policy import extract_target_person
 from app.conversation.prompts import build_system_prompt
 from app.conversation.state import ConversationState
-from app.models.schemas import CallPhase, ExtractedEntity
+from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity
 
 
 def _confirmed(field, value="test"):
@@ -39,18 +39,19 @@ class TestCallbackFlow:
     def test_callback_required_fields_are_name_and_phone(self):
         assert CALLBACK_REQUIRED_FIELDS == ("name", "phone")
 
-    def test_person_request_enters_capture_not_escalation(self):
+    def test_person_request_routes_to_booking_not_callback(self):
+        """Asking for a specific lawyer now books a consultation with them, not a callback."""
         ctx = ConversationManager(call_id="cb-test", lang="de")
         ctx.add_user_message("Ich möchte bitte Herrn Schmid sprechen.")
-        assert ctx.state.phase == CallPhase.CAPTURE
-        assert ctx.state.callback_requested is True
         assert ctx.state.target_person == "Herr Schmid"
+        assert ctx.state.caller_intent == CallerIntent.BOOK_CONSULTATION
+        assert ctx.state.callback_requested is False
         assert ctx.state.escalation_requested is False
 
     def test_callback_requires_phone_after_name(self):
         """The exact regression: after name, must ask for phone, not close."""
         ctx = ConversationManager(call_id="cb-test", lang="de")
-        ctx.add_user_message("Ich möchte bitte Herrn Schmid sprechen.")
+        ctx.add_user_message("Bitte rufen Sie mich zurück.")
         assert ctx.state.phase == CallPhase.CAPTURE
 
         ctx.store_entity("name", "Max Mustermann", 0.95)
@@ -61,7 +62,7 @@ class TestCallbackFlow:
 
     def test_callback_confirms_after_name_phone_and_time(self):
         ctx = ConversationManager(call_id="cb-test", lang="de")
-        ctx.add_user_message("Ich möchte bitte Herrn Schmid sprechen.")
+        ctx.add_user_message("Bitte rufen Sie mich zurück.")
 
         ctx.store_entity("name", "Max Mustermann", 0.95)
         ctx.confirm_entity("name")
@@ -153,13 +154,12 @@ class TestCallbackContactsConfirmed:
 
 class TestCallbackScenarioWithTools:
     @pytest.mark.asyncio
-    async def test_named_person_callback_happy_path(self, registry):
+    async def test_callback_request_happy_path(self, registry):
         ctx = ConversationManager(call_id="cb-happy", lang="de")
 
-        ctx.add_user_message("Ich möchte bitte Herrn Schmid sprechen.")
+        ctx.add_user_message("Bitte rufen Sie mich zurück.")
         assert ctx.state.phase == CallPhase.CAPTURE
         assert ctx.state.callback_requested is True
-        assert ctx.state.target_person == "Herr Schmid"
 
         ctx.add_user_message("Ja, Max Mustermann")
         await registry.execute("capture_caller_details", {"name": "Max Mustermann"}, ctx)
@@ -192,7 +192,7 @@ class TestCallbackScenarioWithTools:
         """Regression: system must not say 'weiterleiten' before phone is captured."""
         ctx = ConversationManager(call_id="cb-no-close", lang="de")
 
-        ctx.add_user_message("Ich möchte bitte Herrn Schmid sprechen.")
+        ctx.add_user_message("Bitte rufen Sie mich zurück.")
         ctx.add_user_message("Max Mustermann")
         await registry.execute("capture_caller_details", {"name": "Max Mustermann"}, ctx)
 
@@ -203,20 +203,20 @@ class TestCallbackScenarioWithTools:
         assert "phone" in prompt.lower() or "telefon" in prompt.lower()
 
     @pytest.mark.asyncio
-    async def test_generic_person_request_callback(self, registry):
-        """'Mit einem Anwalt sprechen' also enters callback flow."""
-        ctx = ConversationManager(call_id="cb-generic", lang="de")
-        ctx.add_user_message("Ich möchte mit einem Anwalt sprechen.")
+    async def test_named_person_request_routes_to_booking(self, registry):
+        """Asking for a specific lawyer books a consultation with them (not a callback)."""
+        ctx = ConversationManager(call_id="cb-person", lang="de")
+        ctx.add_user_message("Ich möchte mit Frau Hoffmann sprechen.")
 
-        assert ctx.state.callback_requested is True
-        assert ctx.state.target_person is None
-        assert ctx.state.phase == CallPhase.CAPTURE
+        assert ctx.state.callback_requested is False
+        assert ctx.state.target_person == "Frau Hoffmann"
+        assert ctx.state.caller_intent == CallerIntent.BOOK_CONSULTATION
 
     @pytest.mark.asyncio
-    async def test_handoff_tool_still_works_during_callback(self, registry):
-        """LLM can still explicitly escalate during callback capture."""
+    async def test_handoff_tool_still_escalates(self, registry):
+        """LLM can still explicitly escalate (e.g. a frustrated caller)."""
         ctx = ConversationManager(call_id="cb-escalate", lang="de")
-        ctx.add_user_message("Ich möchte bitte Herrn Schmid sprechen.")
+        ctx.add_user_message("Bitte rufen Sie mich zurück.")
         assert ctx.state.phase == CallPhase.CAPTURE
 
         result = await registry.execute(

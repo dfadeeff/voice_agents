@@ -232,10 +232,14 @@ def compute_prompt(state: ConversationState, lang: str = "de") -> tuple[str | No
         if "gebucht" in last_agent or "booked" in last_agent:
             return scripts.get("goodbye"), None
         slot = state.booked_slot
-        return scripts["booking_done"].format(
-            date=_fmt_date(slot["date"], lang),
-            time=_fmt_time(slot["time"], lang),
-        ), None
+        date = _fmt_date(slot["date"], lang)
+        time = _fmt_time(slot["time"], lang)
+        # Name the lawyer when the caller asked for them and got their slot.
+        person = state.target_person
+        lawyer = slot.get("lawyer_name", "")
+        if person and lawyer and person.split()[-1].lower() in lawyer.lower():
+            return scripts["booking_done_person"].format(person=person, date=date, time=time), None
+        return scripts["booking_done"].format(date=date, time=time), None
 
     return None, None
 

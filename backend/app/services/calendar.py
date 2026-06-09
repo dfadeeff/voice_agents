@@ -17,6 +17,7 @@ class CalendarService:
         legal_area: str = "",
         exclude_ids: list[int] | None = None,
         exclude_times: list[str] | None = None,
+        lawyer: str = "",
         limit: int = 3,
     ) -> list[dict]:
         exclude_ids = exclude_ids or []
@@ -29,6 +30,10 @@ class CalendarService:
         if legal_area and legal_area != "unknown":
             query += " AND (legal_area = ? OR legal_area IS NULL)"
             params.append(legal_area)
+        # Prefer a specific lawyer (caller asked for them by name).
+        if lawyer:
+            query += " AND lawyer_name LIKE ?"
+            params.append(f"%{lawyer}%")
         if exclude_ids:
             query += f" AND id NOT IN ({','.join('?' * len(exclude_ids))})"
             params.extend(exclude_ids)

@@ -97,7 +97,7 @@ class TestDeterministicContactCapture:
 
     def test_name_captured_without_tool_call_in_callback(self):
         ctx = ConversationManager(call_id="det-name", lang="de")
-        ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
+        ctx.add_user_message("Bitte rufen Sie mich zurück.")
         assert ctx.state.phase == CallPhase.CAPTURE
 
         ctx.add_user_message("Mein Name ist Herbert Wilhelm")
@@ -107,7 +107,7 @@ class TestDeterministicContactCapture:
 
     def test_phone_captured_without_tool_call(self):
         ctx = ConversationManager(call_id="det-phone", lang="de")
-        ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
+        ctx.add_user_message("Bitte rufen Sie mich zurück.")
 
         ctx.add_user_message("0151 693 67234")
 
@@ -116,7 +116,7 @@ class TestDeterministicContactCapture:
 
     def test_partial_phone_fragment_not_stored(self):
         ctx = ConversationManager(call_id="det-partial", lang="de")
-        ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
+        ctx.add_user_message("Bitte rufen Sie mich zurück.")
 
         ctx.add_user_message("0151")
 
@@ -134,7 +134,7 @@ class TestDeterministicContactCapture:
 
     def test_english_name_capture(self):
         ctx = ConversationManager(call_id="det-en", lang="en")
-        ctx.add_user_message("I'd like to speak to Mr Schulz please.")
+        ctx.add_user_message("Could you call me back, please?")
         assert ctx.state.phase == CallPhase.CAPTURE
 
         ctx.add_user_message("My name is Herbert Wilhelm")
@@ -144,14 +144,14 @@ class TestDeterministicContactCapture:
     def test_bare_name_captured_after_agent_asks(self):
         """Regression: caller answers 'Daniel Stein' with no 'Mein Name ist' trigger."""
         ctx = ConversationManager(call_id="det-bare", lang="de")
-        ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
+        ctx.add_user_message("Bitte rufen Sie mich zurück.")
         ctx.next_prompt()  # scripted name ask → awaiting == "name"
         ctx.add_user_message("Daniel Stein")
         assert ctx.state.entities["name"].value == "Daniel Stein"
 
     def test_bare_reply_non_name_not_captured(self):
         ctx = ConversationManager(call_id="det-bare2", lang="de")
-        ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
+        ctx.add_user_message("Bitte rufen Sie mich zurück.")
         ctx.next_prompt()  # awaiting == "name"
         ctx.add_user_message("Ja gerne")
         assert "name" not in ctx.state.entities
@@ -182,7 +182,9 @@ class TestDeterministicMatterType:
             "und ich möchte mit Herrn Schulz sprechen."
         )
         assert ctx.state.entities["matter_type"].value == "accident"
-        assert ctx.state.callback_requested is True
+        # A named-person request now routes to a booking (with that lawyer), not a callback.
+        assert ctx.state.target_person == "Herr Schulz"
+        assert ctx.state.callback_requested is False
 
     def test_employment_matter_type(self):
         ctx = ConversationManager(call_id="mt-emp", lang="de")
@@ -258,7 +260,7 @@ class TestContextAwareInsuranceCapture:
 
     def test_phone_still_works_when_phone_asked(self):
         ctx = ConversationManager(call_id="ins-phone", lang="de")
-        ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
+        ctx.add_user_message("Bitte rufen Sie mich zurück.")
         ctx.next_prompt()  # ask name, awaiting name
         ctx.add_user_message("Max Mustermann")
         ctx.next_prompt()  # ask phone, awaiting phone
@@ -310,14 +312,15 @@ class TestEnforcedInsuranceStep:
 class TestHumanHandoffScenario:
     """Caller explicitly asks for a human at any point."""
 
-    def test_named_person_request_enters_callback_capture(self):
+    def test_named_person_request_routes_to_booking(self):
         ctx = ConversationManager(call_id="named-person", lang="de")
 
         ctx.add_user_message("Ich möchte bitte Frau Landau sprechen.")
 
-        assert ctx.state.phase == CallPhase.CAPTURE
-        assert ctx.state.callback_requested is True
+        # Books a consultation with that lawyer (not a callback / escalation).
         assert ctx.state.target_person == "Frau Landau"
+        assert ctx.state.caller_intent == CallerIntent.BOOK_CONSULTATION
+        assert ctx.state.callback_requested is False
         assert ctx.state.escalation_requested is False
 
     @pytest.mark.asyncio
@@ -727,7 +730,7 @@ class TestNarrationSplit:
     def test_full_callback_flow(self):
         """name → phone → read-back → callback time → done, all scripted."""
         ctx = ConversationManager(call_id="ns", lang="de")
-        ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
+        ctx.add_user_message("Herr Schulz soll mich bitte zurückrufen.")
         line = ctx.next_prompt()
         assert line is not None and ctx.state.awaiting == "name"
         ctx.add_user_message("Daniel Stein")
@@ -751,7 +754,7 @@ class TestNarrationSplit:
     def test_denial_deletes_phone(self):
         """Phone denial deletes the entity; the scripted spine re-asks."""
         ctx = ConversationManager(call_id="ns2", lang="de")
-        ctx.add_user_message("Ich möchte bitte Herrn Schulz sprechen.")
+        ctx.add_user_message("Bitte rufen Sie mich zurück.")
         ctx.next_prompt()  # ask name
         ctx.add_user_message("Daniel Stein")
         ctx.next_prompt()  # ask phone
@@ -999,6 +1002,64 @@ class TestFullScriptedTrafficBooking:
 
         remaining = asyncio.run(cal.get_available_slots("traffic"))
         assert all(s["time"] != "09:00" for s in remaining)
+
+    def test_books_with_requested_lawyer(self):
+        """Story 4 handoff: asking for Frau Hoffmann books a consultation WITH her —
+        her slots are offered and the confirmation names her."""
+        import asyncio
+        import sqlite3
+        import tempfile
+
+        from app.services.calendar import CalendarService
+
+        db = tempfile.mktemp(suffix=".db")
+        cal = CalendarService(db_path=db)
+        asyncio.run(cal.init_db())
+        conn = sqlite3.connect(db)
+        for t in ["09:00", "09:30", "10:00"]:
+            for lawyer in ("Lisa Hoffmann", "Michael Weber"):
+                conn.execute(
+                    "INSERT INTO slots (date,time,legal_area,lawyer_name,is_booked)"
+                    " VALUES (?,?,?,?,0)",
+                    ("2026-06-15", t, "traffic", lawyer),
+                )
+        conn.commit()
+        conn.close()
+
+        ctx = ConversationManager(call_id="e2e-lawyer", lang="de", calendar=cal)
+        ctx.add_user_message("Ich möchte mit Frau Hoffmann sprechen.")
+        assert ctx.state.target_person == "Frau Hoffmann"
+        assert ctx.state.callback_requested is False
+
+        # The matter comes next → keyword-routes to traffic (intent already 'book').
+        ctx.add_user_message("Es geht um einen Autounfall.")
+        assert ctx.state.legal_area == LegalArea.TRAFFIC
+
+        # Fast-forward qualification + name/email deterministically; capture the
+        # phone via real turns so the BOOKING transition (and slot fetch) fire.
+        ctx.state.insurance_resolved = True
+        ctx.store_entity("matter_type", "accident", 1.0)
+        ctx.confirm_entity("matter_type")
+        ctx.store_entity("name", "Felix Lang", 1.0)
+        ctx.confirm_entity("name")
+        ctx.state.email_skipped = True
+        ctx.advance_phase()
+        assert ctx.state.phase == CallPhase.CAPTURE
+        ctx.next_prompt()  # ask_phone
+        ctx.add_user_message("0151 598 32614")
+        ctx.next_prompt()  # confirm_phone
+        ctx.add_user_message("Ja, das stimmt")
+        assert ctx.state.phase == CallPhase.BOOKING
+
+        offer = ctx.next_prompt()  # only Frau Hoffmann's slots are offered
+        assert offer is not None and "9 Uhr" in offer
+        assert all("Hoffmann" in s["lawyer_name"] for s in ctx.state.offered_slots)
+
+        ctx.add_user_message("Die erste passt")
+        assert ctx.state.booking_confirmed is True
+        assert "Hoffmann" in ctx.state.booked_slot["lawyer_name"]
+        done = ctx.next_prompt()  # confirmation names the requested lawyer
+        assert done is not None and "Frau Hoffmann" in done
 
     def test_email_misheard_triggers_reask(self):
         ctx = ConversationManager(call_id="e2e-email", lang="de")

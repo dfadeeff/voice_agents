@@ -61,9 +61,9 @@ PHASE_PROMPTS: dict[CallPhase, str] = {
         "Wenn der Anrufer eine bestimmte Person sprechen möchte "
         "(z.B. 'Frau Müller', 'Herr Schmidt'):\n"
         "1. Sage: 'Ich kann Sie leider nicht direkt zu [Name] durchstellen, "
-        "aber ich nehme gerne Ihr Anliegen auf, damit sich [Name] bei Ihnen meldet.'\n"
-        "2. Frage ZUERST: 'Worum geht es in Ihrem Anliegen?'\n"
-        "3. Erst NACHDEM du weißt worum es geht, rufe request_handoff auf.\n"
+        "aber ich vereinbare gerne einen Beratungstermin mit [Name] für Sie.'\n"
+        "2. Frage dann: 'Worum geht es denn in Ihrem Anliegen?' und bestimme das "
+        "Rechtsgebiet mit route_call.\n"
         "Sage NIEMALS 'ich verbinde Sie' oder 'ich stelle Sie durch'."
     ),
     CallPhase.QUALIFICATION: "",
@@ -317,6 +317,9 @@ SCRIPTED = {
         "um einen passenden Termin zu finden. Auf Wiederhören!"
     ),
     "booking_done": ("Ihr Termin ist gebucht: {date} um {time}. Vielen Dank für Ihren Anruf!"),
+    "booking_done_person": (
+        "Ihr Termin mit {person} ist gebucht: {date} um {time}. Vielen Dank für Ihren Anruf!"
+    ),
     "goodbye": "Vielen Dank für Ihren Anruf, auf Wiederhören!",
     "callback_done": (
         "Vielen Dank. Ich habe Ihren Rückrufwunsch notiert. "

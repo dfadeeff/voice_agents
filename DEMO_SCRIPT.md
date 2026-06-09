@@ -82,21 +82,33 @@ agent **skips email** and moves to phone (a phone number is enough to book).
 Proves: the unsure path — re-prompt, spell/read back, confirm, and graceful skip —
 not just the happy path.
 
-## Demo 5 — Handoff (Story 4), two variants
+## Demo 5 — Handoff (Story 4), three variants
 
-**4a — caller asks for a person:**
-1. "Ich möchte bitte mit Frau Müller sprechen." (I'd like to speak with Ms Müller)
-   → agent can't transfer live; takes a **callback**: asks name → phone → preferred time,
-   then "… Frau Müller meldet sich bei Ihnen." (`callback_requested`, scripted spine).
+**5a — caller asks for a specific lawyer → booked WITH that lawyer (the headline):**
+1. "Ich möchte mit Frau Hoffmann sprechen." (I'd like to speak with Ms Hoffmann)
+   → agent: can't transfer live, but will arrange a consultation with Frau Hoffmann;
+   asks what it's about.
+2. "Es geht um einen Autounfall." (Frau Hoffmann is a traffic lawyer — pick a matter she
+   handles so her slots exist), then proceed through the normal capture.
+3. At the slot offer, **only Frau Hoffmann's slots** are offered, and the confirmation
+   reads "Ihr Termin mit Frau Hoffmann ist gebucht: …".
+   Point at: `target_person` set, `_available_slots` filters by lawyer (graceful fallback
+   to any lawyer if she's full), `booking_done_person` names her. The DB `bookings` row
+   joins to her `slots.lawyer_name`.
 
-**4b — out of scope:**
+**5b — explicit callback (the other path):**
+1. "Bitte rufen Sie mich zurück." (please call me back)
+   → recorded as a **callback**: name → phone → preferred time → "… meldet sich bei Ihnen."
+   (`wants_callback` → `callback_requested`). This is distinct from asking for a lawyer.
+
+**5c — out of scope:**
 1. "Ich brauche Hilfe bei einer Scheidung." (divorce — family law, not handled)
    → `route_call(legal_area="unknown")` sets `escalation_requested=True` → ESCALATION;
    the agent explains the firm handles employment/tenancy/traffic and offers to pass it on.
    Note: "Scheidung" matches no routing keyword, so this path depends on the **LLM**
    classifying it as `unknown` in the ROUTING phase — reliable on cloud, occasionally
-   needs a clearer cue on the local 7B. **4a is the deterministic handoff demo**; lead
-   with it and use 4b as the "out-of-scope" illustration.
+   needs a clearer cue on the local 7B. **5a and 5b are deterministic**; lead with 5a
+   (book-with-lawyer) and use 5c as the "out-of-scope" illustration.
 
 Proves: when it triggers (explicit request, out-of-scope area, or 3 consecutive
 misunderstandings) and that the agent **never claims a live transfer**
