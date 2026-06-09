@@ -30,7 +30,7 @@ _EMAIL_HOTWORDS = (
 # During phone dictation, bias toward the spoken digit words so they aren't
 # rendered as decimals ("5.1, 5.6") or merged into ordinals.
 _PHONE_HOTWORDS = (
-    "Telefonnummer Handynummer Vorwahl " "null eins zwei drei vier fünf sechs sieben acht neun"
+    "Telefonnummer Handynummer Vorwahl null eins zwei drei vier fünf sechs sieben acht neun"
 )
 
 _shared_model = None
