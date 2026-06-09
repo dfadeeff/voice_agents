@@ -448,12 +448,19 @@ class ConversationManager:
             # Slot was taken between offer and booking — drop it and re-offer.
             self.state.offered_slot_ids.append(choice["id"])
         elif _SLOT_DECLINE_RE.search(text.lower()):
-            self.state.offered_slot_ids.extend(s["id"] for s in self.state.offered_slots)
+            # Caller rejected these times → exclude the whole (date, time) pairs so
+            # the next batch is genuinely different (not the same time, other lawyer).
+            self.state.declined_slot_times.extend(
+                f"{s['date']} {s['time']}" for s in self.state.offered_slots
+            )
         else:
             return  # unrecognised reply → re-present the same offer
 
         self.state.offered_slots = self._calendar.available_slots_sync(
-            area, exclude_ids=self.state.offered_slot_ids, limit=3
+            area,
+            exclude_ids=self.state.offered_slot_ids,
+            exclude_times=self.state.declined_slot_times,
+            limit=3,
         )
         self._update_llm_context()
 

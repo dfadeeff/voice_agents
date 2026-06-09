@@ -895,6 +895,37 @@ class TestDeterministicBooking:
         ctx.add_user_message("14 Uhr bitte")
         assert ctx.state.booked_slot["time"] == "14:00"
 
+    def test_decline_excludes_time_across_lawyers(self):
+        """Regression: with two lawyers per slot, declining a time must not
+        re-offer the same time via the other lawyer's slot."""
+        import asyncio
+        import sqlite3
+        import tempfile
+
+        from app.services.calendar import CalendarService
+
+        db = tempfile.mktemp(suffix=".db")
+        cal = CalendarService(db_path=db)
+        asyncio.run(cal.init_db())
+        conn = sqlite3.connect(db)
+        for t in ["09:00", "09:30", "10:00", "14:00", "14:30"]:
+            for lawyer in ("Weber", "Hoffmann"):  # two slots per time
+                conn.execute(
+                    "INSERT INTO slots (date,time,legal_area,lawyer_name,is_booked)"
+                    " VALUES (?,?,?,?,0)",
+                    ("2026-06-15", t, "employment", lawyer),
+                )
+        conn.commit()
+        conn.close()
+
+        ctx = self._ready_to_book(cal)
+        first = ctx.next_prompt()
+        assert "9 Uhr" in first
+        ctx.add_user_message("Die passen mir nicht")
+        second = ctx.next_prompt()
+        assert "9 Uhr" not in second  # the declined times are gone, not re-offered
+        assert "14 Uhr" in second
+
 
 class TestFullScriptedTrafficBooking:
     """End-to-end regression for the live call that faked a booking.
