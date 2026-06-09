@@ -44,6 +44,13 @@ class Settings(BaseSettings):
 
     elevenlabs_api_key: str = ""
 
+    # Cartesia (cloud TTS) — streaming-first, lowest first-audio latency. voice_id
+    # is required and must be a multilingual voice for German; sonic-2 is the
+    # multilingual model.
+    cartesia_api_key: str = ""
+    cartesia_voice_id: str = ""
+    cartesia_model: str = "sonic-2"
+
     vad_threshold: float = 0.5
     silence_timeout_ms: int = 700
     filler_delay_ms: int = 1500

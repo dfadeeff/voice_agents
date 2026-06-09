@@ -15,7 +15,7 @@ See ARCHITECTURE.md for full details. Key decisions:
 - Python 3.11+, FastAPI, Pipecat
 - STT: faster-whisper (local) | Deepgram (cloud)
 - LLM: Ollama qwen2.5:7b (local) | OpenAI (cloud)
-- TTS: Piper (local) | ElevenLabs (cloud)
+- TTS: Piper (local) | Cartesia / ElevenLabs (cloud)
 - DB: SQLite with aiosqlite
 - Transport: Pipecat WebSocket | Twilio Media Streams
 

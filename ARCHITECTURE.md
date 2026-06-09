@@ -46,7 +46,7 @@ voice_agent/
 │   │   │   ├── base.py              # ConversationAware protocol
 │   │   │   ├── stt.py               # whisper | deepgram
 │   │   │   ├── llm.py               # ollama | openai
-│   │   │   └── tts.py               # piper | elevenlabs
+│   │   │   └── tts.py               # piper | cartesia | elevenlabs
 │   │   │
 │   │   ├── conversation/
 │   │   │   ├── flow.py              # Deterministic state machine (next_phase, phase tools)
@@ -414,6 +414,7 @@ providers/
 
 ```python
 # stt.py
+# tts.py example: _BUILDERS = {"piper": ..., "cartesia": ..., "elevenlabs": ...}
 _BUILDERS: dict[str, SttBuilder] = {"whisper": _build_whisper, "deepgram": _build_deepgram}
 
 def create_stt(settings):
