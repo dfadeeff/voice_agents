@@ -335,11 +335,12 @@ def _anchor_email_to_name(email: str, name: str) -> str:
     return email
 
 
-def _extract_reference(text: str) -> str | None:
-    """Pull an insurance/claim reference (≥5 alphanumerics, digit-bearing) from text.
+def _ref_tokens(text: str) -> str:
+    """Join the reference-like tokens in text (digit-bearing tokens, plus a short
+    letter prefix such as 'VS' or a single spoken 'F'), without a length gate.
 
-    Negative replies ('keine', 'nicht', 'no') have no such token, so they yield
-    None and nothing is stored.
+    Spoken numbers arrive in chunks across turns ('F vier' … 'fünf vier'); each
+    chunk is short on its own, so the caller of this assembles them into a buffer.
     """
     tokens = _REF_TOKEN_RE.findall(text)
     kept: list[str] = []
@@ -358,7 +359,13 @@ def _extract_reference(text: str) -> str | None:
             # Short prefix before the digits: 'VS' or a single letter like 'F'
             # (STT often lowercases a spoken letter — keep it, uppercased).
             kept.append(tok.upper())
-    joined = "".join(kept)
+    return "".join(kept)
+
+
+def _extract_reference(text: str) -> str | None:
+    """A complete insurance/claim reference (≥5 alphanumerics, digit-bearing), or
+    None for negative replies / fragments too short to be a whole reference."""
+    joined = _ref_tokens(text)
     if len(re.sub(r"[^A-Za-z0-9]", "", joined)) >= 5:
         return joined
     return None
@@ -756,7 +763,9 @@ class ConversationManager:
         self.advance_phase()
 
     _MAX_EMAIL_ATTEMPTS = 3
-    _MAX_INSURANCE_ATTEMPTS = 2
+    # Higher than email's: a reference is often dictated in several short bursts,
+    # so allow a few turns to accumulate before giving up.
+    _MAX_INSURANCE_ATTEMPTS = 4
 
     def _handle_email_attempt(self, awaiting: str | None) -> None:
         """Track failed email attempts; re-ask, then skip after a few misses.
@@ -818,40 +827,45 @@ class ConversationManager:
             return False
         if self.state.insurance_resolved or "insurance_number" in self.state.entities:
             return False
-        # Spoken references arrive as digit words ("F fünf vier zwei sechs"); map
-        # them to digits first so _extract_reference sees an alphanumeric token.
-        value = _extract_reference(digit_words_to_digits(text))
+        # Spoken references arrive as digit words, often piece by piece across turns
+        # ("F vier" … "fünf vier"). Convert words→digits, then accumulate each
+        # turn's fragment into a buffer until it forms a complete reference.
+        chunk = _ref_tokens(digit_words_to_digits(text))
         negative = bool(_NEGATE_RE.search(text.lower()))
-        # "keine Schadensnummer, dafür aber Versicherungsnummer" — caller negates
-        # one type but says they have another. Don't resolve; wait for the digits.
-        says_has_other = (
-            not value
-            and negative
-            and bool(re.search(r"\b(?:dafür|aber|habe|have)\b", text, re.IGNORECASE))
-        )
-        if not value and (not negative or says_has_other):
-            # Neither a usable number nor a clear "no" (e.g. the caller said
-            # "Versicherungsnummer" without reading out the digits). The number is
-            # optional, so cap the loop: after a couple of misses, proceed without
-            # it instead of re-asking forever.
-            self.state.insurance_attempts += 1
-            if self.state.insurance_attempts >= self._MAX_INSURANCE_ATTEMPTS:
-                logger.info(
-                    "Insurance unresolved after %d tries → proceeding without it",
-                    self.state.insurance_attempts,
-                )
-                self.state.insurance_resolved = True
-                self.advance_phase()
-            return False
-        if value:
-            logger.info("Deterministic capture (LLM fallback): insurance_number=%r", value)
-            self.update_and_confirm_entity("insurance_number", value)
-        else:
+        says_has_other = bool(re.search(r"\b(?:dafür|aber|habe|have)\b", text, re.IGNORECASE))
+
+        # A clear "no" with nothing dictated (now or earlier) → caller has none.
+        if negative and not chunk and not self.state.insurance_buffer and not says_has_other:
             logger.info("Insurance step resolved: caller has no number")
-        # Asked and answered → resolved either way, so the gate advances.
-        self.state.insurance_resolved = True
-        self.advance_phase()
-        return bool(value)
+            self.state.insurance_resolved = True
+            self.advance_phase()
+            return False
+
+        if chunk:
+            self.state.insurance_buffer += chunk
+        buffered = self.state.insurance_buffer
+        digits = re.sub(r"[^A-Za-z0-9]", "", buffered)
+
+        # Complete reference assembled → store and advance.
+        if len(digits) >= 5:
+            logger.info("Deterministic capture: insurance_number=%r", buffered)
+            self.update_and_confirm_entity("insurance_number", buffered)
+            self.state.insurance_resolved = True
+            self.advance_phase()
+            return True
+
+        # Still incomplete. Give the caller several turns to finish dictating; only
+        # after that give up (keeping a partial reference if we got a few chars).
+        self.state.insurance_attempts += 1
+        if self.state.insurance_attempts >= self._MAX_INSURANCE_ATTEMPTS:
+            if len(digits) >= 3:
+                logger.info("Insurance partial captured: %r", buffered)
+                self.update_and_confirm_entity("insurance_number", buffered)
+            else:
+                logger.info("Insurance unresolved → proceeding without it")
+            self.state.insurance_resolved = True
+            self.advance_phase()
+        return False
 
     def _try_capture_matter_type(self, text: str) -> None:
         """Deterministic fallback for matter_type when the LLM skips the tool.

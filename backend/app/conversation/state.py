@@ -47,6 +47,10 @@ class ConversationState:
     # a number nor a clear "no"). The number is optional, so after a couple of
     # misses we proceed without it instead of re-asking forever.
     insurance_attempts: int = 0
+    # Accumulates spoken reference fragments across turns — callers dictate a
+    # number piece by piece with pauses ("F vier" … "fünf vier"), so each turn's
+    # chunk is appended until it forms a complete reference.
+    insurance_buffer: str = ""
     # Callback-only: the caller's preferred time to be called back (free text).
     preferred_time: str | None = None
     # Booking: True once email was asked and the caller had none — email is
