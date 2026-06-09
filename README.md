@@ -256,8 +256,11 @@ voice_agent/
 │       ├── pipeline/
 │       │   ├── orchestrator.py     # Pipecat pipeline + tool registration
 │       │   ├── local_whisper.py    # Local STT + confidence + domain bias
-│       │   ├── processors.py       # Safety, transcript display + logging
-│       │   └── services.py         # STT/LLM/TTS factory from config
+│       │   ├── local_piper.py      # Local TTS + sentence-pause shaping
+│       │   └── processors.py       # Safety, transcript display + logging
+│       ├── providers/              # Vendor-agnostic STT/LLM/TTS factories + registries
+│       │   ├── base.py             # ConversationAware protocol
+│       │   ├── stt.py / llm.py / tts.py  # name → builder registries
 │       ├── conversation/
 │       │   ├── state.py            # Serializable call state
 │       │   ├── manager.py          # State management + deterministic policies
@@ -397,14 +400,15 @@ This is not a rigid phone tree and not a fully autonomous LLM agent. It is a wor
 
 **Decision:** Swap STT/LLM/TTS providers by changing environment variables, no code changes.
 
-**Trade-off:** Requires maintaining factory functions (`services.py`) and provider-specific imports. But adding a new provider is 5 lines in the factory.
+**Trade-off:** Requires maintaining a builder per vendor. But the pipeline depends only on the `create_stt/llm/tts` factories — adding a provider is one registry entry, with no caller changes.
 
-**Why:** The project requirement is local-first with zero API keys, but production would use cloud providers. `pipeline/services.py` creates the right Pipecat service based on config:
+**Why:** The project requirement is local-first with zero API keys, but production would use cloud providers. Each modality in `app/providers/` keeps a name → builder registry; the factory looks the provider up by env var (and raises a clear error on an unknown name):
+```python
+# app/providers/stt.py
+_BUILDERS = {"whisper": _build_whisper, "deepgram": _build_deepgram}
+# STT_PROVIDER=whisper → local Whisper;  STT_PROVIDER=deepgram → cloud Deepgram
 ```
-STT_PROVIDER=whisper → WhisperSTTService (local)
-STT_PROVIDER=deepgram → DeepgramSTTService (cloud)
-```
-You can mix freely — e.g., local Whisper STT + cloud OpenAI LLM + local Piper TTS.
+You can mix freely — e.g., local Whisper STT + cloud OpenAI LLM + local Piper TTS. A service can opt into per-turn context by implementing the `ConversationAware` protocol (`base.py`); the orchestrator wires it in via `isinstance`, so there's no vendor branching in the pipeline.
 
 ### WebSocket text side-channel (not protobuf)
 

@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     # Low temperature keeps a phone receptionist consistent and curbs the
     # invented-compound-word hallucinations qwen2.5 produces at higher temps.
     llm_temperature: float = 0.3
+    # Completion-token cap for the local model. 0 = pick by model family
+    # (qwen3 "thinking" models need headroom for the reasoning they then drop).
+    ollama_max_tokens: int = 0
 
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
@@ -41,7 +44,6 @@ class Settings(BaseSettings):
 
     elevenlabs_api_key: str = ""
 
-    sample_rate: int = 16000
     vad_threshold: float = 0.5
     silence_timeout_ms: int = 700
     filler_delay_ms: int = 1500
@@ -50,7 +52,6 @@ class Settings(BaseSettings):
     port: int = 8000
     db_url: str = "sqlite+aiosqlite:///data/voice_agent.db"
 
-    redis_url: str = ""
     max_concurrent_calls: int = 10
 
     twilio_account_sid: str = ""
@@ -58,10 +59,5 @@ class Settings(BaseSettings):
     twilio_phone_number: str = ""
 
     use_tools_local: bool = True
-
-    evaluator_enabled: bool = False
-    evaluator_provider: str = "ollama"
-    evaluator_model: str = "qwen3:4b"
-    admin_api_key: str = ""
 
     model_config = {"env_file": ".env", "env_prefix": "", "extra": "ignore"}

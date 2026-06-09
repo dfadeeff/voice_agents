@@ -43,6 +43,7 @@ from app.pipeline.processors import (
     PreTTSSanitizer,
     TranscriptProcessor,
 )
+from app.providers import ConversationAware
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -140,9 +141,10 @@ async def create_pipeline(
     """Create a Pipecat pipeline wired with our tools."""
 
     lang = conversation.lang
-    # Let the local STT bias its decoder toward the field the agent just asked for
-    # (email domains, spoken digits). No-op for cloud STT without this hook.
-    if hasattr(stt_service, "set_conversation"):
+    # Conversation-aware services (e.g. local STT biasing its decoder toward the
+    # field the agent just asked for) get the live conversation; vendors that
+    # don't implement the contract are simply skipped.
+    if isinstance(stt_service, ConversationAware):
         stt_service.set_conversation(conversation)
     if use_tools:
         register_tools_on_llm(llm_service, tools, conversation)
