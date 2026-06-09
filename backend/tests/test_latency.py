@@ -158,3 +158,67 @@ class TestFastPathDetection:
         greeting = locale.FAST_PATH_RESPONSES["greeting"]
         assert "Claudia" in greeting
         assert "?" in greeting
+
+
+class TestPhoneTranscriptDisplay:
+    """The caller transcript shows a clean phone number, not Whisper's raw
+    decimal-littered dictation ('01, 5.1, 5.6, 7.3, 8.6, 9.4')."""
+
+    def _make_processor(self, lang="de"):
+        ws = AsyncMock()
+        logger = CallLogger("disp-test")
+        conv = ConversationManager(call_id="disp-test", lang=lang)
+        return TranscriptProcessor(ws, logger, conv), conv
+
+    def test_phone_dictation_is_normalized_for_display(self):
+        proc, conv = self._make_processor()
+        conv.state.awaiting = "phone"
+        assert proc._display_transcript("01, 5.1, 5.6, 7.3, 8.6, 9.4") == "+4915156738694"
+
+    def test_non_phone_turn_is_left_verbatim(self):
+        proc, conv = self._make_processor()
+        conv.state.awaiting = "name"
+        assert proc._display_transcript("Tommy Steinfeld") == "Tommy Steinfeld"
+
+    def test_phone_turn_without_digits_left_verbatim(self):
+        proc, conv = self._make_processor()
+        conv.state.awaiting = "phone"
+        # No usable digits — don't mangle it into an empty/garbage number.
+        assert proc._display_transcript("ähm, einen Moment") == "ähm, einen Moment"
+
+
+class TestWhisperTurnHotwords:
+    """The local STT biases its decoder toward the field the agent just asked
+    for — email domains on the email turn, spoken digits on the phone turn."""
+
+    def _service(self):
+        from app.pipeline.local_whisper import LocalWhisperSTTService
+
+        # Bypass the heavy base __init__ (model resolution); we only exercise the
+        # pure hotword-selection logic, which needs just the conversation ref.
+        svc = LocalWhisperSTTService.__new__(LocalWhisperSTTService)
+        svc._conversation = None
+        conv = ConversationManager(call_id="hw-test", lang="de")
+        svc.set_conversation(conv)
+        return svc, conv
+
+    def test_email_turn_adds_email_hotwords(self):
+        svc, conv = self._service()
+        conv.state.awaiting = "email"
+        hw = svc._hotwords_for_turn()
+        assert "gmail.com" in hw
+        assert "punkt" in hw
+
+    def test_phone_turn_adds_digit_hotwords(self):
+        svc, conv = self._service()
+        conv.state.awaiting = "phone"
+        hw = svc._hotwords_for_turn()
+        assert "fünf" in hw
+        assert "gmail.com" not in hw
+
+    def test_other_turn_uses_only_legal_hotwords(self):
+        svc, conv = self._service()
+        conv.state.awaiting = "name"
+        hw = svc._hotwords_for_turn()
+        assert "Mietrecht" in hw
+        assert "gmail.com" not in hw

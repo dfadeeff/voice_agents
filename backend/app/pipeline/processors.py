@@ -499,6 +499,24 @@ class TranscriptProcessor(FrameProcessor):
         self._conversation = conversation
         self._filler_injector = filler_injector
 
+    def _display_transcript(self, text: str) -> str:
+        """Tidy the caller transcript shown in the UI.
+
+        When the caller was dictating their phone number, Whisper renders the
+        spoken digits as noisy decimals ("01, 5.1, 5.6, 7.3, 8.6, 9.4"). We
+        already normalize that to a real number for booking; show that clean
+        number in the transcript too instead of the raw STT artifact. ``awaiting``
+        still holds the previous question's slot at this point (it is recomputed
+        later in next_prompt), so it tells us this turn was the phone dictation.
+        """
+        from app.conversation.phone import normalize_phone_text
+
+        if self._conversation.state.awaiting == "phone":
+            normalized = normalize_phone_text(text)
+            if normalized and len(re.sub(r"\D", "", normalized)) >= 7:
+                return normalized
+        return text
+
     def _check_fast_path(self, old_phase: CallPhase, new_phase: CallPhase) -> str | None:
         # The data-collection spine is fully state-determined, so speak the next
         # question from a template and skip the LLM (it cannot drift/hallucinate
@@ -538,7 +556,7 @@ class TranscriptProcessor(FrameProcessor):
                 await self._ws.send_json(
                     {
                         "type": "user_transcript",
-                        "text": text,
+                        "text": self._display_transcript(text),
                         "confidence": confidence,
                     }
                 )

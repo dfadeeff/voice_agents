@@ -140,6 +140,10 @@ async def create_pipeline(
     """Create a Pipecat pipeline wired with our tools."""
 
     lang = conversation.lang
+    # Let the local STT bias its decoder toward the field the agent just asked for
+    # (email domains, spoken digits). No-op for cloud STT without this hook.
+    if hasattr(stt_service, "set_conversation"):
+        stt_service.set_conversation(conversation)
     if use_tools:
         register_tools_on_llm(llm_service, tools, conversation)
         system_prompt = build_system_prompt(conversation.state, lang)
