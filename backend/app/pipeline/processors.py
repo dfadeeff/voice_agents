@@ -84,6 +84,10 @@ _TOOLCALL_TEXT_RE = re.compile(
 )
 # A sentence has speakable content only if it contains a real word (2+ letters).
 _HAS_WORD_RE = re.compile(r"[A-Za-zÄÖÜäöüß]{2,}")
+_FILLER_ONLY_RE = re.compile(
+    r"^[äöüaeiouh]+[.!?,\s…]*$" r"|^(?:äh|ähm|eh|ehm|hm+|mh+m?|oh|öh|uh|uhm|ah|aha)[.!?,\s…]*$",
+    re.IGNORECASE,
+)
 _IMPOSSIBLE_HANDOFF_DE_RE = re.compile(
     r"\b(?:ich\s+)?(?:verbinde\s+sie|stelle\s+sie\s+durch|leite\s+sie\s+weiter)\b",
     re.IGNORECASE,
@@ -277,9 +281,8 @@ def _tts_preprocess(text: str, lang: str = "de") -> str:
     text = _THINK_RE.sub("", text).strip()
     text = _CJK_RE.sub("", text).strip()
     if lang == "de":
-        # The model sometimes slips into English honorifics ("Mr. Steinmeier").
-        # Germanize them while keeping its gender guess. Mrs/Ms first so the
-        # shorter "Mr" pattern can't claim them.
+        text = re.sub(r"\bDr\.\s*", "Doktor ", text)
+        text = re.sub(r"\bProf\.\s*", "Professor ", text)
         text = re.sub(r"\b(?:Mrs|Ms)\.?\s+", "Frau ", text)
         text = re.sub(r"\bMr\.?\s+", "Herr ", text)
     text = _EMAIL_RE.sub(_expand_email, text)
@@ -487,6 +490,11 @@ class TranscriptProcessor(FrameProcessor):
 
         if isinstance(frame, TranscriptionFrame) and frame.text and frame.text.strip():
             text = frame.text.strip()
+
+            if _FILLER_ONLY_RE.match(text):
+                logger.info("Filtered filler transcription: %r", text)
+                return
+
             result = frame.result if isinstance(frame.result, dict) else {}
             confidence = result.get("confidence")
             self._conversation.set_transcription_confidence(confidence)

@@ -5,6 +5,7 @@ Pipecat handles: VAD, turn-taking, interruptions, streaming TTS, transport.
 We handle: state machine, system prompt per phase, tool registration + phase guards.
 """
 
+import asyncio
 import json
 import logging
 
@@ -216,6 +217,7 @@ async def create_pipeline(
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, websocket):
+        await asyncio.sleep(0.2)
         if greeting_template:
             logger.info("FAST PATH greeting (skipping LLM)")
             call_logger.log("agent", greeting_template)

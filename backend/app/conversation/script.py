@@ -80,6 +80,42 @@ _MONTHS = {
 }
 
 
+_ORDINALS_DE = [
+    "",
+    "ersten",
+    "zweiten",
+    "dritten",
+    "vierten",
+    "fünften",
+    "sechsten",
+    "siebten",
+    "achten",
+    "neunten",
+    "zehnten",
+    "elften",
+    "zwölften",
+    "dreizehnten",
+    "vierzehnten",
+    "fünfzehnten",
+    "sechzehnten",
+    "siebzehnten",
+    "achtzehnten",
+    "neunzehnten",
+    "zwanzigsten",
+    "einundzwanzigsten",
+    "zweiundzwanzigsten",
+    "dreiundzwanzigsten",
+    "vierundzwanzigsten",
+    "fünfundzwanzigsten",
+    "sechsundzwanzigsten",
+    "siebenundzwanzigsten",
+    "achtundzwanzigsten",
+    "neunundzwanzigsten",
+    "dreißigsten",
+    "einunddreißigsten",
+]
+
+
 def _fmt_date(date: str, lang: str) -> str:
     try:
         _, month, day = date.split("-")
@@ -87,21 +123,37 @@ def _fmt_date(date: str, lang: str) -> str:
         return date
     months = _MONTHS.get(lang, _MONTHS["en"])
     name = months[int(month)]
-    return f"{int(day)}. {name}" if lang == "de" else f"{name} {int(day)}"
+    if lang == "de":
+        d = int(day)
+        if d < len(_ORDINALS_DE):
+            return f"{_ORDINALS_DE[d]} {name}"
+        return f"{d} {name}"
+    return f"{name} {int(day)}"
 
 
 def _fmt_time(time: str, lang: str) -> str:
     hh, _, mm = time.partition(":")
     hour = int(hh)
     if lang == "de":
-        return f"{hour} Uhr" if mm in ("00", "") else f"{hour}:{mm} Uhr"
+        if mm in ("00", ""):
+            return f"{hour} Uhr"
+        return f"{hour} Uhr {int(mm)}"
     return time
 
 
 def _fmt_slot(slot: dict, lang: str) -> str:
     date = _fmt_date(slot["date"], lang)
     time = _fmt_time(slot["time"], lang)
-    return f"{date} um {time}" if lang == "de" else f"{date} at {time}"
+    lawyer = slot.get("lawyer_name", "")
+    if lang == "de":
+        s = f"{date} um {time}"
+        if lawyer:
+            s += f" bei {lawyer}"
+        return s
+    s = f"{date} at {time}"
+    if lawyer:
+        s += f" with {lawyer}"
+    return s
 
 
 def _fmt_slots(slots: list[dict], lang: str) -> str:

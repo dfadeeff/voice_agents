@@ -284,11 +284,13 @@ SCRIPTED = {
     ),
     "traffic_insurance": ("Haben Sie bereits eine Schadensnummer oder eine Versicherungsnummer?"),
     "ask_name": ("Gerne nehme ich Ihren Rückrufwunsch auf. Wie ist Ihr Name, bitte?"),
-    "ask_name_booking": ("Sehr gerne. Wie ist Ihr Name, bitte?"),
+    "ask_name_booking": (
+        "Sehr gut, dann vereinbaren wir einen Beratungstermin. Wie ist Ihr Name, bitte?"
+    ),
     "ask_email": ("Danke. Wie lautet Ihre E-Mail-Adresse?"),
-    "confirm_email": ("Ich habe notiert: {email}. Ist das korrekt?"),
+    "confirm_email": ("Ich habe notiert: {email} — ist das korrekt?"),
     "ask_phone": ("Vielen Dank. Unter welcher Telefonnummer können wir Sie erreichen?"),
-    "confirm_phone": ("Ich habe Ihre Nummer notiert: {phone}. Ist das korrekt?"),
+    "confirm_phone": ("Ich habe Ihre Nummer notiert: {phone} — ist das korrekt?"),
     "ask_callback_time": ("Und wann dürfen wir Sie am besten zurückrufen?"),
     "slot_offer": ("Ich kann Ihnen folgende Termine anbieten: {options}. Welcher passt Ihnen?"),
     "no_slots": (
@@ -306,7 +308,7 @@ SCRIPTED = {
 
 FAST_PATH_RESPONSES = {
     "greeting": (
-        "Hallo, ich bin Claudia, die KI-Anrufannahme der Kanzlei. "
+        "Guten Tag! Hier ist Claudia, die KI-Anrufannahme der Kanzlei. "
         "Ich nehme gerne Ihr Anliegen auf und gebe es sofort an unser Team weiter, "
         "damit wir Ihnen schnellstmöglich weiterhelfen können. "
         "Wobei können wir behilflich sein?"

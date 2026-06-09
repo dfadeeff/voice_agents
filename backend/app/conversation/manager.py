@@ -125,7 +125,10 @@ _ORDINAL = {
     "dritten": 2,
     "third": 2,
 }
-_SLOT_TIME_RE = re.compile(r"\b(\d{1,2})(?::(\d{2}))?\s*(?:uhr|o'?clock)?\b", re.IGNORECASE)
+_SLOT_TIME_RE = re.compile(
+    r"\b(\d{1,2})\s*(?:uhr|o'?clock)\s*(\d{1,2})?\b" r"|\b(\d{1,2}):(\d{2})\s*(?:uhr|o'?clock)?\b",
+    re.IGNORECASE,
+)
 _SLOT_DECLINE_RE = re.compile(
     r"\b(?:nein|nö|nee|anders|andere[rn]?|später|spaeter|nichts\s+dabei|"
     r"no|none|other|later|something\s+else)\b|pass\w*\s+(?:mir\s+)?nicht|"
@@ -149,7 +152,14 @@ def _match_slot_choice(text: str, slots: list[dict]) -> dict | None:
             return slots[idx]
     tm = _SLOT_TIME_RE.search(low)
     if tm:
-        hour, minute = int(tm.group(1)), tm.group(2)
+        if tm.group(1) is not None:
+            hour = int(tm.group(1))
+            minute = tm.group(2)
+        else:
+            hour = int(tm.group(3))
+            minute = tm.group(4)
+        if minute is not None:
+            minute = str(int(minute)).zfill(2)
         for slot in slots:
             sh, _, sm = slot["time"].partition(":")
             if int(sh) == hour and (minute is None or sm == minute):
@@ -162,6 +172,7 @@ def _match_slot_choice(text: str, slots: list[dict]) -> dict | None:
 def _parse_email(text: str) -> str | None:
     """Convert a spoken email ('max at gmail punkt com') to an address."""
     t = text.lower()
+    t = re.sub(r"(?<=\w)\.?(?:at|ät)(?=\w)", "@", t)
     t = re.sub(r"\s+(?:at|ät)\s+", "@", t)
     t = re.sub(r"\s+(?:punkt|dot|point)\s+", ".", t)
     for token in t.split():
