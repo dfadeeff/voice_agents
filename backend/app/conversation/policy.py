@@ -4,7 +4,7 @@ import re
 
 _DE_PERSON_REQUESTS = (
     re.compile(
-        r"\b(?:frau|herrn?)\s+[\wäöüß-]+\b.*\b(?:sprechen|verbinden|durchstellen)\b",
+        r"\b(?:frau|herrn?)\s+[\wäöüß-]+\b.*\b(?:sprechen|reden|verbinden|durchstellen)\b",
         re.IGNORECASE,
     ),
     re.compile(

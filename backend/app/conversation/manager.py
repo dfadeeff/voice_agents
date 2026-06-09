@@ -170,16 +170,31 @@ def _match_slot_choice(text: str, slots: list[dict]) -> dict | None:
     return None
 
 
+_DOMAIN_CORRECTIONS = {
+    "smail": "gmail",
+    "gmeil": "gmail",
+    "g-mail": "gmail",
+    "geemail": "gmail",
+    "gemail": "gmail",
+    "hotmeil": "hotmail",
+    "hotemail": "hotmail",
+}
+
+
 def _parse_email(text: str) -> str | None:
     """Convert a spoken email ('max at gmail punkt com') to an address."""
     t = text.lower()
     t = re.sub(r"(?<=\w)\.?(?:at|ät)(?=\w)", "@", t)
     t = re.sub(r"\s+(?:at|ät)\s+", "@", t)
     t = re.sub(r"\s+(?:punkt|dot|point)\s+", ".", t)
+    t = t.replace("@www.", "@")
     for token in t.split():
         token = token.strip(".,;:!?")
         if _EMAIL_VALID_RE.match(token):
-            return token
+            local, _, domain = token.partition("@")
+            parts = domain.split(".")
+            parts[0] = _DOMAIN_CORRECTIONS.get(parts[0], parts[0])
+            return f"{local}@{'.'.join(parts)}"
     return None
 
 
@@ -368,10 +383,18 @@ class ConversationManager:
             return
         if not _EMAIL_ASK_RE.search(self._recent_agent_text()):
             return
-        if _NEGATE_RE.search(text.lower()):
-            logger.info("Email skipped: caller has none")
-            self.state.email_skipped = True
-            self.advance_phase()
+        if not _NEGATE_RE.search(text.lower()):
+            return
+        # "Nein, die Domäne ist hotmail" is a correction, not a skip.
+        if re.search(
+            r"\b(?:dom[äa]ne|domain|gmail|hotmail|yahoo|outlook|web\.de|gmx|@)\b",
+            text,
+            re.IGNORECASE,
+        ):
+            return
+        logger.info("Email skipped: caller has none")
+        self.state.email_skipped = True
+        self.advance_phase()
 
     def _try_capture_preferred_time(self, text: str) -> None:
         """Store the caller's preferred callback time once it has been asked."""
@@ -430,8 +453,14 @@ class ConversationManager:
         value = _extract_reference(text)
         negative = bool(_NEGATE_RE.search(text.lower()))
         if not value and not negative:
-            # Partial / unclear answer (e.g. "die lautet…"); wait for the number
-            # rather than prematurely closing the step.
+            return False
+        # "keine Schadensnummer, dafür aber Versicherungsnummer" — caller negates
+        # one type but says they have another. Don't resolve; wait for the digits.
+        if (
+            not value
+            and negative
+            and re.search(r"\b(?:dafür|aber|habe|have)\b", text, re.IGNORECASE)
+        ):
             return False
         if value:
             logger.info("Deterministic capture (LLM fallback): insurance_number=%r", value)

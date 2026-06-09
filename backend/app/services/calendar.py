@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import aiosqlite
 
@@ -16,9 +16,11 @@ class CalendarService:
         self, legal_area: str = "", exclude_ids: list[int] | None = None, limit: int = 3
     ) -> list[dict]:
         exclude_ids = exclude_ids or []
-        today = date.today().isoformat()
-        query = "SELECT * FROM slots WHERE is_booked = 0 AND date >= ?"
-        params: list = [today]
+        now = datetime.now()
+        today = now.date().isoformat()
+        min_time = (now + timedelta(hours=4)).strftime("%H:%M")
+        query = "SELECT * FROM slots WHERE is_booked = 0 AND (date > ? OR (date = ? AND time >= ?))"
+        params: list = [today, today, min_time]
         if legal_area and legal_area != "unknown":
             query += " AND (legal_area = ? OR legal_area IS NULL)"
             params.append(legal_area)
