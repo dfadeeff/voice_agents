@@ -88,6 +88,24 @@ _FILLER_ONLY_RE = re.compile(
     r"^[äöüaeiouh]+[.!?,\s…]*$" r"|^(?:äh|ähm|eh|ehm|hm+|mh+m?|oh|öh|uh|uhm|ah|aha)[.!?,\s…]*$",
     re.IGNORECASE,
 )
+_TTS_EMAIL_RE = re.compile(r"\b\w+\s+at\s+\w+(?:\s+(?:Punkt|dot)\s+\w+)+")
+
+
+def _reverse_email_tts(text: str) -> str:
+    """Reverse TTS email expansion for visual display.
+
+    'langfeld at gmail Punkt com' → 'langfeld@gmail.com'
+    """
+
+    def _rebuild(m: re.Match) -> str:
+        s = m.group(0)
+        s = s.replace(" at ", "@", 1)
+        s = s.replace(" Punkt ", ".").replace(" dot ", ".")
+        return s
+
+    return _TTS_EMAIL_RE.sub(_rebuild, text)
+
+
 _IMPOSSIBLE_HANDOFF_DE_RE = re.compile(
     r"\b(?:ich\s+)?(?:verbinde\s+sie|stelle\s+sie\s+durch|leite\s+sie\s+weiter)\b",
     re.IGNORECASE,
@@ -617,8 +635,9 @@ class AgentTextProcessor(FrameProcessor):
                 frame = TTSTextFrame(text=processed, aggregated_by=frame.aggregated_by)
             logger.info("AGENT SPOKEN: %s", processed)
             self._logger.log("agent", processed)
+            display_text = _reverse_email_tts(processed)
             try:
-                await self._ws.send_json({"type": "agent_text", "text": processed})
+                await self._ws.send_json({"type": "agent_text", "text": display_text})
             except Exception:
                 pass
 

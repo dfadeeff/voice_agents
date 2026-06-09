@@ -294,6 +294,10 @@ SCRIPTED = {
         "Wie ist Ihr Name, bitte?"
     ),
     "ask_email": ("Danke. Wie lautet Ihre E-Mail-Adresse?"),
+    "ask_email_not_understood": (
+        "Ich habe die E-Mail-Adresse leider nicht verstanden. "
+        "Können Sie sie bitte nochmal sagen?"
+    ),
     "ask_email_retry": ("Entschuldigung. Wie lautet die E-Mail-Adresse korrekt?"),
     "confirm_email": ("Ich habe notiert: {email} — ist das korrekt?"),
     "ask_phone": ("Vielen Dank. Unter welcher Telefonnummer können wir Sie erreichen?"),
@@ -305,6 +309,7 @@ SCRIPTED = {
         "um einen passenden Termin zu finden. Auf Wiederhören!"
     ),
     "booking_done": ("Ihr Termin ist gebucht: {date} um {time}. Vielen Dank für Ihren Anruf!"),
+    "goodbye": "Vielen Dank für Ihren Anruf, auf Wiederhören!",
     "callback_done": (
         "Vielen Dank. Ich habe Ihren Rückrufwunsch notiert. "
         "{person} ruft Sie {time} zurück. Auf Wiederhören!"

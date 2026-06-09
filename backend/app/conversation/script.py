@@ -201,6 +201,8 @@ def scripted_line(state: ConversationState, lang: str = "de") -> str | None:
                 last = _last_agent_text(state)
                 if "notiert" in last or "noted" in last:
                     return scripts.get("ask_email_retry", scripts["ask_email"])
+                if "e-mail" in last.lower() or "email" in last.lower():
+                    return scripts.get("ask_email_not_understood", scripts["ask_email"])
                 return scripts["ask_email"]
             if email and not email.confirmed:
                 return scripts["confirm_email"].format(email=email.value)
@@ -220,6 +222,9 @@ def scripted_line(state: ConversationState, lang: str = "de") -> str | None:
         return scripts["no_slots"]
 
     if not callback and state.phase == CallPhase.CONFIRMATION and state.booked_slot:
+        last_agent = _last_agent_text(state)
+        if "gebucht" in last_agent or "booked" in last_agent:
+            return scripts.get("goodbye")
         slot = state.booked_slot
         return scripts["booking_done"].format(
             date=_fmt_date(slot["date"], lang),
