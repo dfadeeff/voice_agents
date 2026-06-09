@@ -629,6 +629,7 @@ class ConversationManager:
         self.advance_phase()
 
     _MAX_EMAIL_ATTEMPTS = 3
+    _MAX_INSURANCE_ATTEMPTS = 2
 
     def _handle_email_attempt(self, awaiting: str | None) -> None:
         """Track failed email attempts; re-ask, then skip after a few misses.
@@ -692,15 +693,26 @@ class ConversationManager:
             return False
         value = _extract_reference(text)
         negative = bool(_NEGATE_RE.search(text.lower()))
-        if not value and not negative:
-            return False
         # "keine Schadensnummer, dafür aber Versicherungsnummer" — caller negates
         # one type but says they have another. Don't resolve; wait for the digits.
-        if (
+        says_has_other = (
             not value
             and negative
-            and re.search(r"\b(?:dafür|aber|habe|have)\b", text, re.IGNORECASE)
-        ):
+            and bool(re.search(r"\b(?:dafür|aber|habe|have)\b", text, re.IGNORECASE))
+        )
+        if not value and (not negative or says_has_other):
+            # Neither a usable number nor a clear "no" (e.g. the caller said
+            # "Versicherungsnummer" without reading out the digits). The number is
+            # optional, so cap the loop: after a couple of misses, proceed without
+            # it instead of re-asking forever.
+            self.state.insurance_attempts += 1
+            if self.state.insurance_attempts >= self._MAX_INSURANCE_ATTEMPTS:
+                logger.info(
+                    "Insurance unresolved after %d tries → proceeding without it",
+                    self.state.insurance_attempts,
+                )
+                self.state.insurance_resolved = True
+                self.advance_phase()
             return False
         if value:
             logger.info("Deterministic capture (LLM fallback): insurance_number=%r", value)

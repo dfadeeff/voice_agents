@@ -346,6 +346,23 @@ class TestEnforcedInsuranceStep:
         assert "insurance_number" not in ctx.state.entities
         assert ctx.state.phase == CallPhase.CAPTURE
 
+    def test_unparseable_insurance_answers_do_not_loop_forever(self):
+        # Regression: caller says they *have* a number but never reads the digits
+        # ("Versicherungsnummer", a cut-off "F"). Neither a number nor a clear "no",
+        # so the step must cap the loop and proceed rather than re-ask forever.
+        ctx = ConversationManager(call_id="enf4", lang="de")
+        ctx.add_user_message("Ich hatte einen Autounfall")
+        ctx.next_prompt()  # area_confirm, awaiting matter_type
+        ctx.add_user_message("Verkehrsunfall")
+        ctx.next_prompt()  # traffic_insurance, awaiting insurance
+        ctx.add_user_message("Versicherungsnummer")  # miss 1 — still asking
+        assert ctx.state.insurance_resolved is False
+        assert ctx.state.phase == CallPhase.QUALIFICATION
+        ctx.add_user_message("F")  # miss 2 — cap reached, proceed without it
+        assert ctx.state.insurance_resolved is True
+        assert "insurance_number" not in ctx.state.entities
+        assert ctx.state.phase == CallPhase.CAPTURE
+
 
 class TestHumanHandoffScenario:
     """Caller explicitly asks for a human at any point."""
