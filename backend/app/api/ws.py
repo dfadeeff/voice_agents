@@ -11,7 +11,7 @@ from pipecat.transports.websocket.fastapi import (
 
 from app.conversation.manager import ConversationManager
 from app.pipeline.orchestrator import create_pipeline
-from app.pipeline.services import create_llm, create_stt, create_tts
+from app.providers import create_llm, create_stt, create_tts
 from app.services.calendar import CalendarService
 
 logger = logging.getLogger(__name__)

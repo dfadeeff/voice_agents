@@ -39,7 +39,14 @@ voice_agent/
 │   │   ├── pipeline/
 │   │   │   ├── orchestrator.py      # Pipecat pipeline factory + tool registration
 │   │   │   ├── processors.py        # Transcript display + call logging
-│   │   │   └── services.py          # Create Pipecat STT/LLM/TTS from config
+│   │   │   ├── local_whisper.py     # Local STT (ConversationAware: per-turn decoder bias)
+│   │   │   └── local_piper.py       # Local TTS (sentence-pause shaping)
+│   │   │
+│   │   ├── providers/               # Vendor-agnostic STT/LLM/TTS factories + registries
+│   │   │   ├── base.py              # ConversationAware protocol
+│   │   │   ├── stt.py               # whisper | deepgram
+│   │   │   ├── llm.py               # ollama | openai
+│   │   │   └── tts.py               # piper | elevenlabs
 │   │   │
 │   │   ├── conversation/
 │   │   │   ├── flow.py              # Deterministic state machine (next_phase, phase tools)
@@ -389,28 +396,42 @@ Caller speaks: "My email is d fadeev at gmail maybe no wait fadejeff at gmail"
 
 ## Provider Abstraction
 
-Uses Pipecat's built-in service classes. Provider swapping via env var — same interface, different backend.
+The pipeline depends on three vendor-agnostic factories (`create_stt`/`create_llm`/
+`create_tts`), never on a concrete vendor SDK. Each modality keeps a
+**name → builder registry**, so the provider is chosen by env var and adding a
+vendor is one registry entry — no caller changes. Vendor SDK imports live inside
+each builder, so an unused provider's dependency is never imported.
 
-### Service Factory (backend/app/pipeline/services.py)
+### Registry (backend/app/providers/)
 
-```python
-def create_stt(settings):
-    if settings.stt_provider == "deepgram":
-        return DeepgramSTTService(api_key=settings.deepgram_api_key)
-    return WhisperSTTService(model=settings.whisper_model_size, ...)
-
-def create_llm(settings):
-    if settings.llm_provider == "openai":
-        return OpenAILLMService(api_key=settings.openai_api_key, model=settings.openai_model)
-    return OLLamaLLMService(model=settings.ollama_model, base_url=...)
-
-def create_tts(settings):
-    if settings.tts_provider == "elevenlabs":
-        return ElevenLabsTTSService(api_key=settings.elevenlabs_api_key)
-    return PiperTTSService(voice_id=..., download_dir=...)
+```
+providers/
+├── base.py   # ConversationAware protocol (services that take the live conversation)
+├── stt.py    # _BUILDERS = {"whisper": ..., "deepgram": ...};  create_stt(settings)
+├── llm.py    # _BUILDERS = {"ollama": ...,  "openai": ...};    create_llm(settings)
+└── tts.py    # _BUILDERS = {"piper": ...,   "elevenlabs": ...}; create_tts(settings)
 ```
 
-All services are Pipecat-native — they plug directly into the pipeline and handle streaming, audio format conversion, and frame passing internally. Swapping models is a one-line `.env` change.
+```python
+# stt.py
+_BUILDERS: dict[str, SttBuilder] = {"whisper": _build_whisper, "deepgram": _build_deepgram}
+
+def create_stt(settings):
+    try:
+        return _BUILDERS[settings.stt_provider](settings)
+    except KeyError:
+        raise ValueError(f"Unknown STT provider {settings.stt_provider!r}") from None
+```
+
+The returned services are Pipecat-native — they plug directly into the pipeline and
+handle streaming, audio conversion, and frame passing internally. Swapping models is
+a one-line `.env` change.
+
+**`ConversationAware`** is a `runtime_checkable` `Protocol` (`set_conversation(...)`).
+The orchestrator wires the live conversation into any service that implements it
+(local Whisper biases its decoder toward the awaited field); cloud services that
+don't implement it are skipped via `isinstance` — no vendor-specific branching in
+the pipeline.
 
 ## Twilio Telephony Integration
 
@@ -463,7 +484,7 @@ The Pipecat pipeline doesn't know or care whether audio comes from a browser Web
 
 | Concern | Prototype | Production |
 |---------|-----------|------------|
-| State | In-memory dict | Redis (set `REDIS_URL`) |
+| State | In-memory dict | Redis (state is already serializable; add a Redis-backed store) |
 | DB | SQLite | Postgres (change `DATABASE_URL`) |
 | STT/TTS compute | ThreadPoolExecutor | Celery workers (same async interface) |
 | Concurrency | Semaphore(10) | Multiple instances + load balancer |
@@ -572,7 +593,7 @@ SQLite every turn (`_persist`), so a dropped call keeps its partial record.
 Honest scope note (deliberate "ready but not wired" decisions):
 - **Per-call, in-memory.** State lives in one `ConversationManager` per WebSocket; it is
   not shared across processes. `to_dict()`/`to_json()` is the serialization seam — moving
-  it to **Redis** (set `REDIS_URL`) is a config change, not a rewrite.
+  it to a **Redis**-backed store builds on that seam rather than a rewrite.
 - **No cross-session memory.** A returning caller starts fresh; there is no caller-history
   lookup by phone number. Cross-session recall (recognise a repeat caller, pull prior
   matter/contact details) is the natural next production step and would build on the same

@@ -72,19 +72,6 @@ async def seed():
                 created_at TEXT
             )
         """)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS call_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                call_id TEXT UNIQUE NOT NULL,
-                started_at TEXT,
-                ended_at TEXT,
-                legal_area TEXT,
-                outcome TEXT,
-                turn_count INTEGER,
-                transcript TEXT,
-                entities_json TEXT
-            )
-        """)
         await db.execute("DELETE FROM bookings")
         await db.execute("DELETE FROM slots")
 
