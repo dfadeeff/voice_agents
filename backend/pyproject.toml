@@ -31,6 +31,13 @@ dev = [
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
+# Runtime dirs (logs/, data/, models/) are created next to app/ once the agent
+# runs, which breaks setuptools flat-layout auto-discovery ("multiple top-level
+# packages"). Package only the app tree; the editable install still puts backend/
+# on sys.path so sibling `scripts` stays importable.
+[tool.setuptools.packages.find]
+include = ["app*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
