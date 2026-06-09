@@ -201,7 +201,11 @@ def scripted_line(state: ConversationState, lang: str = "de") -> str | None:
                 last = _last_agent_text(state)
                 if "notiert" in last or "noted" in last:
                     return scripts.get("ask_email_retry", scripts["ask_email"])
-                if "e-mail" in last.lower() or "email" in last.lower():
+                last_lower = last.lower()
+                email_was_asked = (
+                    "e-mail" in last_lower or "email" in last_lower
+                ) and "name" not in last_lower
+                if email_was_asked:
                     return scripts.get("ask_email_not_understood", scripts["ask_email"])
                 return scripts["ask_email"]
             if email and not email.confirmed:
