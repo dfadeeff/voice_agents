@@ -1,4 +1,4 @@
-.PHONY: setup setup-cloud run run-prod seed models test lint benchmark compare-latency clean
+.PHONY: setup setup-cloud run run-prod seed models test lint benchmark compare-latency record-latency clean
 
 setup: models seed
 	pip install -e "backend/.[dev]"
@@ -38,6 +38,11 @@ benchmark:
 # Override with ARGS, e.g. make compare-latency ARGS="logs/<local>.json logs/<cloud>.json --labels local cloud"
 compare-latency:
 	cd backend && python3 scripts/compare_latency.py $(ARGS)
+
+# Record one run's latencies under a label to docs/latency-results.md.
+# e.g. make record-latency ARGS="cloud-deepgram-stt logs/<id>.json"  (log optional → most recent)
+record-latency:
+	cd backend && python3 scripts/compare_latency.py --record $(ARGS)
 
 clean:
 	rm -rf backend/data/ backend/models/ __pycache__

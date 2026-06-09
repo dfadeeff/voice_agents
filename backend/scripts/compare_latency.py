@@ -191,6 +191,49 @@ def render(a: RunSummary, b: RunSummary, label_a: str, label_b: str) -> str:
     return "\n".join(lines)
 
 
+RESULTS_FILE = Path(__file__).resolve().parent.parent.parent / "docs" / "latency-results.md"
+_RESULTS_HEADER = (
+    "# Latency results (per provider configuration)\n\n"
+    'Recorded with `make compare-latency ARGS="--record <label> <log>"`. TTFA is '
+    "perceived latency (caller stops speaking → first agent audio); the rest are "
+    "per-component TTFB. LLM ~0 ms = turns fast-pathed by the deterministic spine.\n\n"
+    "| config | calls | TTFA | STT | LLM | TTS | recorded |\n"
+    "|---|---|---|---|---|---|---|\n"
+)
+
+
+def _cell(summary: RunSummary, role: str) -> str:
+    rs = summary.roles.get(role)
+    if not rs or rs.avg_ms is None:
+        return "—"
+    return f"{'/'.join(sorted(rs.vendors))} {round(rs.avg_ms)} ms"
+
+
+def record_row(summary: RunSummary, label: str, timestamp: str) -> str:
+    """One markdown table row summarizing a single run's latencies."""
+    ttfa = _fmt(summary.ttfa_avg_ms)
+    return (
+        f"| {label} | {summary.calls} | {ttfa} | {_cell(summary, 'STT')} | "
+        f"{_cell(summary, 'LLM')} | {_cell(summary, 'TTS')} | {timestamp} |"
+    )
+
+
+def append_result(row: str) -> None:
+    """Append a result row to docs/latency-results.md, creating it with a header."""
+    RESULTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if not RESULTS_FILE.exists():
+        RESULTS_FILE.write_text(_RESULTS_HEADER)
+    with RESULTS_FILE.open("a") as f:
+        f.write(row + "\n")
+
+
+def _most_recent() -> str:
+    files = sorted(LOGS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not files:
+        sys.exit(f"No logs found in {LOGS_DIR}.")
+    return str(files[0])
+
+
 def _two_most_recent() -> list[str]:
     files = sorted(LOGS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
     if len(files) < 2:
@@ -203,7 +246,28 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("before", nargs="?", help="log file | dir | glob for run A")
     parser.add_argument("after", nargs="?", help="log file | dir | glob for run B")
     parser.add_argument("--labels", nargs=2, metavar=("A", "B"), default=["before", "after"])
+    parser.add_argument(
+        "--record",
+        metavar="LABEL",
+        help="record one run's latencies under LABEL to docs/latency-results.md "
+        "(uses the 'before' log, or the most recent if omitted)",
+    )
     args = parser.parse_args(argv)
+
+    # Record mode: summarize a single run and append a labeled row.
+    if args.record:
+        if args.after:
+            parser.error("--record takes a single log (the 'before' arg), not two")
+        spec = args.before or _most_recent()
+        summary = summarize(load_logs(spec))
+        if summary.calls == 0:
+            sys.exit(f"No usable log found at {spec!r}.")
+        from datetime import datetime
+
+        row = record_row(summary, args.record, datetime.now().strftime("%Y-%m-%d %H:%M"))
+        append_result(row)
+        print(f"Recorded '{args.record}' to {RESULTS_FILE}:\n{row}")
+        return
 
     if args.before and args.after:
         specs = [args.before, args.after]
