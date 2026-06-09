@@ -22,11 +22,13 @@ class CalendarService:
     ) -> list[dict]:
         exclude_ids = exclude_ids or []
         exclude_times = exclude_times or []
-        now = datetime.now()
-        today = now.date().isoformat()
-        min_time = (now + timedelta(hours=4)).strftime("%H:%M")
-        query = "SELECT * FROM slots WHERE is_booked = 0 AND (date > ? OR (date = ? AND time >= ?))"
-        params: list = [today, today, min_time]
+        # Full datetime cutoff (date + time together), not a bare time-of-day: at
+        # 23:00 a "now + 4h" time string wraps to "03:00" and would wrongly match
+        # today's earlier slots. Comparing "<date> <time>" lexicographically against
+        # the cutoff correctly drops every slot in the past.
+        cutoff = (datetime.now() + timedelta(hours=4)).strftime("%Y-%m-%d %H:%M")
+        query = "SELECT * FROM slots WHERE is_booked = 0 AND (date || ' ' || time) >= ?"
+        params: list = [cutoff]
         if legal_area and legal_area != "unknown":
             query += " AND (legal_area = ? OR legal_area IS NULL)"
             params.append(legal_area)
@@ -65,14 +67,11 @@ class CalendarService:
         """Find the earliest free slot at a specific clock time (e.g. '13:00'),
         honouring the same area / lawyer / lead-time filters as the offer list.
         Returns the slot dict or None when nothing is free at that time."""
-        now = datetime.now()
-        today = now.date().isoformat()
-        min_time = (now + timedelta(hours=4)).strftime("%H:%M")
+        cutoff = (datetime.now() + timedelta(hours=4)).strftime("%Y-%m-%d %H:%M")
         query = (
-            "SELECT * FROM slots WHERE is_booked = 0 AND time = ? "
-            "AND (date > ? OR (date = ? AND time >= ?))"
+            "SELECT * FROM slots WHERE is_booked = 0 AND time = ? AND (date || ' ' || time) >= ?"
         )
-        params: list = [time_hhmm, today, today, min_time]
+        params: list = [time_hhmm, cutoff]
         if legal_area and legal_area != "unknown":
             query += " AND (legal_area = ? OR legal_area IS NULL)"
             params.append(legal_area)

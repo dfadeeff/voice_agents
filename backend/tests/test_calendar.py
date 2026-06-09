@@ -112,3 +112,67 @@ class TestBookings:
     async def test_booking_nonexistent_slot(self, seeded_calendar):
         result = await seeded_calendar.create_booking(slot_id=9999, call_id="test-001")
         assert result is None
+
+
+class TestFutureSlotFiltering:
+    """Regression: slots must be filtered against a full datetime cutoff. A bare
+    'now + 4h' time-of-day wraps past midnight late at night and wrongly offered
+    today's already-past slots."""
+
+    def _cal_with(self, rows):
+        import asyncio
+        import sqlite3
+        import tempfile
+
+        from app.services.calendar import CalendarService
+
+        db = tempfile.mktemp(suffix=".db")
+        cal = CalendarService(db_path=db)
+        asyncio.run(cal.init_db())
+        conn = sqlite3.connect(db)
+        for d, t in rows:
+            conn.execute(
+                "INSERT INTO slots (date,time,legal_area,lawyer_name,is_booked) VALUES (?,?,?,?,0)",
+                (d, t, "traffic", "Michael Weber"),
+            )
+        conn.commit()
+        conn.close()
+        return cal
+
+    def _freeze_late(self, monkeypatch):
+        from datetime import datetime as real_datetime
+
+        from app.services import calendar as cal_mod
+
+        class _FakeDateTime(real_datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return real_datetime(2026, 6, 9, 23, 0)  # 11pm — today's slots are past
+
+        monkeypatch.setattr(cal_mod, "datetime", _FakeDateTime)
+
+    def test_today_past_slots_excluded_at_night(self, monkeypatch):
+        self._freeze_late(monkeypatch)
+        cal = self._cal_with(
+            [("2026-06-09", "09:00"), ("2026-06-09", "13:00"), ("2026-06-10", "09:00")]
+        )
+        pairs = {(s["date"], s["time"]) for s in cal.available_slots_sync("traffic")}
+        assert ("2026-06-09", "09:00") not in pairs  # past
+        assert ("2026-06-09", "13:00") not in pairs  # past
+        assert ("2026-06-10", "09:00") in pairs  # future
+
+    def test_find_slot_skips_past_time_today(self, monkeypatch):
+        import sqlite3
+
+        self._freeze_late(monkeypatch)
+        cal = self._cal_with([("2026-06-09", "13:00")])  # only a past 13:00 today
+        assert cal.find_slot_sync("13:00", "traffic") is None
+        conn = sqlite3.connect(cal._db_path)
+        conn.execute(
+            "INSERT INTO slots (date,time,legal_area,lawyer_name,is_booked) "
+            "VALUES ('2026-06-10','13:00','traffic','Michael Weber',0)"
+        )
+        conn.commit()
+        conn.close()
+        slot = cal.find_slot_sync("13:00", "traffic")
+        assert slot and slot["date"] == "2026-06-10"
