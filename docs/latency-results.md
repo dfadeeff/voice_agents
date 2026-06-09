@@ -13,3 +13,4 @@ Recorded with `make compare-latency ARGS="--record <label> <log>"`. TTFA is perc
 | local (whisper+ollama+piper) | 1 | 208 ms | Whisper 1819 ms | Ollama 0 ms | Piper 124 ms | 2026-06-09 23:21 |
 | cloud-deepgram-stt (run 3, VAD 1.2s) | 1 | 142 ms | Deepgram 444 ms | Ollama 0 ms | Piper 128 ms | 2026-06-09 23:21 |
 | cloud: deepgram + gpt-4o (piper tts) | 1 | 231 ms | Deepgram 913 ms | OpenAI 0 ms | Piper 219 ms | 2026-06-10 00:40 |
+| cloud-full: deepgram + gpt-4o + cartesia | 1 | 305 ms | Deepgram 1008 ms | OpenAI 0 ms | Cartesia 177 ms | 2026-06-10 01:53 |
