@@ -17,7 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 cloud = [
-    "pipecat-ai[deepgram,openai,elevenlabs]>=1.3.0,<2.0.0",
+    "pipecat-ai[deepgram,openai,elevenlabs,cartesia]>=1.3.0,<2.0.0",
     "twilio>=9.0.0",
 ]
 dev = [
