@@ -280,8 +280,7 @@ SCRIPTED = {
     ),
     "ask_email": ("Thank you. What is your email address?"),
     "ask_email_not_understood": (
-        "I'm sorry, I didn't catch the email address. Please say it again slowly, with 'at' "
-        "and 'dot' — for example: max dot sample at gmail dot com."
+        "I'm sorry, I didn't catch the email address. Could you please repeat it?"
     ),
     "ask_email_retry": ("Sorry about that. What is the correct email address?"),
     "confirm_email": ("I've noted: {email}. Is that correct?"),

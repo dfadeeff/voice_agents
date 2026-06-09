@@ -18,15 +18,6 @@ _LEGAL_HOTWORDS = (
     "Vermieter Kaution Beratungstermin E-Mail-Adresse Telefonnummer Rückruf"
 )
 
-# Spoken emails are the field Whisper-small mangles worst over phone audio: it
-# tends to drop the "@gmail" middle and emit just "Steinfeld.com". Biasing the
-# decoder toward the connectors and the common German/global mail domains during
-# the email turn keeps those tokens in the transcript so the parser can recover
-# the address. Only applied when the agent just asked for the email.
-_EMAIL_HOTWORDS = (
-    "E-Mail-Adresse at ät punkt gmail.com googlemail.com gmx.de gmx.net web.de "
-    "outlook.de hotmail.de hotmail.com yahoo.de yahoo.com icloud.com t-online.de"
-)
 # During phone dictation, bias toward the spoken digit words so they aren't
 # rendered as decimals ("5.1, 5.6") or merged into ordinals.
 _PHONE_HOTWORDS = (
@@ -62,14 +53,18 @@ class LocalWhisperSTTService(WhisperSTTService):
 
     def set_conversation(self, conversation) -> None:
         """Attach the conversation manager so the decoder can be biased toward the
-        tokens expected for the field the agent just asked for (email/phone)."""
+        tokens expected for the field the agent just asked for (phone digits)."""
         self._conversation = conversation
 
     def _hotwords_for_turn(self) -> str:
-        """German legal hotwords, plus field-specific bias for the awaited slot."""
+        """German legal hotwords, plus field-specific bias for the awaited slot.
+
+        Email is deliberately NOT biased: hinting "at"/"punkt" pushed Whisper to
+        emit those as literal tokens (`baum.at.gmail.com`), which is harder to
+        parse than a plain mishearing. Spoken email is rescued by the LLM
+        extractor instead.
+        """
         awaiting = getattr(getattr(self._conversation, "state", None), "awaiting", None)
-        if awaiting in ("email", "email_confirm"):
-            return _LEGAL_HOTWORDS + " " + _EMAIL_HOTWORDS
         if awaiting in ("phone", "phone_confirm"):
             return _LEGAL_HOTWORDS + " " + _PHONE_HOTWORDS
         return _LEGAL_HOTWORDS
