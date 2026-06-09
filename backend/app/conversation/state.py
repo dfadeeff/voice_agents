@@ -59,6 +59,9 @@ class ConversationState:
     # True when we asked for the email but couldn't parse one from the reply, so
     # the next prompt apologises and asks again (the "didn't catch it" path).
     email_misheard: bool = False
+    # Accumulates email-turn text across split utterances ("Klein at Hotmail" |
+    # "Punkt de"), re-parsed as a whole each turn so a chunked address assembles.
+    email_buffer: str = ""
     # How many times the email was asked but not understood. Spoken email is the
     # hardest field over phone-quality audio; after a few misses we stop looping
     # and skip it (a phone number is enough to book / call back).
