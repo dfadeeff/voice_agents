@@ -335,6 +335,18 @@ class TestEnforcedInsuranceStep:
         ctx.confirm_entity("phone")
         assert ctx.state.phase == CallPhase.BOOKING
 
+    def test_spoken_digit_words_insurance_captured(self):
+        # Regression: STT renders a spoken reference as digit *words*
+        # ("F fünf vier zwei sechs ..."), which the extractor missed entirely.
+        ctx = ConversationManager(call_id="enf-spoken", lang="de")
+        ctx.add_user_message("Ich hatte einen Unfall")
+        ctx.next_prompt()  # area_confirm, awaiting matter_type
+        ctx.add_user_message("Ja, ein Verkehrsunfall")
+        ctx.next_prompt()  # traffic_insurance, awaiting insurance
+        ctx.add_user_message("F fünf vier zwei sechs acht neun drei vier sieben")
+        assert ctx.state.entities["insurance_number"].value == "F542689347"
+        assert ctx.state.phase == CallPhase.CAPTURE
+
     def test_caller_without_insurance_number_still_advances(self):
         ctx = ConversationManager(call_id="enf3", lang="de")
         ctx.add_user_message("Ich hatte einen Unfall")

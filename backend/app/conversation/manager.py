@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from app.conversation.flow import PHASE_TOOLS, next_phase
-from app.conversation.phone import normalize_phone_text
+from app.conversation.phone import digit_words_to_digits, normalize_phone_text
 from app.conversation.policy import (
     extract_target_person,
     is_explicit_handoff_request,
@@ -349,12 +349,15 @@ def _extract_reference(text: str) -> str | None:
         elif kept:
             break  # a word after the number ends the reference
         elif (
-            tok.isupper()
+            tok.isalpha()
+            and (tok.isupper() or len(tok) == 1)
             and len(tok) <= 5
             and i + 1 < len(tokens)
             and any(c.isdigit() for c in tokens[i + 1])
         ):
-            kept.append(tok)  # short prefix like 'VS' before the digits
+            # Short prefix before the digits: 'VS' or a single letter like 'F'
+            # (STT often lowercases a spoken letter — keep it, uppercased).
+            kept.append(tok.upper())
     joined = "".join(kept)
     if len(re.sub(r"[^A-Za-z0-9]", "", joined)) >= 5:
         return joined
@@ -815,7 +818,9 @@ class ConversationManager:
             return False
         if self.state.insurance_resolved or "insurance_number" in self.state.entities:
             return False
-        value = _extract_reference(text)
+        # Spoken references arrive as digit words ("F fünf vier zwei sechs"); map
+        # them to digits first so _extract_reference sees an alphanumeric token.
+        value = _extract_reference(digit_words_to_digits(text))
         negative = bool(_NEGATE_RE.search(text.lower()))
         # "keine Schadensnummer, dafür aber Versicherungsnummer" — caller negates
         # one type but says they have another. Don't resolve; wait for the digits.

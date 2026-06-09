@@ -25,6 +25,13 @@ _DIGIT_WORD_RE = re.compile(
 )
 
 
+def digit_words_to_digits(text: str) -> str:
+    """Replace spoken German digit words with digits, keeping other text intact
+    ('F fünf vier zwei' → 'F 5 4 2'). Used to recover spoken alphanumeric
+    references (insurance/claim numbers) that STT renders as words."""
+    return _DIGIT_WORD_RE.sub(lambda m: GERMAN_DIGIT_WORDS[m.group(1).lower()], text)
+
+
 def normalize_phone_text(text: str) -> str:
     """Convert German spoken phone text to a normalized digit string.
 
