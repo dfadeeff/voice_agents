@@ -61,6 +61,33 @@ class CalendarService:
                     break
         return deduped
 
+    def find_slot_sync(self, time_hhmm: str, legal_area: str = "", lawyer: str = "") -> dict | None:
+        """Find the earliest free slot at a specific clock time (e.g. '13:00'),
+        honouring the same area / lawyer / lead-time filters as the offer list.
+        Returns the slot dict or None when nothing is free at that time."""
+        now = datetime.now()
+        today = now.date().isoformat()
+        min_time = (now + timedelta(hours=4)).strftime("%H:%M")
+        query = (
+            "SELECT * FROM slots WHERE is_booked = 0 AND time = ? "
+            "AND (date > ? OR (date = ? AND time >= ?))"
+        )
+        params: list = [time_hhmm, today, today, min_time]
+        if legal_area and legal_area != "unknown":
+            query += " AND (legal_area = ? OR legal_area IS NULL)"
+            params.append(legal_area)
+        if lawyer:
+            query += " AND lawyer_name LIKE ?"
+            params.append(f"%{lawyer}%")
+        query += " ORDER BY date, time LIMIT 1"
+        conn = sqlite3.connect(self._db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute(query, params).fetchone()
+        finally:
+            conn.close()
+        return dict(row) if row else None
+
     def upsert_caller_sync(
         self,
         call_id: str,

@@ -289,6 +289,9 @@ SCRIPTED = {
     "confirm_phone": ("I've noted your number: {phone}. Is that correct?"),
     "ask_callback_time": ("And when would be a good time to call you back?"),
     "slot_offer": ("I can offer you these appointments: {options}. Which one works for you?"),
+    "slot_unavailable": (
+        "I'm afraid I have nothing free at {time}. I can offer: {options}. Which one works for you?"
+    ),
     "no_slots": (
         "I'm afraid I have no free slots right now. The team will reach out to arrange "
         "one that suits you. Goodbye!"

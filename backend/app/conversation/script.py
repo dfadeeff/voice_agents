@@ -245,9 +245,12 @@ def compute_prompt(state: ConversationState, lang: str = "de") -> tuple[str | No
 
     if phase == CallPhase.BOOKING and not state.booking_confirmed:
         if state.offered_slots:
-            return scripts["slot_offer"].format(options=_fmt_slots(state.offered_slots, lang)), (
-                "slot"
-            )
+            options = _fmt_slots(state.offered_slots, lang)
+            if state.unavailable_time:
+                return scripts["slot_unavailable"].format(
+                    time=_fmt_time(state.unavailable_time, lang), options=options
+                ), "slot"
+            return scripts["slot_offer"].format(options=options), "slot"
         return scripts["no_slots"], None
 
     if phase == CallPhase.CONFIRMATION and state.booked_slot:

@@ -28,6 +28,9 @@ class ConversationState:
     declined_slot_times: list[str] = field(default_factory=list)
     # Slots currently offered to the caller (deterministic booking).
     offered_slots: list[dict] = field(default_factory=list)
+    # A specific time the caller asked for that wasn't free (e.g. "13 Uhr"); the
+    # next slot offer apologises for it before listing the available alternatives.
+    unavailable_time: str | None = None
     # How many times the matter-type question was asked without a recognised
     # answer; after a couple of misses we record it as "other" and move on
     # instead of re-asking forever.

@@ -987,6 +987,28 @@ class TestDeterministicBooking:
         ctx.add_user_message("14 Uhr bitte")
         assert ctx.state.booked_slot["time"] == "14:00"
 
+    def test_requested_time_outside_offer_is_booked(self):
+        # The offer shows the first three (9 / 9:30 / 10), but 13:00 also exists.
+        # "Können wir dreizehn Uhr machen?" must book it, not repeat the offer.
+        cal = self._calendar(["09:00", "09:30", "10:00", "13:00"])
+        ctx = self._ready_to_book(cal)
+        line = ctx.next_prompt()
+        assert "13 Uhr" not in line  # 13:00 was not among the offered slots
+        ctx.add_user_message("Können wir dreizehn Uhr machen?")
+        assert ctx.state.booking_confirmed is True
+        assert ctx.state.booked_slot["time"] == "13:00"
+
+    def test_requested_time_unavailable_apologises_and_reoffers(self):
+        # 18:00 is not in the calendar at all → don't loop; apologise + re-offer.
+        cal = self._calendar(["09:00", "09:30", "10:00"])
+        ctx = self._ready_to_book(cal)
+        ctx.next_prompt()  # offer slots, awaiting slot
+        ctx.add_user_message("Können wir achtzehn Uhr machen?")
+        assert ctx.state.booking_confirmed is False
+        line = ctx.next_prompt()
+        assert "18 Uhr" in line  # names the unavailable time
+        assert "9 Uhr" in line  # and lists the real alternatives
+
     def test_decline_excludes_time_across_lawyers(self):
         """Regression: with two lawyers per slot, declining a time must not
         re-offer the same time via the other lawyer's slot."""
@@ -1214,11 +1236,43 @@ class TestSpokenEmailParsing:
         assert _parse_email("baum.at gmail.com") == "baum@gmail.com"
         assert _parse_email("baum at gmail punkt com") == "baum@gmail.com"
 
+    def test_leadin_es_ist_is_stripped(self):
+        from app.conversation.manager import _parse_email
+
+        # Regression: "Ja, es ist Sigmar at ..." leaked the lead-in into the local
+        # part as "esistsigmar@..." because "es" wasn't a recognised filler word.
+        assert _parse_email("Ja, es ist Sigmar at Gmail dot com.") == "sigmar@gmail.com"
+
+    def test_name_anchoring_snaps_near_miss_local_part(self):
+        from app.conversation.manager import _anchor_email_to_name
+
+        # STT dropped a letter: heard "sigma", caller's name is "Leon Sigmar".
+        assert _anchor_email_to_name("sigma@gmail.com", "Leon Sigmar") == "sigmar@gmail.com"
+        # Exact match and genuinely different addresses are left untouched.
+        assert _anchor_email_to_name("sigmar@gmail.com", "Leon Sigmar") == "sigmar@gmail.com"
+        assert (
+            _anchor_email_to_name("leon.legal@gmail.com", "Leon Sigmar") == "leon.legal@gmail.com"
+        )
+        assert _anchor_email_to_name("x@gmail.com", "") == "x@gmail.com"  # no name → no-op
+
+    def test_anchoring_applied_when_capturing_email_after_name(self):
+        ctx = ConversationManager(call_id="anchor-e2e", lang="de")
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.TRAFFIC)
+        ctx.store_entity("matter_type", "accident", 1.0)
+        ctx.confirm_entity("matter_type")
+        ctx.state.insurance_resolved = True
+        ctx.store_entity("name", "Leon Sigmar", 0.95)
+        ctx.confirm_entity("name")
+        ctx.advance_phase()
+        ctx.next_prompt()  # ask_email → awaiting email (name already captured)
+        ctx.add_user_message("Sigma at Gmail dot com")  # STT dropped the 'r'
+        assert ctx.state.entities["email"].value == "sigmar@gmail.com"
+
     def test_llm_rescue_recovers_email_regex_missed(self):
         """When regex fails and an extractor is configured, the LLM rescue stores it."""
         import asyncio
 
-        async def fake_llm(_text):
+        async def fake_llm(_text, _name=""):
             return "langm@gmail.com"
 
         ctx = ConversationManager(call_id="e2e-llm-email", lang="de")
