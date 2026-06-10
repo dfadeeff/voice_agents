@@ -20,12 +20,12 @@ TTFA = STT latency + LLM time-to-first-token + TTS time-to-first-byte
 
 (One measurement honesty note: the *logged* TTFA metric in `backend/logs/` starts when the final transcript arrives, so it captures the LLM/decision + TTS portion only; the VAD silence window and STT time are logged as separate components, and the caller-perceived gap is their sum — see `docs/latency-results.md` for the decomposition across configs.)
 
-With the local stack:
+With the local stack, the theoretical best case (small Whisper model, a short utterance, excluding the VAD endpoint window) is:
 - **STT** (faster-whisper, small model): ~300-500ms per utterance
 - **LLM** (Ollama qwen2.5:7b): ~300-500ms TTFT depending on hardware
 - **TTS** (Piper): ~50ms TTFB (lightweight CPU model)
 
-Total: ~650ms-1s locally. With cloud providers (Deepgram + GPT-4o-mini + ElevenLabs), the Salesforce paper benchmarks this at ~755ms measured end-to-end.
+Total: ~650ms-1s locally in that best case. Measured on real calls (`docs/latency-results.md`), local Whisper averaged ~1.8s per utterance (medium model), putting the caller-perceived gap around ~2.8s including the 0.8s VAD window — versus ~1.4s on the cloud stack. That measured gap, not the theoretical budget, is the motivation for streaming STT in production. With cloud providers (Deepgram + GPT-4o-mini + ElevenLabs), the Salesforce paper benchmarks ~755ms measured end-to-end.
 
 ### How the pipeline reduces latency
 

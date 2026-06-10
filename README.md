@@ -265,43 +265,63 @@ All local, all free:
 | **TTS** | [Piper](https://github.com/rhasspy/piper) (via Pipecat) | Text-to-speech, German Eva voice |
 | **VAD** | Silero (via Pipecat) | Voice activity detection, endpointing |
 | **Transport** | WebSocket + protobuf | Browser mic/speaker over FastAPI WebSocket |
-| **DB** | SQLite | Appointment calendar with 560 seeded slots |
+| **DB** | SQLite | Appointment calendar with 840 seeded slots |
 
 ## Project Structure
 
 ```
 voice_agent/
 ├── backend/
-│   └── app/
-│       ├── main.py                 # FastAPI app, lifespan
-│       ├── config.py               # Pydantic Settings (env-driven)
-│       ├── api/
-│       │   ├── ws.py               # WebSocket /ws/call/{id} (browser)
-│       │   ├── twilio.py           # Twilio Media Streams (phone calls)
-│       │   └── health.py           # GET /health, /ready
-│       ├── pipeline/
-│       │   ├── orchestrator.py     # Pipecat pipeline + tool registration
-│       │   ├── local_whisper.py    # Local STT + confidence + domain bias
-│       │   ├── local_piper.py      # Local TTS + sentence-pause shaping
-│       │   └── processors.py       # Safety, transcript display + logging
-│       ├── providers/              # Vendor-agnostic STT/LLM/TTS factories + registries
-│       │   ├── base.py             # ConversationAware protocol
-│       │   ├── stt.py / llm.py / tts.py  # name → builder registries
-│       ├── conversation/
-│       │   ├── state.py            # Serializable call state
-│       │   ├── manager.py          # State management + deterministic policies
-│       │   ├── policy.py           # Safety-critical handoff detection
-│       │   └── prompts.py          # System prompt + law-area fragments
-│       ├── tools/
-│       │   ├── registry.py         # Tool name -> handler + JSON schema
-│       │   ├── route.py            # route_call: intent + legal area
-│       │   ├── extraction.py       # capture + explicit confirmation
-│       │   ├── booking.py          # check_availability, book_consultation
-│       │   └── handoff.py          # truthful callback/handoff request
-│       ├── services/
-│       │   └── calendar.py         # SQLite: slots, bookings
-│       └── models/
-│           └── schemas.py          # Dataclasses: CallPhase, LegalArea, etc.
+│   ├── app/
+│   │   ├── main.py                 # FastAPI app, lifespan
+│   │   ├── config.py               # Pydantic Settings (env-driven)
+│   │   ├── api/
+│   │   │   ├── ws.py               # WebSocket /ws/call/{id} (browser)
+│   │   │   ├── twilio.py           # Twilio Media Streams (phone calls)
+│   │   │   ├── session.py          # Shared session factory + call-capacity gate
+│   │   │   └── health.py           # GET /health, /ready
+│   │   ├── pipeline/
+│   │   │   ├── orchestrator.py     # Pipecat pipeline + tool registration
+│   │   │   ├── local_whisper.py    # Local STT + confidence + domain bias
+│   │   │   ├── local_piper.py      # Local TTS + sentence-pause shaping
+│   │   │   └── processors.py       # Safety, transcript display + logging
+│   │   ├── providers/              # Vendor-agnostic STT/LLM/TTS factories + registries
+│   │   │   ├── base.py             # ConversationAware protocol
+│   │   │   └── stt.py / llm.py / tts.py   # name → builder registries
+│   │   ├── conversation/
+│   │   │   ├── flow.py             # Deterministic state machine (next_phase)
+│   │   │   ├── state.py            # Serializable call state
+│   │   │   ├── manager.py          # Per-call orchestration + reply dispatch
+│   │   │   ├── script.py           # compute_prompt(): the scripted spine
+│   │   │   ├── email_capture.py / phone_capture.py / insurance_capture.py
+│   │   │   │                       # Per-field capture strategies (read-back, retry, skip)
+│   │   │   ├── cues.py             # Shared reply cues (yes/no, off-script question)
+│   │   │   ├── email_parse.py / email_extract.py / matter_classify.py / time_parse.py
+│   │   │   ├── phone.py            # Spoken-number normalization
+│   │   │   ├── policy.py           # Safety-critical handoff detection
+│   │   │   ├── prompts.py          # System prompt builder (locale-aware)
+│   │   │   └── locales/            # de.py (default), en.py
+│   │   ├── tools/
+│   │   │   ├── registry.py         # Tool name -> handler + JSON schema
+│   │   │   ├── route.py            # route_call: intent + legal area
+│   │   │   ├── extraction.py       # capture + explicit confirmation
+│   │   │   ├── booking.py          # check_availability, book_consultation
+│   │   │   └── handoff.py          # truthful callback/handoff request
+│   │   ├── services/
+│   │   │   └── calendar.py         # SQLite: slots, bookings
+│   │   └── models/
+│   │       └── schemas.py          # Dataclasses: CallPhase, LegalArea, etc.
+│   ├── scripts/
+│   │   ├── download_models.py      # Download Piper voices + pull Ollama model
+│   │   ├── seed_calendar.py        # Populate 2 weeks of appointment slots
+│   │   ├── fill_calendar.py        # Re-fill a partially booked calendar
+│   │   ├── demo_call.py            # Headless demo calls (make demo-call)
+│   │   ├── compare_latency.py      # Diff per-component latency between call logs
+│   │   └── benchmark_models.py     # Model latency + tool calling benchmark
+│   ├── tests/                      # 440+ tests incl. scenario-level call flows
+│   ├── benchmarks/                 # Benchmark output (JSON + markdown)
+│   ├── logs/                       # Per-call latency/transcript logs (gitignored)
+│   └── data/                       # SQLite DB (gitignored, created at runtime)
 ├── frontend/
 │   ├── index.html                  # Single page, no build step
 │   ├── style.css
@@ -309,14 +329,11 @@ voice_agent/
 │   └── components/
 │       ├── protobuf.js             # Pipecat frame encoder/decoder
 │       └── audio.js                # AudioWorklet mic capture + playback
-├── scripts/
-│   ├── download_models.py          # Download Piper voice + pull Ollama model
-│   ├── seed_calendar.py            # Populate 2 weeks of appointment slots
-│   └── benchmark_models.py         # Model latency + tool calling benchmark
-├── benchmarks/                     # Benchmark output (JSON + markdown)
-├── logs/                           # Call transcripts (auto-created, gitignored)
+├── demo/                           # Recorded demo calls + transcripts (make demo-call)
+├── docs/                           # Latency results
 ├── .github/workflows/
-│   └── benchmark.yml               # CI: model benchmark on push/manual
+│   ├── ci.yml                      # CI: lint + tests on push/PR
+│   └── benchmark.yml               # Model benchmark (manual trigger only)
 ├── ARCHITECTURE.md                 # Detailed architecture + diagrams
 ├── Makefile
 └── .env.example
