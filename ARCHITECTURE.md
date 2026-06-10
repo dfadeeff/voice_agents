@@ -8,7 +8,7 @@ Inbound voice agent for a law firm. Handles calls end-to-end: greeting, routing 
 
 | Layer | Local (default) | Cloud (production) |
 |-------|----------------|---------------------|
-| **STT** | faster-whisper (medium, CPU int8) | Deepgram Nova-2 (streaming) |
+| **STT** | faster-whisper (small, CPU int8; medium for max accuracy) | Deepgram Nova-2 (streaming) |
 | **LLM** | Ollama Qwen2.5-7B | OpenAI GPT-4o-mini |
 | **TTS** | Piper (de_DE-eva_k-x_low) | ElevenLabs (streaming) |
 | **VAD** | Silero VAD | same |
@@ -23,7 +23,7 @@ voice_agent/
 ├── ARCHITECTURE.md
 ├── README.md
 ├── .env.example
-├── Makefile                         # make setup, make run, make seed
+├── Makefile                         # make setup / run / seed / test / demo-call
 │
 ├── backend/
 │   ├── pyproject.toml
@@ -81,7 +81,17 @@ voice_agent/
 │   │   └── models/
 │   │       └── schemas.py           # Dataclasses: CallPhase, LegalArea, entities
 │   │
-│   └── tests/
+│   ├── scripts/
+│   │   ├── seed_calendar.py         # Populate 2 weeks of slots
+│   │   ├── fill_calendar.py         # Re-fill a partially booked calendar
+│   │   ├── download_models.py       # Download Piper voices + pull Ollama model
+│   │   ├── demo_call.py             # Headless demo calls (make demo-call)
+│   │   ├── compare_latency.py       # Diff per-component latency between call logs
+│   │   └── benchmark_models.py      # Model latency + tool calling benchmark
+│   ├── tests/
+│   ├── logs/                        # Per-call logs (.gitignored)
+│   └── data/                        # SQLite DB (.gitignored, created at runtime)
+│       └── voice_agent.db
 │
 ├── frontend/
 │   ├── index.html                   # Single page, no build step
@@ -91,13 +101,8 @@ voice_agent/
 │       ├── protobuf.js              # Pipecat frame encoder/decoder
 │       └── audio.js                 # AudioWorklet mic capture + playback
 │
-├── scripts/
-│   ├── seed_calendar.py             # Populate 2 weeks of slots
-│   ├── download_models.py           # Download Piper voice + pull Ollama model
-│   └── benchmark_models.py          # Model latency + tool calling benchmark
-│
-└── data/                            # .gitignored, created at runtime
-    └── voice_agent.db
+├── demo/                            # Recorded demo calls + transcripts (make demo-call)
+└── docs/                            # Latency results
 ```
 
 ## System Diagram
