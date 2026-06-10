@@ -11,9 +11,7 @@ from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketTransport,
 )
 
-from app.conversation.manager import ConversationManager
-from app.pipeline.orchestrator import create_pipeline
-from app.providers import create_llm, create_stt, create_tts
+from app.api.session import save_caller, start_call
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/twilio")
@@ -76,14 +74,10 @@ async def twilio_media_stream(websocket: WebSocket):
         ),
     )
 
-    stt = create_stt(settings)
-    llm = create_llm(settings)
-    tts = create_tts(settings)
-
-    conversation = ConversationManager(call_id=call_id)
-    tools = websocket.app.state.tool_registry
-
-    task, runner = await create_pipeline(stt, llm, tts, transport, websocket, conversation, tools)
+    # Same wiring as the browser path (language + calendar + tool gating) so phone
+    # calls actually book — previously this built a manager with no calendar and
+    # every caller hit the "no free slots" branch.
+    conversation, task, runner = await start_call(websocket.app, transport, websocket, call_id)
 
     @transport.event_handler("on_client_disconnected")
     async def on_disconnected(transport, ws):
@@ -91,5 +85,11 @@ async def twilio_media_stream(websocket: WebSocket):
         await task.queue_frame(EndFrame())
 
     logger.info("[%s] Starting Twilio pipeline", call_id)
-    await runner.run(task)
+    try:
+        await runner.run(task)
+    finally:
+        try:
+            save_caller(websocket.app, conversation)
+        except Exception:
+            logger.exception("[%s] Failed to save caller data", call_id)
     logger.info("[%s] Twilio pipeline finished", call_id)
