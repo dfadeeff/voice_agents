@@ -1,7 +1,7 @@
 # Voice AI Agent for Law Firms
 
 ## What this is
-Inbound voice AI agent for law firms. Handles calls end-to-end: greeting, routing by legal area (employment/tenancy), entity capture with confidence handling, consultation booking, and human escalation.
+Inbound voice AI agent for law firms. Handles calls end-to-end: greeting, routing by legal area (employment/tenancy/traffic), entity capture with confidence handling, consultation booking, and human escalation.
 
 ## Architecture
 See ARCHITECTURE.md for full details. Key decisions:
@@ -23,7 +23,7 @@ See ARCHITECTURE.md for full details. Key decisions:
 - `backend/app/` — FastAPI app
   - `pipeline/` — Pipecat pipeline assembly + custom FrameProcessors
   - `providers/` — Vendor-agnostic STT/LLM/TTS factories: name→builder registries (`create_stt/llm/tts`) + the `ConversationAware` protocol. Add a vendor = one registry entry, no caller changes.
-  - `conversation/` — State management, prompts
+  - `conversation/` — State management, the scripted spine (flow/script), per-field capture strategies (email/phone/insurance), parsers, prompts
   - `tools/` — LLM function calling tools (routing, extraction, booking, escalation)
   - `services/` — Business logic (calendar/booking service)
   - `api/` — HTTP + WebSocket endpoints
@@ -32,9 +32,10 @@ See ARCHITECTURE.md for full details. Key decisions:
 
 ## Commands
 ```bash
-make setup    # install deps, download models, seed DB
-make run      # start backend + frontend
-make seed     # re-seed calendar slots
+make setup      # install deps, download models, seed DB
+make run        # start backend + frontend
+make seed       # re-seed calendar slots
+make demo-call  # headless demo calls → demo/ (audio + transcripts, asserts outcomes)
 ```
 
 ## Key conventions

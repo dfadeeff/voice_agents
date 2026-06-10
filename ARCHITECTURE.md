@@ -51,11 +51,19 @@ voice_agent/
 │   │   ├── conversation/
 │   │   │   ├── flow.py              # Deterministic state machine (next_phase, phase tools)
 │   │   │   ├── state.py             # ConversationState dataclass (serializable, incl. `awaiting`)
-│   │   │   ├── manager.py           # State per call, phase transitions, next_prompt(), reply parsing
+│   │   │   ├── manager.py           # Per-call orchestration: phase transitions, next_prompt(), reply dispatch
 │   │   │   ├── script.py            # compute_prompt(): the scripted question driver (the spine)
+│   │   │   ├── email_capture.py     # Per-field capture strategy: email (buffering, read-back, spelling, skip)
+│   │   │   ├── phone_capture.py     # Per-field capture strategy: phone (split-dictation accumulation)
+│   │   │   ├── insurance_capture.py # Per-field capture strategy: traffic insurance/claim number
+│   │   │   ├── cues.py              # Shared reply cues (yes/no/denial, off-script question, repeat request)
+│   │   │   ├── email_parse.py       # Spoken-email parsing (at/punkt forms, spelled letters, name anchoring)
+│   │   │   ├── email_extract.py     # Optional LLM rescue for spoken email (llm_assist)
+│   │   │   ├── matter_classify.py   # Optional LLM rescue for matter-type classification
+│   │   │   ├── time_parse.py        # Requested-time parsing ("vierzehn Uhr dreißig" → 14:30)
 │   │   │   ├── phone.py             # Spoken-number normalization
 │   │   │   ├── policy.py            # Handoff-request detection, target-person extraction
-│   │   │   ├── prompts.py           # System prompt builder (locale-aware)
+│   │   │   ├── prompts.py           # System prompt builder (locale-aware, incl. off-script instruction)
 │   │   │   └── locales/             # Per-language prompt + scripted-line constants
 │   │   │       ├── de.py            # German (default) — preamble, phase prompts, SCRIPTED lines
 │   │   │       └── en.py            # English
@@ -361,7 +369,7 @@ Caller speaks: "My email is d fadeev at gmail maybe no wait fadejeff at gmail"
          │
          ▼
     ┌─────────┐
-    │ Silero  │  detects speech end (700ms silence)
+    │ Silero  │  detects speech end (800ms silence)
     │ VAD     │
     └────┬────┘
          │
