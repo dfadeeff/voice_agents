@@ -40,9 +40,11 @@ _HOUR_ALT = "|".join(sorted(_HOUR_WORDS, key=len, reverse=True))
 # An hour (digit or word), with "Uhr" and the half-hour both optional, so every
 # spoken form lands — "vierzehn Uhr", "vierzehn Uhr dreißig", "vierzehn dreißig",
 # and a bare "um 15" / "vierzehn" (→ on the hour). Only ever called once the caller
-# is choosing a slot (see _try_book), so a bare number is a chosen time.
+# is choosing a slot (see _try_book), so a bare number is a chosen time. The
+# trailing \b keeps an hour word from matching inside another word — without it,
+# "ein" matched the article in "einen Termin" and the request parsed as 01:00.
 _REQUEST_TIME_RE = re.compile(
-    r"\b(?:um\s+)?(\d{1,2}|" + _HOUR_ALT + r")(?:\s*uhr)?(?:\s*" + _MINUTE + r")?",
+    r"\b(?:um\s+)?(\d{1,2}|" + _HOUR_ALT + r")\b(?:\s*(uhr))?(?:\s*" + _MINUTE + r")?",
     re.IGNORECASE,
 )
 
@@ -52,12 +54,16 @@ def parse_requested_time(text: str) -> str | None:
     ('dreizehn Uhr' → '13:00', 'vierzehn dreißig' → '14:30', 'um 15' → '15:00').
     Returns 'HH:MM' or None. Slots are on the hour and half hour, so only ':30'
     minutes are recognised."""
-    m = _REQUEST_TIME_RE.search(text.lower())
-    if not m:
-        return None
-    token = m.group(1)
-    hour = int(token) if token.isdigit() else _HOUR_WORDS.get(token)
-    if hour is None or not 0 <= hour <= 23:
-        return None
-    minute = 30 if m.group(2) else 0
-    return f"{hour:02d}:{minute:02d}"
+    for m in _REQUEST_TIME_RE.finditer(text.lower()):
+        token = m.group(1)
+        hour = int(token) if token.isdigit() else _HOUR_WORDS.get(token)
+        if hour is None or not 0 <= hour <= 23:
+            continue
+        # "ein"/"eins" is almost always the article ("einen Termin um …"), so it
+        # only counts as 1 o'clock when "Uhr" actually follows ("um ein Uhr").
+        # Skipping it lets the real time later in the sentence win.
+        if token in ("ein", "eins") and not m.group(2):
+            continue
+        minute = 30 if m.group(3) else 0
+        return f"{hour:02d}:{minute:02d}"
+    return None
