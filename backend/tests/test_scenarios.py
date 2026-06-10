@@ -979,9 +979,9 @@ class TestEmailSpelling:
     """After repeated read-back rejections, offer to spell the local part."""
 
     def _parse(self):
-        from app.conversation.manager import _parse_spelled_local
+        from app.conversation.email_parse import parse_spelled_local
 
-        return _parse_spelled_local
+        return parse_spelled_local
 
     def test_parse_phonetic_and_double(self):
         assert self._parse()("R wie Richard, I, doppel T, E, R") == "ritter"
@@ -1078,9 +1078,9 @@ class TestRequestedTimeParsing:
     """Callers name a time with or without 'Uhr'."""
 
     def _parse(self):
-        from app.conversation.manager import _parse_requested_time
+        from app.conversation.time_parse import parse_requested_time
 
-        return _parse_requested_time
+        return parse_requested_time
 
     def test_uhr_with_minute(self):
         assert self._parse()("Haben Sie vierzehn Uhr dreißig?") == "14:30"
@@ -1453,46 +1453,44 @@ class TestSpokenEmailParsing:
     """Spoken email is the hardest field: chunked local parts and graceful skip."""
 
     def test_chunked_local_part_is_joined(self):
-        from app.conversation.manager import _parse_email
+        from app.conversation.email_parse import parse_email
 
         # Regression: "Lang M at gmail.com" used to collapse to "m@gmail.com"
         # because the space before the @-token dropped the "lang" prefix.
-        assert _parse_email("Lang M at gmail.com") == "langm@gmail.com"
-        assert _parse_email("Lang M at gmail punkt com") == "langm@gmail.com"
-        assert _parse_email("meine email ist lang m at gmail punkt com") == "langm@gmail.com"
-        assert _parse_email("max punkt mueller at gmail punkt com") == "max.mueller@gmail.com"
+        assert parse_email("Lang M at gmail.com") == "langm@gmail.com"
+        assert parse_email("Lang M at gmail punkt com") == "langm@gmail.com"
+        assert parse_email("meine email ist lang m at gmail punkt com") == "langm@gmail.com"
+        assert parse_email("max punkt mueller at gmail punkt com") == "max.mueller@gmail.com"
         # Non-emails must still yield nothing (so we re-ask, not mis-store).
-        assert _parse_email("Gmail.com") is None
-        assert _parse_email("Wie bitte?") is None
+        assert parse_email("Gmail.com") is None
+        assert parse_email("Wie bitte?") is None
 
     def test_spoken_at_between_dots_does_not_leave_stray_dot(self):
-        from app.conversation.manager import _parse_email
+        from app.conversation.email_parse import parse_email
 
         # Regression: Whisper renders a spoken "at" between dots
         # ("baum.at.gmail.com"), which used to parse to "baum.@gmail.com" — an
         # invalid local part. The dot touching the @ must be collapsed away.
-        assert _parse_email("baum.at.gmail.com") == "baum@gmail.com"
-        assert _parse_email("baum.at gmail.com") == "baum@gmail.com"
-        assert _parse_email("baum at gmail punkt com") == "baum@gmail.com"
+        assert parse_email("baum.at.gmail.com") == "baum@gmail.com"
+        assert parse_email("baum.at gmail.com") == "baum@gmail.com"
+        assert parse_email("baum at gmail punkt com") == "baum@gmail.com"
 
     def test_leadin_es_ist_is_stripped(self):
-        from app.conversation.manager import _parse_email
+        from app.conversation.email_parse import parse_email
 
         # Regression: "Ja, es ist Sigmar at ..." leaked the lead-in into the local
         # part as "esistsigmar@..." because "es" wasn't a recognised filler word.
-        assert _parse_email("Ja, es ist Sigmar at Gmail dot com.") == "sigmar@gmail.com"
+        assert parse_email("Ja, es ist Sigmar at Gmail dot com.") == "sigmar@gmail.com"
 
     def test_name_anchoring_snaps_near_miss_local_part(self):
-        from app.conversation.manager import _anchor_email_to_name
+        from app.conversation.email_parse import anchor_email_to_name
 
         # STT dropped a letter: heard "sigma", caller's name is "Leon Sigmar".
-        assert _anchor_email_to_name("sigma@gmail.com", "Leon Sigmar") == "sigmar@gmail.com"
+        assert anchor_email_to_name("sigma@gmail.com", "Leon Sigmar") == "sigmar@gmail.com"
         # Exact match and genuinely different addresses are left untouched.
-        assert _anchor_email_to_name("sigmar@gmail.com", "Leon Sigmar") == "sigmar@gmail.com"
-        assert (
-            _anchor_email_to_name("leon.legal@gmail.com", "Leon Sigmar") == "leon.legal@gmail.com"
-        )
-        assert _anchor_email_to_name("x@gmail.com", "") == "x@gmail.com"  # no name → no-op
+        assert anchor_email_to_name("sigmar@gmail.com", "Leon Sigmar") == "sigmar@gmail.com"
+        assert anchor_email_to_name("leon.legal@gmail.com", "Leon Sigmar") == "leon.legal@gmail.com"
+        assert anchor_email_to_name("x@gmail.com", "") == "x@gmail.com"  # no name → no-op
 
     def _email_ready_ctx(self, call_id):
         ctx = ConversationManager(call_id=call_id, lang="de")
