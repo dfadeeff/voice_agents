@@ -18,6 +18,8 @@ TTFA is the sum of three sequential stages:
 TTFA = STT latency + LLM time-to-first-token + TTS time-to-first-byte
 ```
 
+(One measurement honesty note: the *logged* TTFA metric in `backend/logs/` starts when the final transcript arrives, so it captures the LLM/decision + TTS portion only; the VAD silence window and STT time are logged as separate components, and the caller-perceived gap is their sum — see `docs/latency-results.md` for the decomposition across configs.)
+
 With the local stack:
 - **STT** (faster-whisper, small model): ~300-500ms per utterance
 - **LLM** (Ollama qwen2.5:7b): ~300-500ms TTFT depending on hardware
