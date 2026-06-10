@@ -1,6 +1,6 @@
 # Voice AI Agent for Law Firms
 
-Inbound voice agent that handles calls end-to-end: greeting, routing by legal area (employment/tenancy), entity capture with confidence handling, consultation booking, and human escalation.
+Inbound voice agent that handles calls end-to-end: greeting, routing by legal area (employment/tenancy/traffic), entity capture with confidence handling, consultation booking, and human escalation.
 
 This prototype follows the production-standard cascaded STT → LLM → TTS architecture, but uses local-first components so the project can run without API keys. In production, I would swap in streaming STT, streaming TTS, WebRTC/SIP transport, scalable state storage, and full observability.
 
@@ -8,7 +8,7 @@ This prototype follows the production-standard cascaded STT → LLM → TTS arch
 
 - Browser-based local voice call (mic → agent → speaker)
 - Full STT → LLM → TTS streaming pipeline
-- Employment/tenancy routing with unknown-area escalation
+- Routing across three legal areas (employment, tenancy, traffic) with unknown-area escalation
 - Structured contact capture (name, email, phone) with confidence-based confirmation
 - SQLite calendar with slot checking and alternatives for unavailable times
 - Human callback/handoff path (caller request, out-of-scope area, repeated misunderstandings)
@@ -20,7 +20,7 @@ This prototype follows the production-standard cascaded STT → LLM → TTS arch
 
 | Required story | Prototype behavior | Concrete evidence |
 |---|---|---|
-| Routing across law types | Routes employment and tenancy issues, then asks one area-specific qualification question | `conversation/flow.py`, `tools/route.py`, scenario tests |
+| Routing across law types | Routes employment, tenancy, and traffic issues, then asks area-specific qualification questions (traffic additionally captures the insurance/claim number) | `conversation/flow.py`, `tools/route.py`, scenario tests |
 | Booking a consultation | Requires confirmed contact details, checks SQLite availability, offers alternatives, and only confirms a successful booking | `tools/booking.py`, `services/calendar.py`, unavailable-slot tests |
 | Reliable detail capture | Local Whisper supplies segment confidence; low-confidence names require confirmation; email and phone always require read-back confirmation | `pipeline/local_whisper.py`, `tools/extraction.py` |
 | Knowing when to hand off | Explicit person requests and unsupported/complex cases enter escalation deterministically. The local demo records a callback request and context; it does not pretend to transfer live | `conversation/policy.py`, `tools/handoff.py` |
