@@ -220,15 +220,21 @@ _HOUR_WORDS = {
     "siebzehn": 17,
     "achtzehn": 18,
 }
+_MINUTE = r"(dreißig|dreissig|30)"
+# "<hour> Uhr [dreißig]" OR "<hour> dreißig" (callers drop "Uhr": "vierzehn
+# dreißig" → 14:30). A bare hour with neither "Uhr" nor a minute isn't treated
+# as a time, so stray numbers don't false-match.
 _REQUEST_TIME_RE = re.compile(
-    r"\b(?:um\s+)?(\d{1,2}|" + "|".join(_HOUR_WORDS) + r")\s*uhr(?:\s*(dreißig|dreissig|30))?",
+    r"\b(?:um\s+)?(\d{1,2}|" + "|".join(_HOUR_WORDS) + r")\s*"
+    r"(?:uhr(?:\s*" + _MINUTE + r")?|" + _MINUTE + r")",
     re.IGNORECASE,
 )
 
 
 def _parse_requested_time(text: str) -> str | None:
     """Extract a specific clock time the caller asked for ('dreizehn Uhr' → '13:00',
-    'neun Uhr dreißig' → '09:30'). Returns 'HH:MM' or None."""
+    'neun Uhr dreißig' → '09:30', 'vierzehn dreißig' → '14:30'). Returns 'HH:MM'
+    or None."""
     m = _REQUEST_TIME_RE.search(text.lower())
     if not m:
         return None
@@ -236,7 +242,7 @@ def _parse_requested_time(text: str) -> str | None:
     hour = int(token) if token.isdigit() else _HOUR_WORDS.get(token)
     if hour is None or not 0 <= hour <= 23:
         return None
-    minute = 30 if m.group(2) else 0
+    minute = 30 if (m.group(2) or m.group(3)) else 0
     return f"{hour:02d}:{minute:02d}"
 
 
@@ -661,6 +667,7 @@ class ConversationManager:
         self._try_confirm_readback(text)
         captured_insurance = self._try_capture_insurance(text)
         self._try_capture_contact(text, skip_phone=captured_insurance)
+        self._try_capture_phone(text)
         self._try_capture_spelled_email(text)
         self._try_skip_email(text)
         self._handle_email_attempt(awaiting)
@@ -869,6 +876,54 @@ class ConversationManager:
     # Higher than email's: a reference is often dictated in several short bursts,
     # so allow a few turns to accumulate before giving up.
     _MAX_INSURANCE_ATTEMPTS = 4
+    # A normalized German number (+49…) is ~12 digits for a mobile; we wait for at
+    # least this many before reading it back, so a split dictation isn't confirmed
+    # at its first short fragment. After a couple of asks we accept a shorter one.
+    _MIN_PHONE_DIGITS = 10
+    _MAX_PHONE_ATTEMPTS = 2
+
+    def _try_capture_phone(self, text: str) -> None:
+        """Accumulate a spoken phone number across split turns, reading it back only
+        once it's plausibly complete.
+
+        Callers dictate the number in bursts with pauses, so STT delivers it as
+        several finals. We append each turn's digits to a buffer and store the
+        whole (for the scripted read-back) only at a realistic length — and, while
+        the read-back is up, fold in any further digits the caller keeps dictating
+        (mirrors the insurance read-back). A short landline still lands after a
+        couple of asks via the lowered fallback threshold."""
+        awaiting = self.state.awaiting
+        if awaiting not in ("phone", "phone_confirm"):
+            return
+        existing = self.state.entities.get("phone")
+        if existing and existing.confirmed:
+            return
+        turn_has_digits = bool(re.search(r"\d", normalize_phone_text(text)))
+
+        if awaiting == "phone_confirm":
+            # Yes/No is handled by _try_confirm_readback (which ran first). If that
+            # left the unconfirmed number in place and the caller is still adding
+            # digits, extend it and read the fuller number back.
+            if existing and not existing.confirmed and turn_has_digits:
+                self.state.phone_buffer = f"{self.state.phone_buffer} {text}".strip()
+                self.store_entity("phone", normalize_phone_text(self.state.phone_buffer), 0.9)
+                self._update_llm_context()
+            return
+
+        # awaiting == "phone": accumulate and read back once plausibly complete.
+        if not turn_has_digits:
+            return
+        self.state.phone_buffer = f"{self.state.phone_buffer} {text}".strip()
+        normalized = normalize_phone_text(self.state.phone_buffer)
+        digit_count = len(re.sub(r"\D", "", normalized))
+        self.state.phone_attempts += 1
+        enough = digit_count >= self._MIN_PHONE_DIGITS or (
+            self.state.phone_attempts >= self._MAX_PHONE_ATTEMPTS and digit_count >= 7
+        )
+        if enough:
+            logger.info("Phone captured (buffered): %r", normalized)
+            self.store_entity("phone", normalized, 0.9)
+            self._update_llm_context()
 
     def _handle_email_attempt(self, awaiting: str | None) -> None:
         """Track failed email attempts; re-ask, then skip after a few misses.
@@ -948,10 +1003,17 @@ class ConversationManager:
         if _AREA_DENIAL_RE.search(lowered):
             if field == "email":
                 self._on_email_rejected(entity.value)
+            elif field == "phone":
+                # Wrong number → drop the accumulated buffer so the caller's
+                # restated number is captured fresh, not appended to the bad one.
+                self.state.phone_buffer = ""
+                self.state.phone_attempts = 0
             del self.state.entities[field]
             self.advance_phase()
         elif _CONFIRM_YES_RE.search(lowered):
             self.confirm_entity(field)
+            if field == "phone":
+                self.state.phone_buffer = ""
 
     def _on_email_rejected(self, rejected: str) -> None:
         """The caller said the read-back email was wrong. After two rejections we
@@ -1139,7 +1201,15 @@ class ConversationManager:
                 captured = True
 
         existing_phone = self.state.entities.get("phone")
-        if not skip_phone and not (existing_phone and existing_phone.confirmed):
+        # When the phone is the field being asked/confirmed, the dedicated
+        # accumulator (_try_capture_phone) owns it — it buffers split dictation
+        # and waits for a plausibly complete number. Here we only opportunistically
+        # grab a number volunteered on some other turn (e.g. while giving the name).
+        if (
+            not skip_phone
+            and self.state.awaiting not in ("phone", "phone_confirm")
+            and not (existing_phone and existing_phone.confirmed)
+        ):
             normalized = normalize_phone_text(text)
             if len(re.sub(r"\D", "", normalized)) >= 7:
                 logger.info("Deterministic capture (LLM fallback): phone=%r", normalized)

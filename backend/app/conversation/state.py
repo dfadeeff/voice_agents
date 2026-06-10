@@ -81,6 +81,14 @@ class ConversationState:
     # How many spelling attempts have failed to yield a usable local part; bounds
     # the spelling loop so we skip email rather than ask to spell forever.
     email_spell_attempts: int = 0
+    # Accumulates spoken phone fragments across split turns — callers dictate a
+    # number in bursts with pauses ("+49 151 578" … "31 615"), so each turn's
+    # digits are appended and only read back once the number is plausibly complete
+    # (rather than confirming the first short fragment).
+    phone_buffer: str = ""
+    # How many times the phone was asked but stayed below a plausible length; after
+    # a couple we accept what we have rather than re-asking forever (short landline).
+    phone_attempts: int = 0
     misunderstanding_streak: int = 0
     last_transcription_confidence: float | None = None
     # The specific datum the agent's last scripted question asked for. Set by
