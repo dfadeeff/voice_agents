@@ -498,7 +498,9 @@ class TranscriptProcessor(FrameProcessor):
 
     # Fields the caller reads out as a number/email, with mid-utterance pauses —
     # these turns get a longer end-of-speech window so a pause doesn't split them.
-    _DICTATION_AWAITING = frozenset({"email", "phone", "insurance", "insurance_confirm"})
+    _DICTATION_AWAITING = frozenset(
+        {"email", "email_spell", "phone", "insurance", "insurance_confirm"}
+    )
 
     def __init__(
         self,

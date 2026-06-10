@@ -284,6 +284,11 @@ SCRIPTED = {
         "I'm sorry, I didn't catch the email address. Could you please repeat it?"
     ),
     "ask_email_retry": ("Sorry about that. What is the correct email address?"),
+    "ask_email_spell": (
+        "No problem, let's spell it out together. "
+        "Please tell me the part before the at-sign letter by letter — "
+        "feel free to use example words, like R as in Robert."
+    ),
     "confirm_email": ("I've noted: {email}. Is that correct?"),
     "confirm_name": ("I've noted your name as {name}. Is that correct?"),
     "ask_phone": ("Thank you. What is the best phone number to reach you?"),

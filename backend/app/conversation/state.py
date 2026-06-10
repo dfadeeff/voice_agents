@@ -66,13 +66,29 @@ class ConversationState:
     # hardest field over phone-quality audio; after a few misses we stop looping
     # and skip it (a phone number is enough to book / call back).
     email_attempts: int = 0
+    # How many times the caller rejected the email read-back ("nein, falsch").
+    # After a couple of rejections we stop re-asking the whole address and switch
+    # to letter-by-letter spelling mode (the local part is what STT mangles).
+    email_confirm_rejects: int = 0
+    # True once we've switched to spelling mode: the next prompt asks the caller
+    # to spell the part before the @ letter by letter, and replies are parsed as
+    # spelled letters (deterministic parser, LLM fallback) instead of a whole
+    # spoken address.
+    email_spelling: bool = False
+    # The domain to reattach to a spelled local part, carried over from the last
+    # read-back the caller rejected (so "ritter" + "gmail.com" → ritter@gmail.com).
+    email_domain: str = ""
+    # How many spelling attempts have failed to yield a usable local part; bounds
+    # the spelling loop so we skip email rather than ask to spell forever.
+    email_spell_attempts: int = 0
     misunderstanding_streak: int = 0
     last_transcription_confidence: float | None = None
     # The specific datum the agent's last scripted question asked for. Set by
     # ConversationManager.next_prompt(); the deterministic reply parser dispatches
     # on this instead of regex-matching the agent's own previous sentence.
     # One of: area_confirm, matter_type, matter_details, insurance, name,
-    # name_confirm, email, email_confirm, phone, phone_confirm, slot, callback_time.
+    # name_confirm, email, email_confirm, email_spell, phone, phone_confirm, slot,
+    # callback_time.
     awaiting: str | None = None
     started_at: float = field(default_factory=time.time)
 

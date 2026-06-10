@@ -290,6 +290,48 @@ def _parse_email(text: str) -> str | None:
     return candidate if _EMAIL_VALID_RE.match(candidate) else None
 
 
+# Spoken letter names STT emits when a caller spells aloud, German first then
+# common English renderings. Single vowels (a/e/i/o/u) are letters as-is.
+_LETTER_NAMES = {
+    "be": "b", "ce": "c", "de": "d", "ef": "f", "ge": "g", "ha": "h",
+    "jot": "j", "ka": "k", "el": "l", "em": "m", "en": "n", "pe": "p",
+    "ku": "q", "er": "r", "es": "s", "te": "t", "vau": "v", "we": "w",
+    "weh": "w", "ix": "x", "ypsilon": "y", "zett": "z", "ah": "a", "oh": "o",
+    "ay": "a", "bee": "b", "cee": "c", "see": "c", "dee": "d", "ee": "e",
+    "eff": "f", "gee": "g", "aitch": "h", "jay": "j", "kay": "k", "ell": "l",
+    "oh ": "o", "pee": "p", "cue": "q", "queue": "q", "ar": "r", "are": "r",
+    "ess": "s", "tee": "t", "yu": "u", "vee": "v", "ex": "x", "wy": "y",
+    "why": "y", "zee": "z", "zed": "z",
+}  # fmt: skip
+# "wie/für/as in/like" introduce an example word ("R wie Richard"); the letter is
+# what precedes them. "doppel/double X" means the letter X twice.
+_SPELL_EXAMPLE_RE = re.compile(r"\b([a-zäöü])\s+(?:wie|für|as\s+in|like|for)\s+\w+", re.IGNORECASE)
+_SPELL_DOUBLE_RE = re.compile(r"\b(?:doppel|double)[\s-]*([a-zäöü])\b", re.IGNORECASE)
+
+
+def _parse_spelled_local(text: str) -> str | None:
+    """Reconstruct an email local part dictated letter by letter.
+
+    Handles the conventions callers actually use when the address is being
+    spelled: bare letters ("r i t t e r"), letter names STT renders as words
+    ("er i te te e er"), phonetic examples ("R wie Richard"), and doubling
+    ("doppel T"). Returns the assembled local part, or None when fewer than two
+    letters were recognised — that ambiguous case is left to the LLM fallback.
+    """
+    t = _EMAIL_LEADIN_RE.sub("", text.lower().strip())
+    t = _SPELL_EXAMPLE_RE.sub(r"\1", t)
+    t = _SPELL_DOUBLE_RE.sub(r"\1 \1", t)
+    letters: list[str] = []
+    for tok in re.split(r"[\s,.;:!?]+", t):
+        if not tok:
+            continue
+        if len(tok) == 1 and tok.isalpha():
+            letters.append(tok)
+        elif tok in _LETTER_NAMES:
+            letters.append(_LETTER_NAMES[tok])
+    return "".join(letters) if len(letters) >= 2 else None
+
+
 def _levenshtein(a: str, b: str) -> int:
     """Edit distance between two short strings (iterative, O(len*len))."""
     if a == b:
@@ -442,6 +484,9 @@ class ConversationManager:
         extractor is configured. On success the email is stored unconfirmed —
         the scripted read-back then confirms it like any other email.
         """
+        if self.state.awaiting == "email_spell":
+            await self._resolve_spelled_email(text)
+            return
         extractor = getattr(self, "_email_extractor", None)
         if extractor is None or self.state.awaiting != "email":
             return
@@ -480,6 +525,45 @@ class ConversationManager:
         self.store_entity("email", candidate, 0.9)  # unconfirmed → scripted read-back
         self._update_llm_context()
         self._persist()
+
+    async def _resolve_spelled_email(self, text: str) -> None:
+        """LLM fallback for spelling mode, plus the spell-loop bound.
+
+        The deterministic spell parser already ran in add_user_message; if it
+        landed an email this is a no-op. Otherwise an LLM (when configured) gets
+        the spelled letters plus the known domain to assemble. If nothing usable
+        emerges, count the miss and skip email after a few tries rather than
+        asking the caller to spell forever."""
+        if "email" in self.state.entities:
+            return  # deterministic spell capture (or a restated address) already got it
+        extractor = getattr(self, "_email_extractor", None)
+        if extractor is not None:
+            domain = self.state.email_domain or "gmail.com"
+            source = f"{self.state.email_buffer or text} at {domain}"
+            name_ent = self.state.entities.get("name")
+            name_hint = name_ent.value if name_ent else ""
+            try:
+                candidate = (await extractor(source, name_hint) or "").strip().lower()
+            except Exception as e:
+                logger.warning("Spelled-email extractor raised: %s", e)
+                candidate = ""
+            if candidate and _EMAIL_VALID_RE.match(candidate):
+                candidate = self._anchor_email(candidate)
+                logger.info("LLM spelled-email rescue: %r → %r", source, candidate)
+                self.state.email_buffer = ""
+                self.state.email_spell_attempts = 0
+                self.store_entity("email", candidate, 0.9)
+                self._update_llm_context()
+                self._persist()
+                return
+        # Still nothing — bound the loop.
+        self.state.email_spell_attempts += 1
+        if self.state.email_spell_attempts >= self._MAX_EMAIL_SPELL_ATTEMPTS:
+            logger.info("Email skipped after %d spelling attempts", self.state.email_spell_attempts)
+            self.state.email_skipped = True
+            self.state.email_buffer = ""
+            self.advance_phase()
+            self._persist()
 
     def advance_phase(self) -> CallPhase:
         new_phase = next_phase(self.state)
@@ -577,6 +661,7 @@ class ConversationManager:
         self._try_confirm_readback(text)
         captured_insurance = self._try_capture_insurance(text)
         self._try_capture_contact(text, skip_phone=captured_insurance)
+        self._try_capture_spelled_email(text)
         self._try_skip_email(text)
         self._handle_email_attempt(awaiting)
         self._try_capture_preferred_time(text)
@@ -775,6 +860,12 @@ class ConversationManager:
         self.advance_phase()
 
     _MAX_EMAIL_ATTEMPTS = 3
+    # Read-back rejections: after this many, offer to spell the local part; after
+    # the higher bound, give up on email entirely (a phone number is enough).
+    _REJECTS_BEFORE_SPELLING = 2
+    _MAX_EMAIL_REJECTS = 4
+    # Spelling attempts that yielded no usable local part before we skip email.
+    _MAX_EMAIL_SPELL_ATTEMPTS = 3
     # Higher than email's: a reference is often dictated in several short bursts,
     # so allow a few turns to accumulate before giving up.
     _MAX_INSURANCE_ATTEMPTS = 4
@@ -800,6 +891,37 @@ class ConversationManager:
         else:
             self.state.email_misheard = True
 
+    def _try_capture_spelled_email(self, text: str) -> None:
+        """Capture an email whose local part is being spelled out (buchstabieren).
+
+        Accumulates across split turns, then assembles a candidate two ways: a
+        whole restated address still parses ("ritter at gmail punkt com"), and
+        otherwise the spelled letters reattach to the domain heard before spelling
+        ("r, i, doppel t, e, r" + gmail.com). On a miss the buffer is kept and the
+        LLM fallback (resolve_email_if_pending) gets a turn."""
+        if self.state.awaiting != "email_spell":
+            return
+        existing = self.state.entities.get("email")
+        if existing and existing.confirmed:
+            return
+        self.state.email_buffer = f"{self.state.email_buffer} {text}".strip()
+        source = self.state.email_buffer
+        candidate = _parse_email(source)
+        if not candidate:
+            local = _parse_spelled_local(source)
+            if local:
+                domain = self.state.email_domain or "gmail.com"
+                candidate = f"{local}@{domain}"
+                candidate = candidate if _EMAIL_VALID_RE.match(candidate) else None
+        if not candidate:
+            return
+        candidate = self._anchor_email(candidate)
+        logger.info("Spelled email captured: %r → %r", source, candidate)
+        self.state.email_buffer = ""
+        self.state.email_spell_attempts = 0
+        self.store_entity("email", candidate, 0.9)  # unconfirmed → scripted read-back
+        self._update_llm_context()
+
     def _try_capture_preferred_time(self, text: str) -> None:
         """Store the caller's preferred callback time once it has been asked."""
         if self.state.awaiting != "callback_time" or self.state.preferred_time:
@@ -824,10 +946,25 @@ class ConversationManager:
             return
         lowered = text.lower()
         if _AREA_DENIAL_RE.search(lowered):
+            if field == "email":
+                self._on_email_rejected(entity.value)
             del self.state.entities[field]
             self.advance_phase()
         elif _CONFIRM_YES_RE.search(lowered):
             self.confirm_entity(field)
+
+    def _on_email_rejected(self, rejected: str) -> None:
+        """The caller said the read-back email was wrong. After two rejections we
+        switch to spelling the local part (what STT keeps mangling), keeping the
+        already-recognised domain; after four we give up and skip email."""
+        self.state.email_domain = rejected.partition("@")[2] or self.state.email_domain
+        self.state.email_confirm_rejects += 1
+        if self.state.email_confirm_rejects >= self._MAX_EMAIL_REJECTS:
+            logger.info("Email skipped after %d rejections", self.state.email_confirm_rejects)
+            self.state.email_skipped = True
+        elif self.state.email_confirm_rejects >= self._REJECTS_BEFORE_SPELLING:
+            logger.info("Switching to email spelling mode")
+            self.state.email_spelling = True
 
     def _try_capture_insurance(self, text: str) -> bool:
         """Capture and confirm the traffic insurance reference.
@@ -981,7 +1118,10 @@ class ConversationManager:
                 captured = True
 
         existing_email = self.state.entities.get("email")
-        if not (existing_email and existing_email.confirmed):
+        # In spelling mode the spelled-letters handler owns email capture, so this
+        # opportunistic whole-address parse stands down (it would otherwise re-store
+        # the same mangled address the caller just rejected and skip the spell offer).
+        if not self.state.email_spelling and not (existing_email and existing_email.confirmed):
             # Email is often dictated in chunks across split turns ("Klein at
             # Hotmail" | "Punkt de"). When we asked for it, accumulate the turn
             # text and parse the whole buffer so the address reassembles.

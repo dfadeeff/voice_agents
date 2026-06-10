@@ -310,6 +310,11 @@ SCRIPTED = {
         "Ich habe die E-Mail-Adresse leider nicht verstanden. Können Sie sie bitte nochmal sagen?"
     ),
     "ask_email_retry": ("Entschuldigung. Wie lautet die E-Mail-Adresse korrekt?"),
+    "ask_email_spell": (
+        "Kein Problem, buchstabieren wir es gemeinsam. "
+        "Bitte nennen Sie mir den Teil vor dem At-Zeichen Buchstabe für Buchstabe — "
+        "gerne mit Beispielwörtern, etwa R wie Richard."
+    ),
     "confirm_email": ("Ich habe notiert: {email} — ist das korrekt?"),
     "confirm_name": ("Ich habe Ihren Namen als {name} notiert — ist das korrekt?"),
     "ask_phone": ("Vielen Dank. Unter welcher Telefonnummer können wir Sie erreichen?"),

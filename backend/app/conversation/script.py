@@ -243,6 +243,8 @@ def compute_prompt(state: ConversationState, lang: str = "de") -> tuple[str | No
         if email and not email.confirmed:
             return scripts["confirm_email"].format(email=email.value), "email_confirm"
         if not email and not state.email_skipped:
+            if state.email_spelling:
+                return scripts.get("ask_email_spell"), "email_spell"
             if state.email_misheard:
                 return scripts["ask_email_not_understood"], "email"
             return scripts["ask_email"], "email"

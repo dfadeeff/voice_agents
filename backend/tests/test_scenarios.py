@@ -975,6 +975,105 @@ class TestBookingCaptureSplit:
         assert ctx.state.awaiting == "email"  # re-asks
 
 
+class TestEmailSpelling:
+    """After repeated read-back rejections, offer to spell the local part."""
+
+    def _parse(self):
+        from app.conversation.manager import _parse_spelled_local
+
+        return _parse_spelled_local
+
+    def test_parse_phonetic_and_double(self):
+        assert self._parse()("R wie Richard, I, doppel T, E, R") == "ritter"
+
+    def test_parse_letter_names_stt_renders_as_words(self):
+        # Deepgram renders spelled German letters as little words.
+        assert self._parse()("er i te te e er") == "ritter"
+
+    def test_parse_bare_letters(self):
+        assert self._parse()("r i t t e r") == "ritter"
+
+    def test_parse_double_english(self):
+        assert self._parse()("l e o, double n") == "leonn"
+
+    def test_merged_word_is_left_to_llm(self):
+        # A single merged token isn't spelling we can trust — defer to the LLM.
+        assert self._parse()("ritter") is None
+
+    def _to_email_confirm(self, ctx):
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        for f, v in [("matter_type", "dismissal"), ("matter_details", "Frist")]:
+            ctx.store_entity(f, v, 1.0)
+            ctx.confirm_entity(f)
+        ctx.store_entity("name", "Reiner Ritter", 0.9)
+        ctx.confirm_entity("name")
+        assert ctx.state.phase == CallPhase.CAPTURE
+        ctx.next_prompt()  # awaiting email
+
+    def test_two_rejections_switch_to_spelling_then_capture(self):
+        ctx = ConversationManager(call_id="spell1", lang="de")
+        self._to_email_confirm(ctx)
+        # First mishear + rejection.
+        ctx.add_user_message("rita at gmail punkt com")
+        ctx.next_prompt()
+        assert ctx.state.awaiting == "email_confirm"
+        ctx.add_user_message("Nein")
+        ctx.next_prompt()
+        assert ctx.state.awaiting == "email"  # one rejection → just re-ask
+        # Second mishear + rejection → spelling mode.
+        ctx.add_user_message("rietterre at gmail punkt com")
+        ctx.next_prompt()
+        assert ctx.state.awaiting == "email_confirm"
+        ctx.add_user_message("Nein, falsch")
+        line = ctx.next_prompt()
+        assert ctx.state.awaiting == "email_spell"
+        assert line is not None and "buchstab" in line.lower()
+        assert ctx.state.email_spelling is True
+        assert "email" not in ctx.state.entities
+        # Caller spells; domain (gmail.com) carries over from the rejected read-back.
+        ctx.add_user_message("R wie Richard, I, doppel T, E, R")
+        line = ctx.next_prompt()
+        assert ctx.state.awaiting == "email_confirm"
+        assert line is not None and "ritter@gmail.com" in line
+        ctx.add_user_message("Ja, korrekt")
+        ctx.next_prompt()
+        assert ctx.state.entities["email"].value == "ritter@gmail.com"
+        assert ctx.state.entities["email"].confirmed is True
+
+    @pytest.mark.asyncio
+    async def test_llm_fallback_when_letters_dont_parse(self):
+        ctx = ConversationManager(call_id="spell2", lang="de")
+
+        async def fake_extractor(text, name_hint=""):
+            return "ritter@gmail.com"
+
+        ctx.set_email_extractor(fake_extractor)
+        self._to_email_confirm(ctx)
+        ctx.state.email_spelling = True
+        ctx.state.email_domain = "gmail.com"
+        ctx.next_prompt()
+        assert ctx.state.awaiting == "email_spell"
+        # STT merged the spelled letters into one word → deterministic parser defers.
+        ctx.add_user_message("ritter")
+        assert "email" not in ctx.state.entities
+        await ctx.resolve_email_if_pending("ritter")
+        assert ctx.state.entities["email"].value == "ritter@gmail.com"
+
+    @pytest.mark.asyncio
+    async def test_spelling_skips_email_after_max_attempts(self):
+        ctx = ConversationManager(call_id="spell3", lang="de")
+        self._to_email_confirm(ctx)
+        ctx.state.email_spelling = True
+        for _ in range(ctx._MAX_EMAIL_SPELL_ATTEMPTS):
+            ctx.next_prompt()
+            assert ctx.state.awaiting == "email_spell"
+            ctx.add_user_message("ähm keine Ahnung")
+            await ctx.resolve_email_if_pending("ähm keine Ahnung")
+        assert ctx.state.email_skipped is True
+        ctx.next_prompt()  # recompute after the skip (as the pipeline does)
+        assert ctx.state.awaiting == "phone"  # moved on to phone
+
+
 class TestDeterministicBooking:
     """Slot selection is done in code (no LLM): offer, choose, book, confirm."""
 
