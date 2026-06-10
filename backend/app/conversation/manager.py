@@ -7,13 +7,15 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from app.conversation.cues import AREA_DENIAL_RE, CONFIRM_YES_RE, NEGATE_RE
 from app.conversation.email_parse import (
     anchor_email_to_name,
     parse_email,
     parse_spelled_local,
 )
 from app.conversation.flow import PHASE_TOOLS, next_phase
-from app.conversation.phone import digit_words_to_digits, normalize_phone_text
+from app.conversation.insurance_capture import InsuranceCapture
+from app.conversation.phone import normalize_phone_text
 from app.conversation.policy import (
     extract_target_person,
     is_explicit_handoff_request,
@@ -141,25 +143,6 @@ _AREA_DISAMBIG_KEYWORDS: dict[LegalArea, tuple[str, ...]] = {
     ),
 }
 
-_REF_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9\-/]*")
-
-# Negation cue used by the insurance step ("nein", "noch keine").
-_NEGATE_RE = re.compile(
-    r"\b(?:nein|nicht|falsch|kein|keine|nö|nee|no|wrong|incorrect)\b",
-    re.IGNORECASE,
-)
-# A denial of the area-confirmation specifically (not just any negation — "ich
-# habe keine Versicherungsnummer" is not a denial of the accident).
-_AREA_DENIAL_RE = re.compile(
-    r"\b(?:nein|nö|nee|stimmt\s+nicht|nicht\s+richtig|falsch|"
-    r"no|that'?s\s+(?:not\s+right|wrong)|incorrect)\b",
-    re.IGNORECASE,
-)
-# Affirmation in reply to a read-back ("ja, stimmt", "korrekt", "passt").
-_CONFIRM_YES_RE = re.compile(
-    r"\b(?:ja|jawohl|genau|korrekt|stimmt|richtig|passt|yes|correct|right)\b",
-    re.IGNORECASE,
-)
 # Slot selection (deterministic booking): ordinal words → index, or a clock time.
 _ORDINAL = {
     "erste": 0,
@@ -215,42 +198,16 @@ def _match_slot_choice(text: str, slots: list[dict]) -> dict | None:
             sh, _, sm = slot["time"].partition(":")
             if int(sh) == hour and (minute is None or sm == minute):
                 return slot
-    if len(slots) == 1 and _CONFIRM_YES_RE.search(low):
+    if len(slots) == 1 and CONFIRM_YES_RE.search(low):
         return slots[0]
     return None
-
-
-def _ref_tokens(text: str) -> str:
-    """Join the reference-like tokens in text (digit-bearing tokens, plus a short
-    letter prefix such as 'VS' or a single spoken 'F'), without a length gate.
-
-    Spoken numbers arrive in chunks across turns ('F vier' … 'fünf vier'); each
-    chunk is short on its own, so the caller of this assembles them into a buffer.
-    """
-    tokens = _REF_TOKEN_RE.findall(text)
-    kept: list[str] = []
-    for i, tok in enumerate(tokens):
-        if any(c.isdigit() for c in tok):
-            kept.append(tok)
-        elif kept:
-            break  # a word after the number ends the reference
-        elif (
-            tok.isalpha()
-            and (tok.isupper() or len(tok) == 1)
-            and len(tok) <= 5
-            and i + 1 < len(tokens)
-            and any(c.isdigit() for c in tokens[i + 1])
-        ):
-            # Short prefix before the digits: 'VS' or a single letter like 'F'
-            # (STT often lowercases a spoken letter — keep it, uppercased).
-            kept.append(tok.upper())
-    return "".join(kept)
 
 
 class ConversationManager:
     def __init__(self, call_id: str, lang: str = "de", calendar=None):
         self.lang = lang
         self.state = ConversationState(call_id=call_id)
+        self._insurance = InsuranceCapture(self)
         self.state.messages = [{"role": "system", "content": get_system_prompt_base(lang)}]
         self._llm_context = None
         self._tools_builder: Callable[[list[str]], Any] | None = None
@@ -475,7 +432,7 @@ class ConversationManager:
 
         # The caller denies the area-confirmation ("nein, es geht um etwas
         # anderes") → re-route instead of recording a matter type.
-        if awaiting == "matter_type" and _AREA_DENIAL_RE.search(text.lower()):
+        if awaiting == "matter_type" and AREA_DENIAL_RE.search(text.lower()):
             self._reroute_after_denial(text)
         elif not just_routed:
             # Opportunistic: keyword-map the matter type from this turn / the
@@ -493,7 +450,7 @@ class ConversationManager:
 
         self._try_capture_matter_details(text)
         self._try_confirm_readback(text)
-        captured_insurance = self._try_capture_insurance(text)
+        captured_insurance = self._insurance.handle(text)
         self._try_capture_contact(text, skip_phone=captured_insurance)
         self._try_capture_phone(text)
         self._try_capture_spelled_email(text)
@@ -690,7 +647,7 @@ class ConversationManager:
             return
         if "email" in self.state.entities:
             return
-        if not _NEGATE_RE.search(text.lower()):
+        if not NEGATE_RE.search(text.lower()):
             return
         # "Nein, die Domäne ist hotmail" is a correction, not a skip.
         if re.search(
@@ -710,9 +667,6 @@ class ConversationManager:
     _MAX_EMAIL_REJECTS = 4
     # Spelling attempts that yielded no usable local part before we skip email.
     _MAX_EMAIL_SPELL_ATTEMPTS = 3
-    # Higher than email's: a reference is often dictated in several short bursts,
-    # so allow a few turns to accumulate before giving up.
-    _MAX_INSURANCE_ATTEMPTS = 4
     # A normalized German number (+49…) is ~12 digits for a mobile; we wait for at
     # least this many before reading it back, so a split dictation isn't confirmed
     # at its first short fragment. After a couple of asks we accept a shorter one.
@@ -837,7 +791,7 @@ class ConversationManager:
         if not entity or entity.confirmed:
             return
         lowered = text.lower()
-        if _AREA_DENIAL_RE.search(lowered):
+        if AREA_DENIAL_RE.search(lowered):
             if field == "email":
                 self._on_email_rejected(entity.value)
             elif field == "phone":
@@ -847,7 +801,7 @@ class ConversationManager:
                 self.state.phone_attempts = 0
             del self.state.entities[field]
             self.advance_phase()
-        elif _CONFIRM_YES_RE.search(lowered):
+        elif CONFIRM_YES_RE.search(lowered):
             self.confirm_entity(field)
             if field == "phone":
                 self.state.phone_buffer = ""
@@ -865,82 +819,6 @@ class ConversationManager:
             logger.info("Switching to email spelling mode")
             self.state.email_spelling = True
 
-    def _try_capture_insurance(self, text: str) -> bool:
-        """Capture and confirm the traffic insurance reference.
-
-        The number is dictated in fragments across split turns, then read back for
-        confirmation — so the caller can keep adding digits ("…drei vier sieben")
-        or correct it before we move on, instead of locking in a half-number.
-        Sets ``insurance_resolved`` once confirmed (or skipped). Returns True when
-        it consumed the turn (so phone capture stands down)."""
-        if self.state.awaiting not in ("insurance", "insurance_confirm"):
-            return False
-        if self.state.insurance_resolved:
-            return False
-        chunk = _ref_tokens(digit_words_to_digits(text))
-        low = text.lower()
-
-        # Reading the captured number back for confirmation.
-        if self.state.awaiting == "insurance_confirm":
-            if chunk:
-                # More digits → the caller is still dictating; append, read back again.
-                self.state.insurance_buffer += chunk
-                self.store_entity("insurance_number", self.state.insurance_buffer, 0.9)
-                self.state.insurance_attempts = 0
-                return True
-            if _CONFIRM_YES_RE.search(low):
-                self.confirm_entity("insurance_number")
-                self.state.insurance_resolved = True
-                self.advance_phase()
-                return True
-            if _NEGATE_RE.search(low):
-                # Wrong → discard and ask again from scratch.
-                self.state.entities.pop("insurance_number", None)
-                self.state.insurance_buffer = ""
-                self.state.insurance_attempts = 0
-                return False
-            # Unclear reply — don't loop forever; accept what we have after a couple.
-            self.state.insurance_attempts += 1
-            if self.state.insurance_attempts >= 2:
-                self.confirm_entity("insurance_number")
-                self.state.insurance_resolved = True
-                self.advance_phase()
-            return False
-
-        # awaiting == "insurance": collect the number (across fragmented turns).
-        if "insurance_number" in self.state.entities:
-            return False
-        negative = bool(_NEGATE_RE.search(low))
-        says_has_other = bool(re.search(r"\b(?:dafür|aber|habe|have)\b", text, re.IGNORECASE))
-        # A clear "no" with nothing dictated (now or earlier) → caller has none.
-        if negative and not chunk and not self.state.insurance_buffer and not says_has_other:
-            logger.info("Insurance step resolved: caller has no number")
-            self.state.insurance_resolved = True
-            self.advance_phase()
-            return False
-        if chunk:
-            self.state.insurance_buffer += chunk
-        buffered = self.state.insurance_buffer
-        digits = re.sub(r"[^A-Za-z0-9]", "", buffered)
-        # Enough to read back → store UNCONFIRMED; the scripted read-back then lets
-        # the caller confirm or keep adding digits before we advance.
-        if len(digits) >= 5:
-            logger.info("Insurance captured (pending read-back): %r", buffered)
-            self.state.insurance_attempts = 0
-            self.store_entity("insurance_number", buffered, 0.9)
-            return True
-        # Still incomplete. Give a few turns to finish; then give up (or read back a
-        # partial if we got a few chars).
-        self.state.insurance_attempts += 1
-        if self.state.insurance_attempts >= self._MAX_INSURANCE_ATTEMPTS:
-            if len(digits) >= 3:
-                self.store_entity("insurance_number", buffered, 0.9)  # read it back
-            else:
-                logger.info("Insurance unresolved → proceeding without it")
-                self.state.insurance_resolved = True
-                self.advance_phase()
-        return False
-
     def _try_capture_matter_type(self, text: str) -> None:
         """Deterministic fallback for matter_type when the LLM skips the tool.
 
@@ -956,7 +834,7 @@ class ConversationManager:
             return
         lowered = text.lower()
         # Don't capture when the caller denies the area-confirmation question.
-        if _AREA_DENIAL_RE.search(lowered):
+        if AREA_DENIAL_RE.search(lowered):
             return
         # Prefer the original complaint ("Ich hatte einen Unfall") over this turn's
         # words: it is the most reliable signal and avoids mis-reading a later
