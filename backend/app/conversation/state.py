@@ -91,6 +91,15 @@ class ConversationState:
     phone_attempts: int = 0
     misunderstanding_streak: int = 0
     last_transcription_confidence: float | None = None
+    # One-shot: the caller asked a side question ("Warum brauchen Sie meine
+    # E-Mail?") instead of answering the scripted ask. The turn is handed to the
+    # LLM (answer briefly, re-ask) and is NOT counted as a failed capture attempt.
+    # Cleared on the caller's next utterance.
+    offscript_question: bool = False
+    # Consecutive side-question diversions. Bounded so a caller who only ever
+    # asks questions still reaches the per-field attempt caps (no infinite loop);
+    # reset whenever a turn is processed on-script.
+    offscript_attempts: int = 0
     # The specific datum the agent's last scripted question asked for. Set by
     # ConversationManager.next_prompt(); the deterministic reply parser dispatches
     # on this instead of regex-matching the agent's own previous sentence.

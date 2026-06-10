@@ -1076,6 +1076,117 @@ class TestEmailSpelling:
         assert ctx.state.awaiting == "phone"  # moved on to phone
 
 
+class TestOffscriptQuestions:
+    """A side question during a scripted data ask goes to the LLM (answer + re-ask)
+    instead of burning a capture attempt with "ich habe das nicht verstanden"."""
+
+    def _to_email(self, ctx):
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        for f, v in [("matter_type", "dismissal"), ("matter_details", "Frist")]:
+            ctx.store_entity(f, v, 1.0)
+            ctx.confirm_entity(f)
+        ctx.store_entity("name", "Anna Klein", 0.9)
+        ctx.confirm_entity("name")
+        ctx.next_prompt()
+        assert ctx.state.awaiting == "email"
+
+    def _to_phone(self, ctx):
+        self._to_email(ctx)
+        ctx.state.email_skipped = True
+        ctx.advance_phase()
+        ctx.next_prompt()
+        assert ctx.state.awaiting == "phone"
+
+    def test_question_during_email_does_not_burn_attempt(self):
+        ctx = ConversationManager(call_id="off1", lang="de")
+        self._to_email(ctx)
+        ctx.add_user_message("Warum brauchen Sie meine E-Mail-Adresse?")
+        assert ctx.state.offscript_question is True
+        assert ctx.state.email_attempts == 0  # not a failed capture
+        assert ctx.state.email_misheard is False  # no false apology next turn
+        assert ctx.next_prompt() is None  # LLM answers + re-asks this turn
+        assert ctx.state.awaiting == "email"  # the ask stays pending
+        # The caller answers on the next turn — capture resumes as normal.
+        ctx.add_user_message("klein at gmail punkt com")
+        assert ctx.state.offscript_question is False
+        assert ctx.state.entities["email"].value == "klein@gmail.com"
+        ctx.next_prompt()
+        assert ctx.state.awaiting == "email_confirm"
+
+    @pytest.mark.asyncio
+    async def test_offscript_turn_skips_llm_email_rescue(self):
+        ctx = ConversationManager(call_id="off2", lang="de")
+
+        async def fake_extractor(_text, _name):
+            raise AssertionError("rescue must not run on a side question")
+
+        ctx.set_email_extractor(fake_extractor)
+        self._to_email(ctx)
+        ctx.add_user_message("Wieso brauchen Sie die denn?")
+        await ctx.resolve_email_if_pending("Wieso brauchen Sie die denn?")
+
+    def test_question_during_phone_keeps_spine(self):
+        ctx = ConversationManager(call_id="off3", lang="de")
+        self._to_phone(ctx)
+        ctx.add_user_message("Wofür brauchen Sie denn die Nummer?")
+        assert ctx.state.offscript_question is True
+        assert ctx.state.phone_attempts == 0
+        assert ctx.next_prompt() is None
+        assert ctx.state.awaiting == "phone"
+        ctx.add_user_message("null eins fünf eins zwei drei vier fünf sechs sieben acht")
+        assert "phone" in ctx.state.entities
+
+    def test_reply_with_digits_is_an_answer_not_a_question(self):
+        ctx = ConversationManager(call_id="off4", lang="de")
+        self._to_phone(ctx)
+        ctx.add_user_message("0151 23456789, ja?")
+        assert ctx.state.offscript_question is False
+        assert "phone" in ctx.state.entities
+
+    def test_questioning_confirmation_still_confirms(self):
+        ctx = ConversationManager(call_id="off5", lang="de")
+        self._to_email(ctx)
+        ctx.add_user_message("klein at gmail punkt com")
+        ctx.next_prompt()
+        assert ctx.state.awaiting == "email_confirm"
+        ctx.add_user_message("ja, stimmt?")
+        assert ctx.state.offscript_question is False
+        assert ctx.state.entities["email"].confirmed is True
+
+    def test_repeat_request_is_not_diverted(self):
+        """'Wie bitte?' wants the question repeated — the scripted re-ask path
+        (with its attempt cap) handles it; it must not become an LLM digression."""
+        ctx = ConversationManager(call_id="off7", lang="de")
+        self._to_email(ctx)
+        ctx.add_user_message("Wie bitte? Können Sie das wiederholen?")
+        assert ctx.state.offscript_question is False
+        assert ctx.state.email_attempts == 1  # counted toward the skip cap
+
+    def test_consecutive_questions_are_bounded(self):
+        """A caller who only ever asks questions still reaches the attempt caps."""
+        ctx = ConversationManager(call_id="off8", lang="de")
+        self._to_email(ctx)
+        ctx.add_user_message("Warum brauchen Sie das?")
+        ctx.add_user_message("Wieso denn unbedingt eine E-Mail?")
+        assert ctx.state.offscript_attempts == 2
+        ctx.add_user_message("Aber warum denn?")  # third in a row → on-script path
+        assert ctx.state.offscript_question is False
+        assert ctx.state.email_attempts == 1  # now counting toward the skip cap
+
+    def test_offscript_note_lands_in_system_prompt(self):
+        from app.conversation.prompts import build_system_prompt
+
+        ctx = ConversationManager(call_id="off6", lang="de")
+        self._to_email(ctx)
+        ctx.add_user_message("Warum brauchen Sie meine E-Mail-Adresse?")
+        prompt = build_system_prompt(ctx.state, "de")
+        assert "ZWISCHENFRAGE" in prompt
+        assert "E-Mail-Adresse" in prompt
+        # One-shot: the next on-script reply clears the instruction.
+        ctx.add_user_message("klein at gmail punkt com")
+        assert "ZWISCHENFRAGE" not in build_system_prompt(ctx.state, "de")
+
+
 class TestRequestedTimeParsing:
     """Callers name a time with or without 'Uhr'."""
 

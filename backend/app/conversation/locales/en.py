@@ -238,6 +238,30 @@ QUALIFICATION_PROMPTS = {
 
 FILLERS = ["One moment, please.", "Just a moment.", "One moment."]
 
+# One-shot instruction when the caller asks a side question ("Why do you need my
+# email?") instead of answering a scripted data ask: answer briefly, then
+# re-issue the ask — without the turn counting as a failed capture attempt.
+OFFSCRIPT_NOTE = (
+    "\nSIDE QUESTION:\n"
+    "The caller asked a side question instead of providing {field}. Answer it "
+    "briefly in ONE sentence (no legal advice; their details are only used to "
+    "arrange the appointment or callback and are treated confidentially), then "
+    "ask again for {field} right after."
+)
+# Spoken field names for the {field} placeholder, keyed by state.awaiting.
+OFFSCRIPT_FIELD_NAMES = {
+    "name": "their full name",
+    "name_confirm": "confirmation of the name read back",
+    "email": "their email address",
+    "email_confirm": "confirmation of the email read back",
+    "email_spell": "spelling out the email address",
+    "phone": "their phone number",
+    "phone_confirm": "confirmation of the phone number read back",
+    "insurance": "their insurance or claim number",
+    "insurance_confirm": "confirmation of the number read back",
+    "callback_time": "their preferred callback time",
+}
+
 # Deterministic narration for fully state-determined callback steps. Spoken
 # straight from state (no LLM), so they cannot drift, ramble, invent a phone
 # number, or claim a time the caller never gave.
