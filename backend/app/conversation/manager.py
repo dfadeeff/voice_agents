@@ -7,15 +7,11 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from app.conversation.cues import AREA_DENIAL_RE, CONFIRM_YES_RE, NEGATE_RE
-from app.conversation.email_parse import (
-    anchor_email_to_name,
-    parse_email,
-    parse_spelled_local,
-)
+from app.conversation.cues import AREA_DENIAL_RE, CONFIRM_YES_RE
+from app.conversation.email_capture import EmailCapture
 from app.conversation.flow import PHASE_TOOLS, next_phase
 from app.conversation.insurance_capture import InsuranceCapture
-from app.conversation.phone import normalize_phone_text
+from app.conversation.phone_capture import PhoneCapture
 from app.conversation.policy import (
     extract_target_person,
     is_explicit_handoff_request,
@@ -26,7 +22,7 @@ from app.conversation.script import compute_prompt
 from app.conversation.state import ConversationState
 from app.conversation.time_parse import parse_requested_time
 from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity, LegalArea
-from app.validation import LOW_CONFIDENCE_THRESHOLD, is_valid_email
+from app.validation import LOW_CONFIDENCE_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -207,12 +203,14 @@ class ConversationManager:
     def __init__(self, call_id: str, lang: str = "de", calendar=None):
         self.lang = lang
         self.state = ConversationState(call_id=call_id)
+        # Per-field capture strategies: each owns its parse → accumulate →
+        # read-back → confirm policy; the manager dispatches and keeps state.
         self._insurance = InsuranceCapture(self)
+        self._email = EmailCapture(self)
+        self._phone = PhoneCapture(self)
         self.state.messages = [{"role": "system", "content": get_system_prompt_base(lang)}]
         self._llm_context = None
         self._tools_builder: Callable[[list[str]], Any] | None = None
-        # Optional async LLM rescue for spoken email; None = regex-only (local default).
-        self._email_extractor: Callable[[str], Any] | None = None
         # Optional async LLM rescue for matter-type; None = keyword-only (local default).
         self._matter_classifier: Callable[[str, str], Any] | None = None
         # Optional CalendarService for deterministic in-code booking (sync access).
@@ -226,7 +224,7 @@ class ConversationManager:
 
     def set_email_extractor(self, extractor: Callable[[str], Any] | None) -> None:
         """Optional async LLM rescue for spoken email (regex stays the default)."""
-        self._email_extractor = extractor
+        self._email.set_extractor(extractor)
 
     def set_matter_classifier(self, classifier: Callable[[str, str], Any] | None) -> None:
         """Optional async LLM rescue for matter-type (keyword match stays default)."""
@@ -256,112 +254,18 @@ class ConversationManager:
         logger.info("LLM matter classification: %r → %s", text, label)
         self.state.matter_attempts = 0
         self._store_matter_type(label)
-        self._persist()
-
-    def _anchor_email(self, email: str) -> str:
-        """Snap a near-miss local part to the caller's captured name (e.g. STT
-        'sigma' → 'sigmar'). No-op when no name is known or the match isn't close."""
-        name_ent = self.state.entities.get("name")
-        name = name_ent.value if name_ent else ""
-        anchored = anchor_email_to_name(email, name)
-        if anchored != email:
-            logger.info("Email anchored to name %r: %r → %r", name, email, anchored)
-        return anchored
+        self.persist_progress()
 
     async def resolve_email_if_pending(self, text: str) -> None:
-        """LLM rescue when we asked for the email but regex couldn't parse one.
-
-        Runs after add_user_message (so regex had first go) and only when an
-        extractor is configured. On success the email is stored unconfirmed —
-        the scripted read-back then confirms it like any other email.
-        """
-        if self.state.awaiting == "email_spell":
-            await self._resolve_spelled_email(text)
-            return
-        extractor = getattr(self, "_email_extractor", None)
-        if extractor is None or self.state.awaiting != "email":
-            return
-        if "email" in self.state.entities:
-            return  # regex already got it this turn
-        # Use the accumulated buffer so a split dictation is rescued as a whole.
-        source = self.state.email_buffer or text
-        # Don't let the model invent a domain suffix the caller hasn't spoken yet —
-        # it loves to guess ".com" (e.g. "Klein at Hotmail" → klein@hotmail.com)
-        # when the TLD arrives in a separate, split utterance. Only rescue once a
-        # suffix was actually said ("punkt/dot/point" or a literal ".de"/".com").
-        if not re.search(r"\b(?:punkt|dot|point)\b", source, re.IGNORECASE) and not re.search(
-            r"\.[a-zA-Z]{2,}", source
-        ):
-            logger.info("Email rescue skipped: no spoken domain suffix in %r", source)
-            return
-        name_ent = self.state.entities.get("name")
-        name_hint = name_ent.value if name_ent else ""
-        try:
-            candidate = await extractor(source, name_hint)
-        except Exception as e:
-            logger.warning("Email extractor raised: %s", e)
-            return
-        if not candidate:
-            return
-        candidate = candidate.strip().lower()
-        if not is_valid_email(candidate):
-            return
-        candidate = self._anchor_email(candidate)
-        logger.info("LLM email rescue: %r → %r", source, candidate)
-        # Undo the miss the deterministic path may have just recorded.
-        self.state.email_skipped = False
-        self.state.email_misheard = False
-        self.state.email_attempts = max(0, self.state.email_attempts - 1)
-        self.state.email_buffer = ""
-        self.store_entity("email", candidate, 0.9)  # unconfirmed → scripted read-back
-        self._update_llm_context()
-        self._persist()
-
-    async def _resolve_spelled_email(self, text: str) -> None:
-        """LLM fallback for spelling mode, plus the spell-loop bound.
-
-        The deterministic spell parser already ran in add_user_message; if it
-        landed an email this is a no-op. Otherwise an LLM (when configured) gets
-        the spelled letters plus the known domain to assemble. If nothing usable
-        emerges, count the miss and skip email after a few tries rather than
-        asking the caller to spell forever."""
-        if "email" in self.state.entities:
-            return  # deterministic spell capture (or a restated address) already got it
-        extractor = getattr(self, "_email_extractor", None)
-        if extractor is not None:
-            domain = self.state.email_domain or "gmail.com"
-            source = f"{self.state.email_buffer or text} at {domain}"
-            name_ent = self.state.entities.get("name")
-            name_hint = name_ent.value if name_ent else ""
-            try:
-                candidate = (await extractor(source, name_hint) or "").strip().lower()
-            except Exception as e:
-                logger.warning("Spelled-email extractor raised: %s", e)
-                candidate = ""
-            if candidate and is_valid_email(candidate):
-                candidate = self._anchor_email(candidate)
-                logger.info("LLM spelled-email rescue: %r → %r", source, candidate)
-                self.state.email_buffer = ""
-                self.state.email_spell_attempts = 0
-                self.store_entity("email", candidate, 0.9)
-                self._update_llm_context()
-                self._persist()
-                return
-        # Still nothing — bound the loop.
-        self.state.email_spell_attempts += 1
-        if self.state.email_spell_attempts >= self._MAX_EMAIL_SPELL_ATTEMPTS:
-            logger.info("Email skipped after %d spelling attempts", self.state.email_spell_attempts)
-            self.state.email_skipped = True
-            self.state.email_buffer = ""
-            self.advance_phase()
-            self._persist()
+        """LLM rescue for a spoken email the regex couldn't parse (see EmailCapture)."""
+        await self._email.resolve_if_pending(text)
 
     def advance_phase(self) -> CallPhase:
         new_phase = next_phase(self.state)
         if new_phase != self.state.phase:
             old_phase = self.state.phase
             self.state.phase = new_phase
-            self._update_llm_context()
+            self.refresh_llm_context()
             logger.info("Phase advanced: %s → %s", old_phase.value, new_phase.value)
         return self.state.phase
 
@@ -376,7 +280,7 @@ class ConversationManager:
         self.state.awaiting = awaiting
         return line
 
-    def _update_llm_context(self) -> None:
+    def refresh_llm_context(self) -> None:
         prompt = build_system_prompt(self.state, self.lang)
         if self.state.messages:
             self.state.messages[0]["content"] = prompt
@@ -418,7 +322,7 @@ class ConversationManager:
             just_routed = self.state.legal_area != LegalArea.UNKNOWN
         self.advance_phase()
         if not was_callback and self.state.callback_requested:
-            self._update_llm_context()
+            self.refresh_llm_context()
 
         # Reply parsing dispatches on what the last scripted question asked for
         # (state.awaiting), not on regex over the agent's own prior sentence.
@@ -452,13 +356,13 @@ class ConversationManager:
         self._try_confirm_readback(text)
         captured_insurance = self._insurance.handle(text)
         self._try_capture_contact(text, skip_phone=captured_insurance)
-        self._try_capture_phone(text)
-        self._try_capture_spelled_email(text)
-        self._try_skip_email(text)
-        self._handle_email_attempt(awaiting)
+        self._phone.handle(text)
+        self._email.try_capture_spelled(text)
+        self._email.try_skip(text)
+        self._email.track_attempt(awaiting)
         self._try_capture_preferred_time(text)
         self._try_book(text)
-        self._persist()
+        self.persist_progress()
 
     def _handle_area_choice(self, text: str) -> None:
         """Resolve the legal area from the caller's disambiguation reply.
@@ -502,7 +406,7 @@ class ConversationManager:
         if "matter_details" in self.state.entities:
             return
         self.update_and_confirm_entity("matter_details", text.strip())
-        self._update_llm_context()
+        self.refresh_llm_context()
 
     def _outcome(self) -> str:
         """Terminal call outcome for persistence (single source of truth, used by
@@ -540,7 +444,7 @@ class ConversationManager:
             preferred_time=self.state.preferred_time or "",
         )
 
-    def _persist(self) -> None:
+    def persist_progress(self) -> None:
         """Write the caller row immediately after each turn so a dropped call
         never loses captured data (incremental, authoritative-at-decision-time)."""
         if self._calendar is None:
@@ -566,7 +470,7 @@ class ConversationManager:
 
         if not self.state.offered_slots:
             self.state.offered_slots = self._available_slots(area)
-            self._update_llm_context()
+            self.refresh_llm_context()
             return
 
         choice = _match_slot_choice(text, self.state.offered_slots)
@@ -592,7 +496,7 @@ class ConversationManager:
             return  # unrecognised reply → re-present the same offer
 
         self.state.offered_slots = self._available_slots(area)
-        self._update_llm_context()
+        self.refresh_llm_context()
 
     def _book_slot(self, slot: dict) -> bool:
         """Book a calendar slot and advance to confirmation. Returns False if the
@@ -639,135 +543,6 @@ class ConversationManager:
             )
         return slots
 
-    def _try_skip_email(self, text: str) -> None:
-        """Mark email as skipped when we asked for it and the caller has none."""
-        if self.state.callback_requested or self.state.email_skipped:
-            return
-        if self.state.awaiting != "email":
-            return
-        if "email" in self.state.entities:
-            return
-        if not NEGATE_RE.search(text.lower()):
-            return
-        # "Nein, die Domäne ist hotmail" is a correction, not a skip.
-        if re.search(
-            r"\b(?:dom[äa]ne|domain|gmail|hotmail|yahoo|outlook|web\.de|gmx|@)\b",
-            text,
-            re.IGNORECASE,
-        ):
-            return
-        logger.info("Email skipped: caller has none")
-        self.state.email_skipped = True
-        self.advance_phase()
-
-    _MAX_EMAIL_ATTEMPTS = 3
-    # Read-back rejections: after this many, offer to spell the local part; after
-    # the higher bound, give up on email entirely (a phone number is enough).
-    _REJECTS_BEFORE_SPELLING = 2
-    _MAX_EMAIL_REJECTS = 4
-    # Spelling attempts that yielded no usable local part before we skip email.
-    _MAX_EMAIL_SPELL_ATTEMPTS = 3
-    # A normalized German number (+49…) is ~12 digits for a mobile; we wait for at
-    # least this many before reading it back, so a split dictation isn't confirmed
-    # at its first short fragment. After a couple of asks we accept a shorter one.
-    _MIN_PHONE_DIGITS = 10
-    _MAX_PHONE_ATTEMPTS = 2
-
-    def _try_capture_phone(self, text: str) -> None:
-        """Accumulate a spoken phone number across split turns, reading it back only
-        once it's plausibly complete.
-
-        Callers dictate the number in bursts with pauses, so STT delivers it as
-        several finals. We append each turn's digits to a buffer and store the
-        whole (for the scripted read-back) only at a realistic length — and, while
-        the read-back is up, fold in any further digits the caller keeps dictating
-        (mirrors the insurance read-back). A short landline still lands after a
-        couple of asks via the lowered fallback threshold."""
-        awaiting = self.state.awaiting
-        if awaiting not in ("phone", "phone_confirm"):
-            return
-        existing = self.state.entities.get("phone")
-        if existing and existing.confirmed:
-            return
-        turn_has_digits = bool(re.search(r"\d", normalize_phone_text(text)))
-
-        if awaiting == "phone_confirm":
-            # Yes/No is handled by _try_confirm_readback (which ran first). If that
-            # left the unconfirmed number in place and the caller is still adding
-            # digits, extend it and read the fuller number back.
-            if existing and not existing.confirmed and turn_has_digits:
-                self.state.phone_buffer = f"{self.state.phone_buffer} {text}".strip()
-                self.store_entity("phone", normalize_phone_text(self.state.phone_buffer), 0.9)
-                self._update_llm_context()
-            return
-
-        # awaiting == "phone": accumulate and read back once plausibly complete.
-        if not turn_has_digits:
-            return
-        self.state.phone_buffer = f"{self.state.phone_buffer} {text}".strip()
-        normalized = normalize_phone_text(self.state.phone_buffer)
-        digit_count = len(re.sub(r"\D", "", normalized))
-        self.state.phone_attempts += 1
-        enough = digit_count >= self._MIN_PHONE_DIGITS or (
-            self.state.phone_attempts >= self._MAX_PHONE_ATTEMPTS and digit_count >= 7
-        )
-        if enough:
-            logger.info("Phone captured (buffered): %r", normalized)
-            self.store_entity("phone", normalized, 0.9)
-            self._update_llm_context()
-
-    def _handle_email_attempt(self, awaiting: str | None) -> None:
-        """Track failed email attempts; re-ask, then skip after a few misses.
-
-        Spoken email over phone-quality audio is the hardest field. Rather than
-        loop forever, after a few attempts we mark it skipped — a phone number is
-        enough to book or call back."""
-        if awaiting != "email":
-            return
-        if "email" in self.state.entities or self.state.email_skipped:
-            self.state.email_misheard = False
-            return
-        self.state.email_attempts += 1
-        if self.state.email_attempts >= self._MAX_EMAIL_ATTEMPTS:
-            logger.info("Email skipped after %d failed attempts", self.state.email_attempts)
-            self.state.email_skipped = True
-            self.state.email_misheard = False
-            self.state.email_buffer = ""
-            self.advance_phase()
-        else:
-            self.state.email_misheard = True
-
-    def _try_capture_spelled_email(self, text: str) -> None:
-        """Capture an email whose local part is being spelled out (buchstabieren).
-
-        Accumulates across split turns, then assembles a candidate two ways: a
-        whole restated address still parses ("ritter at gmail punkt com"), and
-        otherwise the spelled letters reattach to the domain heard before spelling
-        ("r, i, doppel t, e, r" + gmail.com). On a miss the buffer is kept and the
-        LLM fallback (resolve_email_if_pending) gets a turn."""
-        if self.state.awaiting != "email_spell":
-            return
-        existing = self.state.entities.get("email")
-        if existing and existing.confirmed:
-            return
-        self.state.email_buffer = f"{self.state.email_buffer} {text}".strip()
-        source = self.state.email_buffer
-        candidate = parse_email(source)
-        if not candidate:
-            local = parse_spelled_local(source)
-            if local:
-                domain = self.state.email_domain or "gmail.com"
-                candidate = f"{local}@{domain}"
-                candidate = candidate if is_valid_email(candidate) else None
-        if not candidate:
-            return
-        candidate = self._anchor_email(candidate)
-        logger.info("Spelled email captured: %r → %r", source, candidate)
-        self.state.email_buffer = ""
-        self.state.email_spell_attempts = 0
-        self.store_entity("email", candidate, 0.9)  # unconfirmed → scripted read-back
-        self._update_llm_context()
-
     def _try_capture_preferred_time(self, text: str) -> None:
         """Store the caller's preferred callback time once it has been asked."""
         if self.state.awaiting != "callback_time" or self.state.preferred_time:
@@ -793,31 +568,15 @@ class ConversationManager:
         lowered = text.lower()
         if AREA_DENIAL_RE.search(lowered):
             if field == "email":
-                self._on_email_rejected(entity.value)
+                self._email.on_rejected(entity.value)
             elif field == "phone":
-                # Wrong number → drop the accumulated buffer so the caller's
-                # restated number is captured fresh, not appended to the bad one.
-                self.state.phone_buffer = ""
-                self.state.phone_attempts = 0
+                self._phone.reset()
             del self.state.entities[field]
             self.advance_phase()
         elif CONFIRM_YES_RE.search(lowered):
             self.confirm_entity(field)
             if field == "phone":
-                self.state.phone_buffer = ""
-
-    def _on_email_rejected(self, rejected: str) -> None:
-        """The caller said the read-back email was wrong. After two rejections we
-        switch to spelling the local part (what STT keeps mangling), keeping the
-        already-recognised domain; after four we give up and skip email."""
-        self.state.email_domain = rejected.partition("@")[2] or self.state.email_domain
-        self.state.email_confirm_rejects += 1
-        if self.state.email_confirm_rejects >= self._MAX_EMAIL_REJECTS:
-            logger.info("Email skipped after %d rejections", self.state.email_confirm_rejects)
-            self.state.email_skipped = True
-        elif self.state.email_confirm_rejects >= self._REJECTS_BEFORE_SPELLING:
-            logger.info("Switching to email spelling mode")
-            self.state.email_spelling = True
+                self._phone.on_confirmed()
 
     def _try_capture_matter_type(self, text: str) -> None:
         """Deterministic fallback for matter_type when the LLM skips the tool.
@@ -849,7 +608,7 @@ class ConversationManager:
     def _store_matter_type(self, value: str) -> None:
         logger.info("Deterministic capture (LLM fallback): matter_type=%r", value)
         self.update_and_confirm_entity("matter_type", value)
-        self._update_llm_context()
+        self.refresh_llm_context()
 
     def _extract_name(self, text: str) -> str | None:
         """Get the caller's name from a trigger phrase, or from a bare reply when
@@ -894,45 +653,14 @@ class ConversationManager:
                 self._store_name(name)
                 captured = True
 
-        existing_email = self.state.entities.get("email")
-        # In spelling mode the spelled-letters handler owns email capture, so this
-        # opportunistic whole-address parse stands down (it would otherwise re-store
-        # the same mangled address the caller just rejected and skip the spell offer).
-        if not self.state.email_spelling and not (existing_email and existing_email.confirmed):
-            # Email is often dictated in chunks across split turns ("Klein at
-            # Hotmail" | "Punkt de"). When we asked for it, accumulate the turn
-            # text and parse the whole buffer so the address reassembles.
-            if self.state.awaiting == "email":
-                self.state.email_buffer = f"{self.state.email_buffer} {text}".strip()
-                source = self.state.email_buffer
-            else:
-                source = text
-            email = parse_email(source)
-            if email:
-                email = self._anchor_email(email)
-                logger.info("Deterministic capture (LLM fallback): email=%r", email)
-                self.store_entity("email", email, 0.9)
-                self.state.email_buffer = ""
-                captured = True
+        if self._email.capture_inline(text):
+            captured = True
 
-        existing_phone = self.state.entities.get("phone")
-        # When the phone is the field being asked/confirmed, the dedicated
-        # accumulator (_try_capture_phone) owns it — it buffers split dictation
-        # and waits for a plausibly complete number. Here we only opportunistically
-        # grab a number volunteered on some other turn (e.g. while giving the name).
-        if (
-            not skip_phone
-            and self.state.awaiting not in ("phone", "phone_confirm")
-            and not (existing_phone and existing_phone.confirmed)
-        ):
-            normalized = normalize_phone_text(text)
-            if len(re.sub(r"\D", "", normalized)) >= 7:
-                logger.info("Deterministic capture (LLM fallback): phone=%r", normalized)
-                self.store_entity("phone", normalized, 0.9)
-                captured = True
+        if not skip_phone and self._phone.capture_volunteered(text):
+            captured = True
 
         if captured:
-            self._update_llm_context()
+            self.refresh_llm_context()
 
     def _try_auto_route(self, text: str) -> None:
         """Keyword fallback when the LLM skips route_call."""

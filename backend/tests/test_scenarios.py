@@ -5,6 +5,7 @@ not individual tools in isolation (that's test_tools.py).
 """
 
 import pytest
+from app.conversation.email_capture import EmailCapture
 from app.conversation.manager import ConversationManager
 from app.models.schemas import CallerIntent, CallPhase, LegalArea
 
@@ -1064,7 +1065,7 @@ class TestEmailSpelling:
         ctx = ConversationManager(call_id="spell3", lang="de")
         self._to_email_confirm(ctx)
         ctx.state.email_spelling = True
-        for _ in range(ctx._MAX_EMAIL_SPELL_ATTEMPTS):
+        for _ in range(EmailCapture.MAX_SPELL_ATTEMPTS):
             ctx.next_prompt()
             assert ctx.state.awaiting == "email_spell"
             ctx.add_user_message("ähm keine Ahnung")
