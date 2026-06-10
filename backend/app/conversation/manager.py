@@ -18,10 +18,7 @@ from app.conversation.prompts import build_system_prompt, get_system_prompt_base
 from app.conversation.script import compute_prompt
 from app.conversation.state import ConversationState
 from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity, LegalArea
-
-# STT confidence below this stores a contact field unconfirmed, forcing a
-# read-back (the "double-check when unsure" path).
-LOW_CONFIDENCE_THRESHOLD = 0.75
+from app.validation import LOW_CONFIDENCE_THRESHOLD, is_valid_email
 
 logger = logging.getLogger(__name__)
 
@@ -157,8 +154,6 @@ _CONFIRM_YES_RE = re.compile(
     r"\b(?:ja|jawohl|genau|korrekt|stimmt|richtig|passt|yes|correct|right)\b",
     re.IGNORECASE,
 )
-_EMAIL_VALID_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$")
-
 # Slot selection (deterministic booking): ordinal words → index, or a clock time.
 _ORDINAL = {
     "erste": 0,
@@ -318,7 +313,7 @@ def _parse_email(text: str) -> str | None:
     if local and parts:
         parts[0] = _DOMAIN_CORRECTIONS.get(parts[0], parts[0])
     candidate = f"{local}@{'.'.join(parts)}"
-    return candidate if _EMAIL_VALID_RE.match(candidate) else None
+    return candidate if is_valid_email(candidate) else None
 
 
 # Spoken letter names STT emits when a caller spells aloud, German first then
@@ -544,7 +539,7 @@ class ConversationManager:
         if not candidate:
             return
         candidate = candidate.strip().lower()
-        if not _EMAIL_VALID_RE.match(candidate):
+        if not is_valid_email(candidate):
             return
         candidate = self._anchor_email(candidate)
         logger.info("LLM email rescue: %r → %r", source, candidate)
@@ -578,7 +573,7 @@ class ConversationManager:
             except Exception as e:
                 logger.warning("Spelled-email extractor raised: %s", e)
                 candidate = ""
-            if candidate and _EMAIL_VALID_RE.match(candidate):
+            if candidate and is_valid_email(candidate):
                 candidate = self._anchor_email(candidate)
                 logger.info("LLM spelled-email rescue: %r → %r", source, candidate)
                 self.state.email_buffer = ""
@@ -1001,7 +996,7 @@ class ConversationManager:
             if local:
                 domain = self.state.email_domain or "gmail.com"
                 candidate = f"{local}@{domain}"
-                candidate = candidate if _EMAIL_VALID_RE.match(candidate) else None
+                candidate = candidate if is_valid_email(candidate) else None
         if not candidate:
             return
         candidate = self._anchor_email(candidate)

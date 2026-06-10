@@ -5,6 +5,7 @@ from app.conversation.manager import ConversationManager
 from app.conversation.phone import normalize_phone_text
 from app.models.schemas import CallPhase, LegalArea
 from app.tools.registry import ToolRegistry
+from app.validation import LOW_CONFIDENCE_THRESHOLD, is_valid_email
 
 logger = logging.getLogger(__name__)
 
@@ -85,15 +86,13 @@ CONFIRM_SCHEMA = {
     "required": ["field", "confirmed_value", "status"],
 }
 
-EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
 PHONE_RE = re.compile(r"^[\d\s\-+()]{7,20}$")
 
 ALWAYS_CONFIRM = ("email", "phone")
-LOW_CONFIDENCE_THRESHOLD = 0.75
 
 
 def _validate_format(field_name: str, value: str) -> str | None:
-    if field_name == "email" and not EMAIL_RE.match(value):
+    if field_name == "email" and not is_valid_email(value):
         return f"'{value}' does not look like a valid email. Ask the caller to repeat it."
     if field_name == "phone" and not PHONE_RE.match(value.replace(" ", "")):
         return f"'{value}' does not look like a valid phone number. Ask the caller to repeat it."
