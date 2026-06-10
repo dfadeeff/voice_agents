@@ -61,6 +61,23 @@ class TestCallbackFlow:
         assert ctx.state.phase == CallPhase.CAPTURE
         assert not ctx.state.entities.get("phone")
 
+    def test_callback_low_confidence_name_is_read_back_not_reasked(self):
+        """Found by the audio demo: an unconfirmed (low-STT-confidence) name in
+        the callback flow looped 'Wie ist Ihr Name?' forever instead of reading
+        the heard name back like the booking branch does."""
+        ctx = ConversationManager(call_id="cb-lowconf", lang="de")
+        ctx.add_user_message("Bitte rufen Sie mich zurück.")
+        ctx.next_prompt()
+        assert ctx.state.awaiting == "name"
+        ctx.set_transcription_confidence(0.55)  # noisy line
+        ctx.add_user_message("Mein Name ist Sabine Becker")
+        assert ctx.state.entities["name"].confirmed is False
+        line = ctx.next_prompt()
+        assert ctx.state.awaiting == "name_confirm"
+        assert "Sabine Becker" in line
+        ctx.add_user_message("Ja, das ist richtig.")
+        assert ctx.state.entities["name"].confirmed is True
+
     def test_callback_confirms_after_name_phone_and_time(self):
         ctx = ConversationManager(call_id="cb-test", lang="de")
         ctx.add_user_message("Bitte rufen Sie mich zurück.")
