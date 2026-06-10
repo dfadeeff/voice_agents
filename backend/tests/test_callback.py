@@ -5,6 +5,7 @@ collecting phone number in named-person callback requests.
 """
 
 import pytest
+
 from app.conversation.flow import (
     CALLBACK_REQUIRED_FIELDS,
     callback_contacts_confirmed,

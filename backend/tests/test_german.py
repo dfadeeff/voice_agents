@@ -6,6 +6,7 @@ for missing fields, and a full German booking scenario with tool calls.
 """
 
 import pytest
+
 from app.conversation.manager import ConversationManager
 from app.conversation.prompts import build_system_prompt
 from app.conversation.state import ConversationState

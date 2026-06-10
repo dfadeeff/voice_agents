@@ -5,6 +5,7 @@ not individual tools in isolation (that's test_tools.py).
 """
 
 import pytest
+
 from app.conversation.email_capture import EmailCapture
 from app.conversation.manager import ConversationManager
 from app.models.schemas import CallerIntent, CallPhase, LegalArea

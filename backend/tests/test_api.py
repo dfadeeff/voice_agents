@@ -4,10 +4,11 @@ import os
 import tempfile
 
 import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+
 from app.main import create_app
 from app.services.calendar import CalendarService
 from app.tools.registry import build_default_registry
-from httpx import ASGITransport, AsyncClient
 
 
 @pytest_asyncio.fixture
