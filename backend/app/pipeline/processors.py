@@ -30,14 +30,28 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 from app.conversation.locales import get_locale
 from app.models.schemas import CallPhase
+from app.validation import EMAIL_FIND_RE
 
 if TYPE_CHECKING:
     from app.conversation.manager import ConversationManager
 
 logger = logging.getLogger(__name__)
 
+
+def _compile_tool_name_re(tool_names: list[str] | None) -> re.Pattern | None:
+    """Regex matching any tool name (snake_case or spaced) plus an optional
+    trailing ``{…}`` payload — used to strip leaked tool calls from spoken text.
+    Shared by PreTTSSanitizer and AgentTextProcessor (was duplicated verbatim)."""
+    if not tool_names:
+        return None
+    patterns = [r"[\s_\-]*".join(re.escape(p) for p in re.split(r"[_\s]+", n)) for n in tool_names]
+    return re.compile(
+        r"-?\s*(?:" + "|".join(patterns) + r")\s*(?:\{[^}]*\}?)?",
+        re.IGNORECASE,
+    )
+
+
 _PHONE_RE = re.compile(r"(?<!\w)[+]?[\d][\d\s\-]{3,}[\d](?!\w)")
-_EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
 # An alphanumeric reference (insurance/claim number) — has both a letter and a
 # digit, 5+ chars. Spelled out char-by-char so TTS doesn't read "F62415723" as a
 # giant number. Pure-digit strings are handled by _PHONE_RE instead.
@@ -157,17 +171,7 @@ class PreTTSSanitizer(FrameProcessor):
         self._buffer = ""
         self._conversation = conversation
 
-        if tool_names:
-            patterns = []
-            for n in tool_names:
-                parts = re.split(r"[_\s]+", n)
-                patterns.append(r"[\s_\-]*".join(re.escape(p) for p in parts))
-            self._tool_re = re.compile(
-                r"-?\s*(?:" + "|".join(patterns) + r")\s*(?:\{[^}]*\}?)?",
-                re.IGNORECASE,
-            )
-        else:
-            self._tool_re = None
+        self._tool_re = _compile_tool_name_re(tool_names)
 
     def _strip_think(self, text: str) -> str:
         result: list[str] = []
@@ -309,7 +313,7 @@ def _tts_preprocess(text: str, lang: str = "de") -> str:
         text = re.sub(r"\bProf\.\s*", "Professor ", text)
         text = re.sub(r"\b(?:Mrs|Ms)\.?\s+", "Frau ", text)
         text = re.sub(r"\bMr\.?\s+", "Herr ", text)
-    text = _EMAIL_RE.sub(_expand_email, text)
+    text = EMAIL_FIND_RE.sub(_expand_email, text)
     text = _REF_CODE_RE.sub(lambda m: ", ".join(m.group(0)), text)
     text = re.sub(r"(?<=\d)\s*/\s*(?=\d)", " ", text)
     text = _PHONE_RE.sub(_expand_phone, text)
@@ -685,17 +689,7 @@ class AgentTextProcessor(FrameProcessor):
         self._conversation = conversation
         self._first_chunk_this_turn = True
         self._turn_text_parts: list[str] = []
-        if tool_names:
-            patterns = []
-            for n in tool_names:
-                parts = re.split(r"[_\s]+", n)
-                patterns.append(r"[\s_\-]*".join(re.escape(p) for p in parts))
-            self._tool_re = re.compile(
-                r"-?\s*(?:" + "|".join(patterns) + r")\s*(?:\{[^}]*\}?)?",
-                re.IGNORECASE,
-            )
-        else:
-            self._tool_re = None
+        self._tool_re = _compile_tool_name_re(tool_names)
 
     def _strip_tool_names(self, text: str) -> str:
         cleaned = text

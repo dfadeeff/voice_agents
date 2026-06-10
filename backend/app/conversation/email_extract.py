@@ -13,14 +13,12 @@ Ollama's /v1 endpoint (local), selected from Settings.
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import Awaitable, Callable
 
 from app.config import Settings
+from app.validation import find_email
 
 logger = logging.getLogger(__name__)
-
-_EMAIL_RE = re.compile(r"[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}")
 
 _SYSTEM_PROMPT = (
     "You convert a spoken email dictation into a single email address. The text was "
@@ -79,8 +77,7 @@ def make_email_extractor(settings: Settings) -> EmailExtractor | None:
             return None
         if out.startswith("none"):
             return None
-        m = _EMAIL_RE.search(out)
-        return m.group(0) if m else None
+        return find_email(out)
 
     logger.info(
         "LLM email extraction enabled (provider=%s, model=%s)", settings.llm_provider, model
