@@ -78,6 +78,11 @@ class Settings(BaseSettings):
 
     max_concurrent_calls: int = 10
 
+    # Allowed CORS origins (comma-separated). Defaults to localhost — the browser
+    # demo is served same-origin, so it doesn't need "*", and this service handles
+    # legal PII. Set to your frontend origin(s) in production; "*" opts out.
+    cors_allow_origins: str = "http://localhost:8000,http://127.0.0.1:8000"
+
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_phone_number: str = ""

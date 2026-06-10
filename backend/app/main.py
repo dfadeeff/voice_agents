@@ -56,12 +56,19 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down...")
 
 
+def _cors_origins(raw: str) -> list[str]:
+    """Parse the comma-separated CORS allow-list ("*" → allow all)."""
+    return [o.strip() for o in raw.split(",") if o.strip()] or ["*"]
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Voice AI Agent", lifespan=lifespan)
 
+    # Middleware must be registered before startup, so read origins from a fresh
+    # Settings here (lifespan builds its own for the rest of app.state).
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=_cors_origins(Settings().cors_allow_origins),
         allow_methods=["*"],
         allow_headers=["*"],
     )

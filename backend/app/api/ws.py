@@ -9,55 +9,12 @@ from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketTransport,
 )
 
-from app.conversation.manager import ConversationManager
-from app.pipeline.orchestrator import create_pipeline
-from app.providers import create_llm, create_stt, create_tts
-from app.services.calendar import CalendarService
+from app.api.session import save_caller, start_call
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _call_semaphore: asyncio.Semaphore | None = None
-
-
-def _save_caller(calendar: CalendarService, conv: ConversationManager) -> None:
-    """Final upsert of caller data with outcome at call end.
-
-    _persist() writes incrementally during the call; this adds the final
-    outcome (booked/callback/escalation) which is only known at teardown.
-    Uses the same upsert so duplicate rows are impossible.
-    """
-    state = conv.state
-    entities = state.entities
-
-    def _val(field: str) -> str:
-        e = entities.get(field)
-        return e.value if e else ""
-
-    if not _val("name") and not _val("phone"):
-        return
-
-    outcome = state.phase.value
-    if state.booking_confirmed:
-        outcome = "booked"
-    elif state.callback_requested:
-        outcome = "callback"
-    elif state.escalation_requested:
-        outcome = "escalation"
-
-    calendar.upsert_caller_sync(
-        call_id=state.call_id,
-        name=_val("name"),
-        phone=_val("phone"),
-        email=_val("email"),
-        legal_area=state.legal_area.value,
-        matter_type=_val("matter_type"),
-        matter_summary=state.matter_summary or "",
-        case_reference=_val("case_reference"),
-        insurance_number=_val("insurance_number"),
-        outcome=outcome,
-        preferred_time=state.preferred_time or "",
-    )
 
 
 def _get_semaphore(max_calls: int) -> asyncio.Semaphore:
@@ -94,38 +51,16 @@ async def websocket_call(websocket: WebSocket, call_id: str = "new"):
             ),
         )
 
-        stt = create_stt(settings)
-        llm = create_llm(settings)
-        tts = create_tts(settings)
+        conversation, task, runner = await start_call(websocket.app, transport, websocket, call_id)
 
-        conversation = ConversationManager(
-            call_id=call_id,
-            lang=settings.language,
-            calendar=websocket.app.state.calendar,
-        )
-        tools = websocket.app.state.tool_registry
-
-        use_tools = settings.llm_provider != "ollama" or settings.use_tools_local
-        task, runner = await create_pipeline(
-            stt,
-            llm,
-            tts,
-            transport,
-            websocket,
-            conversation,
-            tools,
-            use_tools=use_tools,
-        )
-
-        logger.info("[%s] Starting pipeline (tools=%s)", call_id, use_tools)
+        logger.info("[%s] Starting pipeline", call_id)
         try:
             await runner.run(task)
         except Exception:
             logger.exception("[%s] Pipeline crashed", call_id)
 
-        calendar: CalendarService = websocket.app.state.calendar
         try:
-            _save_caller(calendar, conversation)
+            save_caller(websocket.app, conversation)
         except Exception:
             logger.exception("[%s] Failed to save caller data", call_id)
         logger.info("[%s] Pipeline finished", call_id)
