@@ -31,6 +31,10 @@ _SYSTEM_PROMPT = (
     "If a caller name is given, the local part is usually derived from it, so prefer "
     "the spelling that matches the name when the dictation is a close match "
     "(e.g. name 'Leon Sigmar' + heard 'sigma' -> 'sigmar'). "
+    "The caller may spell the local part letter by letter: example words mean their "
+    "first letter ('R wie Richard' or 'R as in Robert' -> r), 'doppel X'/'double X' "
+    "means the letter X twice, and STT may render letter names as words "
+    "('er i te te e er' -> 'ritter'); assemble those into the local part. "
     "Reply with ONLY the most likely email address in lowercase and nothing else. "
     "If the text clearly contains no email at all, reply with the single word NONE."
 )
