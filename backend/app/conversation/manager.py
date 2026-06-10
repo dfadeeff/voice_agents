@@ -221,20 +221,25 @@ _HOUR_WORDS = {
     "achtzehn": 18,
 }
 _MINUTE = r"(dreißig|dreissig|30)"
-# "<hour> Uhr [dreißig]" OR "<hour> dreißig" (callers drop "Uhr": "vierzehn
-# dreißig" → 14:30). A bare hour with neither "Uhr" nor a minute isn't treated
-# as a time, so stray numbers don't false-match.
+# A clock time the caller names: an hour (digit or word), with "Uhr" and the
+# half-hour both optional, so every spoken form lands — "vierzehn Uhr",
+# "vierzehn Uhr dreißig", "vierzehn dreißig", and a bare "vierzehn" (→ 14:00).
+# Only invoked in booking after a slot offer (see _try_book), where a bare number
+# is a chosen time rather than a stray one, so the loose match is safe here.
+# Longest-first so "dreizehn" wins over "drei" now that "Uhr" no longer has to
+# follow the hour to anchor the match.
+_HOUR_ALT = "|".join(sorted(_HOUR_WORDS, key=len, reverse=True))
 _REQUEST_TIME_RE = re.compile(
-    r"\b(?:um\s+)?(\d{1,2}|" + "|".join(_HOUR_WORDS) + r")\s*"
-    r"(?:uhr(?:\s*" + _MINUTE + r")?|" + _MINUTE + r")",
+    r"\b(?:um\s+)?(\d{1,2}|" + _HOUR_ALT + r")(?:\s*uhr)?(?:\s*" + _MINUTE + r")?",
     re.IGNORECASE,
 )
 
 
 def _parse_requested_time(text: str) -> str | None:
-    """Extract a specific clock time the caller asked for ('dreizehn Uhr' → '13:00',
-    'neun Uhr dreißig' → '09:30', 'vierzehn dreißig' → '14:30'). Returns 'HH:MM'
-    or None."""
+    """Extract a specific clock time the caller asked for, with or without 'Uhr'
+    and for any offered slot ('dreizehn Uhr' → '13:00', 'vierzehn dreißig' → '14:30',
+    'neun' → '09:00'). Returns 'HH:MM' or None. Slots are on the hour and half hour,
+    so only ':30' minutes are recognised."""
     m = _REQUEST_TIME_RE.search(text.lower())
     if not m:
         return None
@@ -242,7 +247,7 @@ def _parse_requested_time(text: str) -> str | None:
     hour = int(token) if token.isdigit() else _HOUR_WORDS.get(token)
     if hour is None or not 0 <= hour <= 23:
         return None
-    minute = 30 if (m.group(2) or m.group(3)) else 0
+    minute = 30 if m.group(2) else 0
     return f"{hour:02d}:{minute:02d}"
 
 
