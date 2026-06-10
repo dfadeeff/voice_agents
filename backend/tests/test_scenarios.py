@@ -1220,6 +1220,22 @@ class TestRequestedTimeParsing:
         assert self._parse()("vierzehn") == "14:00"
         assert self._parse()("Können wir um neun?") == "09:00"
 
+    def test_article_einen_does_not_shadow_the_real_time(self):
+        # Live-call regression: "einen" (the article) matched the hour word
+        # "ein", so the request parsed as 01:00 and the agent denied a free
+        # 14:00 slot ("Um 1 Uhr habe ich leider keinen freien Termin").
+        assert self._parse()("Haben Sie einen Termin vierzehn Uhr?") == "14:00"
+        assert self._parse()("Haben Sie einen Termin um vierzehn Uhr?") == "14:00"
+
+    def test_ein_uhr_still_parses_as_one_oclock(self):
+        assert self._parse()("um ein Uhr") == "01:00"
+        assert self._parse()("geht auch eins Uhr?") == "01:00"
+
+    def test_bare_article_is_not_a_time(self):
+        # Without "Uhr" following, "ein(en)" is the article, never 1 o'clock.
+        assert self._parse()("Haben Sie einen früheren Termin?") is None
+        assert self._parse()("ein anderer Tag wäre gut") is None
+
 
 class TestPhoneSplitDictation:
     """A phone dictated in bursts accumulates instead of confirming a fragment."""
