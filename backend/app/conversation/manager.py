@@ -7,6 +7,11 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from app.conversation.email_parse import (
+    anchor_email_to_name,
+    parse_email,
+    parse_spelled_local,
+)
 from app.conversation.flow import PHASE_TOOLS, next_phase
 from app.conversation.phone import digit_words_to_digits, normalize_phone_text
 from app.conversation.policy import (
@@ -17,6 +22,7 @@ from app.conversation.policy import (
 from app.conversation.prompts import build_system_prompt, get_system_prompt_base
 from app.conversation.script import compute_prompt
 from app.conversation.state import ConversationState
+from app.conversation.time_parse import parse_requested_time
 from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity, LegalArea
 from app.validation import LOW_CONFIDENCE_THRESHOLD, is_valid_email
 
@@ -214,195 +220,6 @@ def _match_slot_choice(text: str, slots: list[dict]) -> dict | None:
     return None
 
 
-# German spoken hour words (12h/24h). Used to recognise a *requested* time that
-# wasn't among the offered slots, so the caller can ask for a different one.
-_HOUR_WORDS = {
-    "ein": 1,
-    "eins": 1,
-    "zwei": 2,
-    "drei": 3,
-    "vier": 4,
-    "fünf": 5,
-    "fuenf": 5,
-    "sechs": 6,
-    "sieben": 7,
-    "acht": 8,
-    "neun": 9,
-    "zehn": 10,
-    "elf": 11,
-    "zwölf": 12,
-    "zwoelf": 12,
-    "dreizehn": 13,
-    "vierzehn": 14,
-    "fünfzehn": 15,
-    "fuenfzehn": 15,
-    "sechzehn": 16,
-    "siebzehn": 17,
-    "achtzehn": 18,
-}
-_MINUTE = r"(dreißig|dreissig|30)"
-# "<hour> Uhr [dreißig]" OR "<hour> dreißig" (callers drop "Uhr": "vierzehn
-# dreißig" → 14:30). A bare hour with neither "Uhr" nor a minute isn't treated
-# as a time, so stray numbers don't false-match.
-_REQUEST_TIME_RE = re.compile(
-    r"\b(?:um\s+)?(\d{1,2}|" + "|".join(_HOUR_WORDS) + r")\s*"
-    r"(?:uhr(?:\s*" + _MINUTE + r")?|" + _MINUTE + r")",
-    re.IGNORECASE,
-)
-
-
-def _parse_requested_time(text: str) -> str | None:
-    """Extract a specific clock time the caller asked for ('dreizehn Uhr' → '13:00',
-    'neun Uhr dreißig' → '09:30', 'vierzehn dreißig' → '14:30'). Returns 'HH:MM'
-    or None."""
-    m = _REQUEST_TIME_RE.search(text.lower())
-    if not m:
-        return None
-    token = m.group(1)
-    hour = int(token) if token.isdigit() else _HOUR_WORDS.get(token)
-    if hour is None or not 0 <= hour <= 23:
-        return None
-    minute = 30 if (m.group(2) or m.group(3)) else 0
-    return f"{hour:02d}:{minute:02d}"
-
-
-_DOMAIN_CORRECTIONS = {
-    "smail": "gmail",
-    "gmeil": "gmail",
-    "g-mail": "gmail",
-    "geemail": "gmail",
-    "gemail": "gmail",
-    "hotmeil": "hotmail",
-    "hotemail": "hotmail",
-}
-
-
-# Spoken lead-in before the address proper ("meine E-Mail-Adresse lautet …"),
-# stripped so it isn't glued onto the local part.
-_EMAIL_LEADIN_RE = re.compile(
-    r"^(?:\s*\b(?:ja|nein|also|genau|ähm|äh|meine?|die|das|es|und|hier|war|ich|"
-    r"e[-\s]?mail|email|mail|adresse|lautet|ist|wäre|my|the|email|address|it'?s|is)\b"
-    r"[\s.:,!?-]*)+",
-    re.IGNORECASE,
-)
-
-
-def _parse_email(text: str) -> str | None:
-    """Convert a spoken email to an address.
-
-    Spoken emails arrive in chunks with stray spaces ("Lang M at gmail punkt com")
-    and the local part is often dictated piece by piece. We strip a spoken lead-in,
-    map connectors to symbols, then join the remaining whitespace so a
-    space-separated local part ("lang m") becomes one token ("langm") instead of
-    being truncated to whichever fragment happened to carry the '@'.
-    """
-    t = _EMAIL_LEADIN_RE.sub("", text.lower().strip())
-    t = re.sub(r"\s*(?:\bat\b|\bät\b|@)\s*", "@", t)
-    t = re.sub(r"\s*(?:\bpunkt\b|\bdot\b|\bpoint\b)\s*", ".", t)
-    t = re.sub(r"\s*\.\s*", ".", t)
-    t = re.sub(r"\s+", "", t).strip(".,;:!?")
-    t = t.replace("@www.", "@")
-    # When a spoken "at" sat between dots ("baum.at.gmail.com" / "baum at gmail
-    # dot com"), the connector→@ swap leaves a stray dot touching the @. Collapse
-    # ".@" / "@." so it doesn't produce an invalid local part ("baum.@gmail.com").
-    t = re.sub(r"\.*@\.*", "@", t)
-    if "@" not in t:
-        return None
-    local, _, domain = t.partition("@")
-    parts = [p for p in domain.split(".") if p]
-    if local and parts:
-        parts[0] = _DOMAIN_CORRECTIONS.get(parts[0], parts[0])
-    candidate = f"{local}@{'.'.join(parts)}"
-    return candidate if is_valid_email(candidate) else None
-
-
-# Spoken letter names STT emits when a caller spells aloud, German first then
-# common English renderings. Single vowels (a/e/i/o/u) are letters as-is.
-_LETTER_NAMES = {
-    "be": "b", "ce": "c", "de": "d", "ef": "f", "ge": "g", "ha": "h",
-    "jot": "j", "ka": "k", "el": "l", "em": "m", "en": "n", "pe": "p",
-    "ku": "q", "er": "r", "es": "s", "te": "t", "vau": "v", "we": "w",
-    "weh": "w", "ix": "x", "ypsilon": "y", "zett": "z", "ah": "a", "oh": "o",
-    "ay": "a", "bee": "b", "cee": "c", "see": "c", "dee": "d", "ee": "e",
-    "eff": "f", "gee": "g", "aitch": "h", "jay": "j", "kay": "k", "ell": "l",
-    "oh ": "o", "pee": "p", "cue": "q", "queue": "q", "ar": "r", "are": "r",
-    "ess": "s", "tee": "t", "yu": "u", "vee": "v", "ex": "x", "wy": "y",
-    "why": "y", "zee": "z", "zed": "z",
-}  # fmt: skip
-# "wie/für/as in/like" introduce an example word ("R wie Richard"); the letter is
-# what precedes them. "doppel/double X" means the letter X twice.
-_SPELL_EXAMPLE_RE = re.compile(r"\b([a-zäöü])\s+(?:wie|für|as\s+in|like|for)\s+\w+", re.IGNORECASE)
-_SPELL_DOUBLE_RE = re.compile(r"\b(?:doppel|double)[\s-]*([a-zäöü])\b", re.IGNORECASE)
-
-
-def _parse_spelled_local(text: str) -> str | None:
-    """Reconstruct an email local part dictated letter by letter.
-
-    Handles the conventions callers actually use when the address is being
-    spelled: bare letters ("r i t t e r"), letter names STT renders as words
-    ("er i te te e er"), phonetic examples ("R wie Richard"), and doubling
-    ("doppel T"). Returns the assembled local part, or None when fewer than two
-    letters were recognised — that ambiguous case is left to the LLM fallback.
-    """
-    t = _EMAIL_LEADIN_RE.sub("", text.lower().strip())
-    t = _SPELL_EXAMPLE_RE.sub(r"\1", t)
-    t = _SPELL_DOUBLE_RE.sub(r"\1 \1", t)
-    letters: list[str] = []
-    for tok in re.split(r"[\s,.;:!?]+", t):
-        if not tok:
-            continue
-        if len(tok) == 1 and tok.isalpha():
-            letters.append(tok)
-        elif tok in _LETTER_NAMES:
-            letters.append(_LETTER_NAMES[tok])
-    return "".join(letters) if len(letters) >= 2 else None
-
-
-def _levenshtein(a: str, b: str) -> int:
-    """Edit distance between two short strings (iterative, O(len*len))."""
-    if a == b:
-        return 0
-    if not a or not b:
-        return len(a) + len(b)
-    prev = list(range(len(b) + 1))
-    for i, ca in enumerate(a, 1):
-        cur = [i]
-        for j, cb in enumerate(b, 1):
-            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
-        prev = cur
-    return prev[-1]
-
-
-def _anchor_email_to_name(email: str, name: str) -> str:
-    """Rewrite a local part that is a near-miss of the caller's name.
-
-    Spoken email over a phone line loses letters ('sigma' for 'Sigmar'). When the
-    captured name is known and the local part is a close match (edit distance 1-2)
-    to a name-derived form, snap it to that form. Only near-matches are touched, so
-    a genuinely different address ('leon.legal') is left alone — and the scripted
-    read-back still lets the caller reject it.
-    """
-    if not name or "@" not in email:
-        return email
-    local, _, domain = email.partition("@")
-    if len(local) < 3:
-        return email
-    parts = [p for p in re.split(r"\s+", name.lower().strip()) if p]
-    if not parts:
-        return email
-    candidates = {parts[0], parts[-1], "".join(parts), ".".join(parts)}
-    if len(parts) >= 2:
-        candidates.add(f"{parts[0]}.{parts[-1]}")
-    best, best_d = None, 99
-    for cand in candidates:
-        d = _levenshtein(local, cand)
-        if d < best_d:
-            best, best_d = cand, d
-    if best and 0 < best_d <= 2 and best_d < len(local):
-        return f"{best}@{domain}"
-    return email
-
-
 def _ref_tokens(text: str) -> str:
     """Join the reference-like tokens in text (digit-bearing tokens, plus a short
     letter prefix such as 'VS' or a single spoken 'F'), without a length gate.
@@ -428,15 +245,6 @@ def _ref_tokens(text: str) -> str:
             # (STT often lowercases a spoken letter — keep it, uppercased).
             kept.append(tok.upper())
     return "".join(kept)
-
-
-def _extract_reference(text: str) -> str | None:
-    """A complete insurance/claim reference (≥5 alphanumerics, digit-bearing), or
-    None for negative replies / fragments too short to be a whole reference."""
-    joined = _ref_tokens(text)
-    if len(re.sub(r"[^A-Za-z0-9]", "", joined)) >= 5:
-        return joined
-    return None
 
 
 class ConversationManager:
@@ -498,7 +306,7 @@ class ConversationManager:
         'sigma' → 'sigmar'). No-op when no name is known or the match isn't close."""
         name_ent = self.state.entities.get("name")
         name = name_ent.value if name_ent else ""
-        anchored = _anchor_email_to_name(email, name)
+        anchored = anchor_email_to_name(email, name)
         if anchored != email:
             logger.info("Email anchored to name %r: %r → %r", name, email, anchored)
         return anchored
@@ -816,7 +624,7 @@ class ConversationManager:
             self.state.declined_slot_times.extend(
                 f"{s['date']} {s['time']}" for s in self.state.offered_slots
             )
-        elif (requested := _parse_requested_time(text)) is not None:
+        elif (requested := parse_requested_time(text)) is not None:
             # Caller named a specific time that wasn't offered ("Können wir 13 Uhr
             # machen?"). Honour it if free; otherwise apologise and re-offer.
             slot = self._calendar.find_slot_sync(requested, area, self._requested_lawyer_surname())
@@ -990,9 +798,9 @@ class ConversationManager:
             return
         self.state.email_buffer = f"{self.state.email_buffer} {text}".strip()
         source = self.state.email_buffer
-        candidate = _parse_email(source)
+        candidate = parse_email(source)
         if not candidate:
-            local = _parse_spelled_local(source)
+            local = parse_spelled_local(source)
             if local:
                 domain = self.state.email_domain or "gmail.com"
                 candidate = f"{local}@{domain}"
@@ -1221,7 +1029,7 @@ class ConversationManager:
                 source = self.state.email_buffer
             else:
                 source = text
-            email = _parse_email(source)
+            email = parse_email(source)
             if email:
                 email = self._anchor_email(email)
                 logger.info("Deterministic capture (LLM fallback): email=%r", email)
