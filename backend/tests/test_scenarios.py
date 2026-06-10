@@ -1074,6 +1074,91 @@ class TestEmailSpelling:
         assert ctx.state.awaiting == "phone"  # moved on to phone
 
 
+class TestRequestedTimeParsing:
+    """Callers name a time with or without 'Uhr'."""
+
+    def _parse(self):
+        from app.conversation.manager import _parse_requested_time
+
+        return _parse_requested_time
+
+    def test_uhr_with_minute(self):
+        assert self._parse()("Haben Sie vierzehn Uhr dreißig?") == "14:30"
+
+    def test_minute_without_uhr(self):
+        # Real call: "vierzehn dreißig" (no "Uhr") must still mean 14:30.
+        assert self._parse()("Haben Sie Zeit vierzehn dreißig?") == "14:30"
+
+    def test_digit_hour_without_uhr(self):
+        assert self._parse()("um 14 30") == "14:30"
+
+    def test_full_hour(self):
+        assert self._parse()("dreizehn Uhr") == "13:00"
+
+    def test_bare_hour_is_not_a_time(self):
+        # A lone number with neither "Uhr" nor a minute must not match.
+        assert self._parse()("vierzehn") is None
+
+
+class TestPhoneSplitDictation:
+    """A phone dictated in bursts accumulates instead of confirming a fragment."""
+
+    def _to_phone(self, ctx):
+        ctx.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        for f, v in [("matter_type", "dismissal"), ("matter_details", "Frist")]:
+            ctx.store_entity(f, v, 1.0)
+            ctx.confirm_entity(f)
+        ctx.store_entity("name", "Max Mustermann", 0.9)
+        ctx.confirm_entity("name")
+        ctx.state.email_skipped = True
+        ctx.advance_phase()
+        ctx.next_prompt()
+        assert ctx.state.awaiting == "phone"
+
+    def test_short_fragment_not_read_back(self):
+        ctx = ConversationManager(call_id="ph1", lang="de")
+        self._to_phone(ctx)
+        ctx.add_user_message("plus vier neun eins fünf eins fünf sieben acht")  # 8 digits
+        assert "phone" not in ctx.state.entities  # too short to confirm
+        ctx.next_prompt()
+        assert ctx.state.awaiting == "phone"  # still asking
+
+    def test_split_dictation_accumulates_then_confirms(self):
+        ctx = ConversationManager(call_id="ph2", lang="de")
+        self._to_phone(ctx)
+        ctx.add_user_message("plus vier neun eins fünf eins fünf sieben acht")
+        ctx.next_prompt()
+        ctx.add_user_message("drei eins sechs eins fünf")  # the rest, after a pause
+        ctx.next_prompt()
+        assert ctx.state.entities["phone"].value == "+4915157831615"
+        assert ctx.state.awaiting == "phone_confirm"
+
+    def test_more_digits_during_confirm_extend_the_number(self):
+        ctx = ConversationManager(call_id="ph3", lang="de")
+        self._to_phone(ctx)
+        ctx.add_user_message(
+            "null eins fünf eins fünf sieben acht drei eins"
+        )  # 015157831 → 10 digits
+        ctx.next_prompt()
+        assert ctx.state.awaiting == "phone_confirm"
+        ctx.add_user_message("sechs eins fünf")  # caller kept going
+        ctx.next_prompt()
+        assert ctx.state.entities["phone"].value == "+4915157831615"
+        assert ctx.state.awaiting == "phone_confirm"
+
+    def test_denial_clears_buffer_for_fresh_restatement(self):
+        ctx = ConversationManager(call_id="ph4", lang="de")
+        self._to_phone(ctx)
+        ctx.add_user_message("null eins fünf eins fünf sieben acht drei eins sechs eins fünf")
+        ctx.next_prompt()
+        assert ctx.state.awaiting == "phone_confirm"
+        ctx.add_user_message("Nein, das ist falsch")
+        assert "phone" not in ctx.state.entities
+        assert ctx.state.phone_buffer == ""
+        ctx.next_prompt()
+        assert ctx.state.awaiting == "phone"
+
+
 class TestDeterministicBooking:
     """Slot selection is done in code (no LLM): offer, choose, book, confirm."""
 
