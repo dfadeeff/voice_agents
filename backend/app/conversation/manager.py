@@ -4,6 +4,7 @@ import json
 import logging
 import re
 from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from app.conversation.flow import PHASE_TOOLS, next_phase
@@ -23,6 +24,30 @@ from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity, LegalAr
 LOW_CONFIDENCE_THRESHOLD = 0.75
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class CallerRecord:
+    """Immutable snapshot of captured caller data + terminal outcome for the DB.
+
+    The manager owns the conversation state; persistence callers (per-turn
+    `_persist`, end-of-call `save_caller`) take this snapshot instead of reaching
+    into `state.entities` and recomputing the outcome themselves. Field names
+    match `CalendarService.upsert_caller_sync`, so it upserts via `**asdict(rec)`.
+    """
+
+    call_id: str
+    name: str
+    phone: str
+    email: str
+    legal_area: str
+    matter_type: str
+    matter_summary: str
+    case_reference: str
+    insurance_number: str
+    outcome: str
+    preferred_time: str
+
 
 # Deterministic contact-capture fallback (mirrors _try_auto_route): when the
 # caller states a name or phone but the LLM forgets to call capture_caller_details,
@@ -719,11 +744,20 @@ class ConversationManager:
         self.update_and_confirm_entity("matter_details", text.strip())
         self._update_llm_context()
 
-    def _persist(self) -> None:
-        """Write the caller row immediately after each turn so a dropped call
-        never loses captured data (incremental, authoritative-at-decision-time)."""
-        if self._calendar is None:
-            return
+    def _outcome(self) -> str:
+        """Terminal call outcome for persistence (single source of truth, used by
+        both the per-turn write and the end-of-call save)."""
+        if self.state.booking_confirmed:
+            return "booked"
+        if self.state.callback_requested:
+            return "callback"
+        if self.state.escalation_requested:
+            return "escalation"
+        return self.state.phase.value
+
+    def snapshot_for_persistence(self) -> CallerRecord | None:
+        """Snapshot caller data + outcome for the DB, or None when nothing material
+        has been captured yet. Lets persistence callers avoid walking `state`."""
         ents = self.state.entities
 
         def val(field: str) -> str:
@@ -731,15 +765,8 @@ class ConversationManager:
             return entity.value if entity else ""
 
         if not (val("name") or val("phone")):
-            return  # nothing material captured yet
-        outcome = self.state.phase.value
-        if self.state.booking_confirmed:
-            outcome = "booked"
-        elif self.state.callback_requested:
-            outcome = "callback"
-        elif self.state.escalation_requested:
-            outcome = "escalation"
-        self._calendar.upsert_caller_sync(
+            return None
+        return CallerRecord(
             call_id=self.state.call_id,
             name=val("name"),
             phone=val("phone"),
@@ -749,9 +776,18 @@ class ConversationManager:
             matter_summary=self.state.matter_summary or "",
             case_reference=val("case_reference"),
             insurance_number=val("insurance_number"),
-            outcome=outcome,
+            outcome=self._outcome(),
             preferred_time=self.state.preferred_time or "",
         )
+
+    def _persist(self) -> None:
+        """Write the caller row immediately after each turn so a dropped call
+        never loses captured data (incremental, authoritative-at-decision-time)."""
+        if self._calendar is None:
+            return
+        record = self.snapshot_for_persistence()
+        if record is not None:
+            self._calendar.upsert_caller_sync(**asdict(record))
 
     def _try_book(self, text: str) -> None:
         """Deterministic booking: offer slots, match the caller's choice, book it.
@@ -815,9 +851,7 @@ class ConversationManager:
         if not booking:
             return False
         logger.info("Deterministic booking: slot %s booked", slot["id"])
-        self.state.booking_confirmed = True
-        self.state.booked_slot = booking
-        self.advance_phase()
+        self.confirm_booking(booking)
         return True
 
     def _requested_lawyer_surname(self) -> str:
@@ -1376,6 +1410,32 @@ class ConversationManager:
         self.state.misunderstanding_streak += 1
         logger.info("Misunderstanding streak: %d", self.state.misunderstanding_streak)
         self.advance_phase()
+
+    def confirm_booking(self, slot: dict) -> None:
+        """Record a confirmed booking and advance to confirmation. The one place
+        booking state is set, so tools and the deterministic path stay in sync."""
+        self.state.booking_confirmed = True
+        self.state.booked_slot = slot
+        self.advance_phase()
+
+    def record_escalation(self, reason: str = "") -> None:
+        """Flag the call for human escalation (e.g. out-of-scope area)."""
+        self.state.escalation_requested = True
+        if reason:
+            self.state.escalation_reason = reason
+        self.advance_phase()
+
+    def record_offered_slots(self, slot_ids: list[int]) -> None:
+        """Remember which slots were offered, so they aren't re-offered next round."""
+        self.state.offered_slot_ids = list(slot_ids)
+
+    def awaiting_field(self) -> str | None:
+        """The datum the last scripted question asked for (or None when the LLM
+        drives). Read-only accessor so processors don't reach into state."""
+        return self.state.awaiting
+
+    def is_booking_confirmed(self) -> bool:
+        return self.state.booking_confirmed
 
     def request_handoff(self, reason: str, summary: str = "") -> None:
         if reason == "caller_requested_human":

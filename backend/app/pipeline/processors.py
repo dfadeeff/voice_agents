@@ -254,7 +254,7 @@ class PreTTSSanitizer(FrameProcessor):
     def _booking_confirmed(self) -> bool:
         if self._conversation is None:
             return False
-        return self._conversation.state.booking_confirmed
+        return self._conversation.is_booking_confirmed()
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -545,7 +545,7 @@ class TranscriptProcessor(FrameProcessor):
         """
         from app.conversation.phone import normalize_phone_text
 
-        if self._conversation.state.awaiting == "phone":
+        if self._conversation.awaiting_field() == "phone":
             normalized = normalize_phone_text(text)
             if normalized and len(re.sub(r"\D", "", normalized)) >= 7:
                 return normalized
@@ -566,14 +566,13 @@ class TranscriptProcessor(FrameProcessor):
         asked for (set after next_prompt has updated state.awaiting)."""
         if self._vad is None or self._vad_params is None:
             return
-        target = self._endpoint_secs_for(self._conversation.state.awaiting)
+        awaiting = self._conversation.awaiting_field()
+        target = self._endpoint_secs_for(awaiting)
         if target is None or target == self._current_stop_secs:
             return
         self._vad.set_params(self._vad_params.model_copy(update={"stop_secs": target}))
         self._current_stop_secs = target
-        logger.info(
-            "VAD stop window → %.1fs (awaiting=%s)", target, self._conversation.state.awaiting
-        )
+        logger.info("VAD stop window → %.1fs (awaiting=%s)", target, awaiting)
 
     def _is_duplicate_fast_path(self, line: str, now: float, window_s: float = 5.0) -> bool:
         """True when ``line`` is identical to the one just emitted within window_s
@@ -716,7 +715,7 @@ class AgentTextProcessor(FrameProcessor):
     def _booking_confirmed(self) -> bool:
         if self._conversation is None:
             return False
-        return self._conversation.state.booking_confirmed
+        return self._conversation.is_booking_confirmed()
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)

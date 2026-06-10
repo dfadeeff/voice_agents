@@ -152,6 +152,45 @@ class TestConversationManager:
         assert conversation.state.misunderstanding_streak == 0
 
 
+class TestIntentMethods:
+    """Encapsulation: callers drive state through intent methods, not by mutating
+    `state.*` directly (the CLAUDE.md rule). These pin the new accessors/mutators."""
+
+    def test_confirm_booking_sets_state_and_advances(self, conversation):
+        conversation.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        slot = {"id": 7, "date": "2026-06-15", "time": "09:00"}
+        conversation.confirm_booking(slot)
+        assert conversation.is_booking_confirmed() is True
+        assert conversation.state.booked_slot == slot
+        assert conversation.state.phase == CallPhase.CONFIRMATION
+
+    def test_record_escalation(self, conversation):
+        conversation.record_escalation(reason="out_of_scope_area")
+        assert conversation.state.escalation_requested is True
+        assert conversation.state.escalation_reason == "out_of_scope_area"
+
+    def test_record_offered_slots(self, conversation):
+        conversation.record_offered_slots([1, 2, 3])
+        assert conversation.state.offered_slot_ids == [1, 2, 3]
+
+    def test_awaiting_field_accessor(self, conversation):
+        conversation.state.awaiting = "email"
+        assert conversation.awaiting_field() == "email"
+
+    def test_snapshot_none_when_no_contact(self, conversation):
+        assert conversation.snapshot_for_persistence() is None
+
+    def test_snapshot_outcome_reflects_booking(self, conversation):
+        conversation.set_route(CallerIntent.BOOK_CONSULTATION, LegalArea.EMPLOYMENT)
+        conversation.store_entity("name", "Max Mustermann", 0.95)
+        conversation.confirm_entity("name")
+        conversation.confirm_booking({"id": 1, "date": "2026-06-15", "time": "09:00"})
+        record = conversation.snapshot_for_persistence()
+        assert record is not None
+        assert record.name == "Max Mustermann"
+        assert record.outcome == "booked"
+
+
 class TestPrompts:
     def test_tools_prompt_is_natural(self):
         assert "receptionist" in SYSTEM_PROMPT_TOOLS

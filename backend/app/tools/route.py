@@ -53,8 +53,7 @@ async def route_call(args: dict, ctx: ConversationManager) -> dict:
     ctx.set_route(intent, area, summary or None)
 
     if area == LegalArea.UNKNOWN:
-        ctx.state.escalation_requested = True
-        ctx.advance_phase()
+        ctx.record_escalation(reason="out_of_scope_area")
         return {
             "status": "unknown_area",
             "intent": intent.value,
