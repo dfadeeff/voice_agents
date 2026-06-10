@@ -160,6 +160,18 @@ make compare-latency ARGS="logs/<local>.json logs/<cloud>.json --labels local cl
 
 It prints a side-by-side table of STT / LLM / TTS / TTFA latencies with deltas. (LLM shows ~0 ms on turns the deterministic spine fast-paths — only routing/info turns invoke the model.)
 
+## Demo Recordings (`make demo-call`)
+
+`demo/` contains full call recordings (WAV) with turn-by-turn transcripts, regenerable with:
+
+```bash
+make demo-call
+```
+
+The script synthesizes a *caller* voice (Piper `thorsten`), runs that audio through the **real faster-whisper STT** (same model and hotword biasing as the live pipeline), drives the real conversation manager, and answers with the agent voice (`eva_k`). The caller is reactive — replies are chosen by what the agent just asked, and read-backs are accepted or rejected against the intended value like a real caller would. Four scenarios: happy-path booking, unavailable-slot handling, the email-uncertainty/spelling path, and a callback handoff.
+
+Each scenario asserts its expected outcome (booking confirmed, callback recorded, …) and the script exits non-zero on a miss — so this doubles as an end-to-end **audio regression test**. The transcripts show what STT actually heard vs. what was said (e.g. an email garbled to `anapunktsch mitatgembail.com` at 0.42 confidence, recovered by the LLM rescue and confirmed via read-back). It found a real bug on first run: the callback branch looped on a low-confidence name instead of reading it back.
+
 ## What Happens When You Call
 
 1. **Greeting** — the agent answers as a law firm receptionist

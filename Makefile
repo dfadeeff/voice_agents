@@ -1,4 +1,4 @@
-.PHONY: setup setup-cloud run run-prod seed models test lint benchmark compare-latency record-latency clean
+.PHONY: setup setup-cloud run run-prod seed models test lint benchmark compare-latency record-latency demo-call clean
 
 setup: models seed
 	pip install -e "backend/.[dev]"
@@ -33,6 +33,12 @@ lint:
 
 benchmark:
 	cd backend && python3 scripts/benchmark_models.py
+
+# Headless demo calls: synthetic caller audio → real STT → agent → TTS.
+# Writes full call recordings + transcripts to demo/ and asserts each
+# scenario's outcome (doubles as an end-to-end audio regression test).
+demo-call:
+	cd backend && python3 scripts/demo_call.py
 
 # Compare per-component latency between two call logs (default: two most recent).
 # Override with ARGS, e.g. make compare-latency ARGS="logs/<local>.json logs/<cloud>.json --labels local cloud"
