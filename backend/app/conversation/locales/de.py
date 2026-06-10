@@ -262,6 +262,30 @@ QUALIFICATION_PROMPTS = {
 
 FILLERS = ["Einen Moment, bitte.", "Einen Augenblick.", "Einen Moment."]
 
+# One-shot instruction when the caller asks a side question ("Warum brauchen Sie
+# meine E-Mail?") instead of answering a scripted data ask: answer briefly, then
+# re-issue the ask — without the turn counting as a failed capture attempt.
+OFFSCRIPT_NOTE = (
+    "\nZWISCHENFRAGE:\n"
+    "Der Anrufer hat eine Zwischenfrage gestellt, statt {field} zu nennen. "
+    "Beantworte die Frage kurz in EINEM Satz (keine Rechtsberatung; die Daten "
+    "dienen nur der Terminvereinbarung bzw. dem Rückruf und werden vertraulich "
+    "behandelt). Bitte direkt danach erneut um {field}."
+)
+# Spoken field names for the {field} placeholder, keyed by state.awaiting.
+OFFSCRIPT_FIELD_NAMES = {
+    "name": "den vollständigen Namen",
+    "name_confirm": "die Bestätigung des vorgelesenen Namens",
+    "email": "die E-Mail-Adresse",
+    "email_confirm": "die Bestätigung der vorgelesenen E-Mail-Adresse",
+    "email_spell": "das Buchstabieren der E-Mail-Adresse",
+    "phone": "die Telefonnummer",
+    "phone_confirm": "die Bestätigung der vorgelesenen Telefonnummer",
+    "insurance": "die Versicherungs- oder Schadennummer",
+    "insurance_confirm": "die Bestätigung der vorgelesenen Nummer",
+    "callback_time": "die bevorzugte Rückrufzeit",
+}
+
 # Deterministic narration for fully state-determined callback steps. These are
 # spoken straight from state (no LLM), so they cannot drift, ramble, invent a
 # phone number, or claim a time the caller never gave.

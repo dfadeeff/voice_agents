@@ -69,6 +69,14 @@ def build_system_prompt(state: ConversationState, lang: str = "de") -> str:
         task_label = "DEINE AKTUELLE AUFGABE" if lang == "de" else "YOUR CURRENT TASK"
         parts.append(f"\n{task_label}:\n{phase_prompt}")
 
+    # The caller asked a side question instead of answering the scripted ask:
+    # this one turn the LLM answers it briefly, then re-issues the ask.
+    if state.offscript_question and state.awaiting:
+        note = getattr(locale, "OFFSCRIPT_NOTE", "")
+        field_names = getattr(locale, "OFFSCRIPT_FIELD_NAMES", {})
+        if note:
+            parts.append(note.format(field=field_names.get(state.awaiting, state.awaiting)))
+
     if state.phase == CallPhase.CAPTURE:
         fields = CALLBACK_REQUIRED_FIELDS if state.callback_requested else CONTACT_FIELDS
         missing = []
