@@ -40,7 +40,7 @@ make demo-call  # headless demo calls → demo/ (audio + transcripts, asserts ou
 
 ## Key conventions
 - Provider swapping via env vars (STT_PROVIDER, LLM_PROVIDER, TTS_PROVIDER)
-- All tools registered in tools/registry.py using a registry pattern
+- All tools registered into the ToolRegistry — tools/registry.py builds the default registry from the register_* functions in tools/*.py
 - Conversation state is serializable (ready for Redis at scale)
 - Pipecat handles audio plumbing; custom code handles business logic only
 

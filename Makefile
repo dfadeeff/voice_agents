@@ -1,4 +1,4 @@
-.PHONY: setup setup-cloud run run-prod seed models test lint benchmark compare-latency record-latency demo-call clean
+.PHONY: setup setup-cloud run run-prod seed calendar-full models test lint benchmark compare-latency record-latency demo-call clean
 
 setup: models seed
 	pip install -e "backend/.[dev]"

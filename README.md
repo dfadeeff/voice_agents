@@ -110,7 +110,7 @@ Set the model in `.env` via `OLLAMA_MODEL`:
 | `llama3.2:3b` | 2.0 GB | Fastest | Fair | Speed-constrained devices |
 | `llama3.1:8b` | 4.9 GB | Fast | Unreliable | Not recommended (often dumps JSON as text) |
 
-**qwen2.5:7b is the default.** In local benchmarks it averages 0.8s latency — much faster than qwen3:8b because qwen3 emits thinking tokens that create dead air. Qwen 2.5 can still make tool or language mistakes, so business-critical transitions are code-controlled and a pre-TTS safety layer drops internal JSON/tool text. Run `make benchmark` to test on your machine.
+**qwen2.5:7b is the default.** In the local five-model sweep it averaged ~0.8s (1.13s in the committed single-model rerun, where the tool-call scenario is the slow tail) — much faster than qwen3:8b because qwen3 emits thinking tokens that create dead air. Qwen 2.5 can still make tool or language mistakes, so business-critical transitions are code-controlled and a pre-TTS safety layer drops internal JSON/tool text. Run `make benchmark` to test on your machine.
 
 In my local tests, **llama3.1:8b was unreliable** for this project's tool-calling flow: it sometimes emitted JSON as normal text or called tools with invalid arguments.
 
@@ -236,14 +236,13 @@ Results are saved to `benchmarks/`:
 
 ### CI/CD Integration
 
-The benchmark runs automatically via GitHub Actions (`.github/workflows/benchmark.yml`):
-- **On push to `main`** — when benchmark script or prompts change
-- **Manual trigger** — `Actions → Model Benchmark → Run workflow` with optional model list
-- Results are uploaded as artifacts and commented on the commit
+Two GitHub Actions workflows:
+- **`ci.yml`** — lint + full test suite on every push and PR
+- **`benchmark.yml`** — model benchmark, **manual trigger only** (`Actions → Model Benchmark → Run workflow`, optional model list; it pulls a multi-GB model, so it is not run on push). Results are uploaded as workflow artifacts.
 
 ### Latest Results
 
-These results are from one local run and are hardware- and version-specific. Run `make benchmark` to reproduce on your machine.
+These results are from a five-model sweep on the dev machine (2026-06-07) and are hardware- and version-specific — run `make benchmark` to reproduce on yours. Note: the committed artifact in `backend/benchmarks/` is a later **single-model rerun** of qwen2.5:7b averaging **1.13s** across its three scenarios (greeting 0.52s; the tool-call scenario at 1.71s is the slow tail), so treat the table's averages as relative rankings rather than exact figures.
 
 | Model | Greeting | Greeting + Tools | Tool Call | Avg Latency | Verdict |
 |-------|----------|-----------------|-----------|-------------|---------|
