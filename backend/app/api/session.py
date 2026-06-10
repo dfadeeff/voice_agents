@@ -9,6 +9,7 @@ run the *same* business logic, so the provider creation, manager wiring (languag
 from __future__ import annotations
 
 import logging
+from dataclasses import asdict
 from typing import TYPE_CHECKING
 
 from app.conversation.manager import ConversationManager
@@ -74,37 +75,11 @@ def save_caller(app, conversation: ConversationManager) -> None:
     ``manager`` persists incrementally during the call; this records the terminal
     outcome (booked/callback/escalation) known only at the end. Runs for *every*
     transport now (the Twilio path skipped it entirely before). Uses the same
-    upsert key, so it can never create a duplicate row.
+    upsert key, so it can never create a duplicate row. The manager owns the
+    snapshot (outcome computation, what counts as "material"); we just write it.
     """
-    calendar: CalendarService = app.state.calendar
-    state = conversation.state
-    entities = state.entities
-
-    def _val(field: str) -> str:
-        e = entities.get(field)
-        return e.value if e else ""
-
-    if not _val("name") and not _val("phone"):
+    record = conversation.snapshot_for_persistence()
+    if record is None:
         return
-
-    outcome = state.phase.value
-    if state.booking_confirmed:
-        outcome = "booked"
-    elif state.callback_requested:
-        outcome = "callback"
-    elif state.escalation_requested:
-        outcome = "escalation"
-
-    calendar.upsert_caller_sync(
-        call_id=state.call_id,
-        name=_val("name"),
-        phone=_val("phone"),
-        email=_val("email"),
-        legal_area=state.legal_area.value,
-        matter_type=_val("matter_type"),
-        matter_summary=state.matter_summary or "",
-        case_reference=_val("case_reference"),
-        insurance_number=_val("insurance_number"),
-        outcome=outcome,
-        preferred_time=state.preferred_time or "",
-    )
+    calendar: CalendarService = app.state.calendar
+    calendar.upsert_caller_sync(**asdict(record))

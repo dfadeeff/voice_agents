@@ -64,7 +64,7 @@ def _make_check_availability(calendar: CalendarService):
                 }
                 for s in slots[:3]
             ]
-            ctx.state.offered_slot_ids = [s["id"] for s in offered]
+            ctx.record_offered_slots([s["id"] for s in offered])
             return {"available": True, "slots": offered}
 
         alternatives = await calendar.get_next_available(
@@ -79,7 +79,7 @@ def _make_check_availability(calendar: CalendarService):
             }
             for s in alternatives
         ]
-        ctx.state.offered_slot_ids = [s["id"] for s in alt_list]
+        ctx.record_offered_slots([s["id"] for s in alt_list])
         return {"available": False, "alternatives": alt_list}
 
     return check_availability
@@ -144,9 +144,7 @@ def _make_book_consultation(calendar: CalendarService):
                 "message": "That slot is no longer available.",
             }
 
-        ctx.state.booking_confirmed = True
-        ctx.state.booked_slot = booking
-        ctx.advance_phase()
+        ctx.confirm_booking(booking)
 
         return {
             "status": "booked",

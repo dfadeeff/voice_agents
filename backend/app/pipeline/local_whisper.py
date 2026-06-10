@@ -64,7 +64,7 @@ class LocalWhisperSTTService(WhisperSTTService):
         parse than a plain mishearing. Spoken email is rescued by the LLM
         extractor instead.
         """
-        awaiting = getattr(getattr(self._conversation, "state", None), "awaiting", None)
+        awaiting = self._conversation.awaiting_field() if self._conversation else None
         if awaiting in ("phone", "phone_confirm"):
             return _LEGAL_HOTWORDS + " " + _PHONE_HOTWORDS
         return _LEGAL_HOTWORDS
