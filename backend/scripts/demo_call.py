@@ -206,9 +206,11 @@ SCENARIOS = [
             "slot": ["Die erste bitte."],
             None: ["Vielen Dank, auf Wiederhören!"],
         },
-        check=lambda m: _booking_checks(m)
-        + ([] if "name" in m.state.entities else ["name not captured"])
-        + ([] if "phone" in m.state.entities else ["phone not captured"]),
+        check=lambda m: (
+            _booking_checks(m)
+            + ([] if "name" in m.state.entities else ["name not captured"])
+            + ([] if "phone" in m.state.entities else ["phone not captured"])
+        ),
     ),
     Scenario(
         name="02_unavailable_slot",
@@ -225,8 +227,9 @@ SCENARIOS = [
             "slot": ["Geht es auch um 14 Uhr?", "Gut, dann nehme ich die erste."],
             None: ["Danke, auf Wiederhören!"],
         },
-        check=lambda m: _booking_checks(m)
-        + ([] if m.state.email_skipped else ["email skip not recorded"]),
+        check=lambda m: (
+            _booking_checks(m) + ([] if m.state.email_skipped else ["email skip not recorded"])
+        ),
     ),
     Scenario(
         name="03_email_uncertainty_spelling",
@@ -251,18 +254,19 @@ SCENARIOS = [
             None: ["Vielen Dank, auf Wiederhören!"],
         },
         check=lambda m: (
-            []
-            if (em := m.state.entities.get("email")) and em.confirmed
-            else ["email not confirmed via the spelling path"]
-        )
-        + ([] if m.state.email_spelling else ["spelling mode never engaged"]),
+            (
+                []
+                if (em := m.state.entities.get("email")) and em.confirmed
+                else ["email not confirmed via the spelling path"]
+            )
+            + ([] if m.state.email_spelling else ["spelling mode never engaged"])
+        ),
     ),
     Scenario(
         name="04_callback_handoff",
         title="Human handoff: callback request for a named lawyer",
         opening=(
-            "Guten Tag, können Sie mich bitte zurückrufen? "
-            "Ich möchte mit Frau Hoffmann sprechen."
+            "Guten Tag, können Sie mich bitte zurückrufen? Ich möchte mit Frau Hoffmann sprechen."
         ),
         replies={
             "name": ["Mein Name ist Sabine Becker."],
@@ -272,9 +276,11 @@ SCENARIOS = [
             "callback_time": ["Morgen Vormittag bitte."],
             None: ["Danke, auf Wiederhören!"],
         },
-        check=lambda m: ([] if m.state.callback_requested else ["callback not recorded"])
-        + ([] if m.state.preferred_time else ["preferred callback time not captured"])
-        + ([] if m.state.target_person else ["target person not captured"]),
+        check=lambda m: (
+            ([] if m.state.callback_requested else ["callback not recorded"])
+            + ([] if m.state.preferred_time else ["preferred callback time not captured"])
+            + ([] if m.state.target_person else ["target person not captured"])
+        ),
     ),
 ]
 
