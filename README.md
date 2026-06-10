@@ -150,7 +150,7 @@ You can mix local and cloud freely — e.g. keep Whisper STT local but use OpenA
 
 ### Comparing latency (local vs cloud)
 
-Every call saves per-component TTFB and end-to-end TTFA to `backend/logs/<call_id>.json`. To quantify a provider swap, run the same scripted call under each `.env`, then diff the two logs:
+Every call saves per-component TTFB and TTFA to `backend/logs/<call_id>.json` (TTFA = final transcript → first agent audio; add the VAD window and the STT column for the caller-perceived gap). To quantify a provider swap, run the same scripted call under each `.env`, then diff the two logs:
 
 ```bash
 make compare-latency    # compares the two most recent logs
