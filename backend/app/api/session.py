@@ -2,12 +2,14 @@
 
 Both the browser WebSocket (`api/ws.py`) and Twilio Media Streams (`api/twilio.py`)
 run the *same* business logic, so the provider creation, manager wiring (language
-+ calendar), tool gating, and the final caller upsert live here — not duplicated
-(and, as happened on the Twilio path, not silently missing) in each endpoint.
++ calendar), tool gating, capacity limiting, and the final caller upsert live here
+— not duplicated (and, as happened on the Twilio path, not silently missing) in
+each endpoint.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import asdict
 from typing import TYPE_CHECKING
@@ -21,6 +23,21 @@ if TYPE_CHECKING:
     from app.config import Settings
 
 logger = logging.getLogger(__name__)
+
+_call_semaphore: asyncio.Semaphore | None = None
+
+
+def call_capacity(settings: Settings) -> asyncio.Semaphore:
+    """The one capacity gate for live calls, shared by every transport.
+
+    Endpoints check ``capacity.locked()`` (public API, no private-attribute peek)
+    and immediately enter ``async with capacity:`` — no await between check and
+    acquire, so on a single-threaded event loop the check cannot go stale.
+    """
+    global _call_semaphore
+    if _call_semaphore is None:
+        _call_semaphore = asyncio.Semaphore(settings.max_concurrent_calls)
+    return _call_semaphore
 
 
 def use_tools_enabled(settings: Settings) -> bool:

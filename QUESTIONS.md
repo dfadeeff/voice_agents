@@ -39,7 +39,7 @@ Effective TTFA = STT + LLM(first sentence) + TTS(first sentence)
 
 Not `STT + LLM(full response) + TTS(full response)`. For a two-sentence response, this can save 500ms+.
 
-**2. Small model selection** (`config.py:17`, `services.py:27-32`)
+**2. Small model selection** (`config.py:25`, `providers/llm.py`)
 
 I default to qwen2.5:7b (4.7GB) rather than a larger model. For a receptionist conversation, the model needs to do three things well: follow the phase-specific system prompt, call the right tool with correct arguments, and phrase short responses naturally. qwen2.5:7b does all three — it was specifically trained for function calling — at ~0.8s latency. A 14B or 70B model might reason better in edge cases, but the extra seconds of inference latency make the call feel broken. I avoid qwen3:8b because it emits thinking tokens that create dead air on the phone line.
 
@@ -58,11 +58,11 @@ Silero VAD with a 700ms silence threshold (`silence_timeout_ms=700`) triggers th
 
 ### What I would change for production
 
-1. **Streaming STT**: faster-whisper processes complete utterances. Deepgram Nova streams interim results during speech — the LLM can start processing before the caller finishes, shaving 200-300ms. Switch with `STT_PROVIDER=deepgram` (`services.py:9-12`).
+1. **Streaming STT**: faster-whisper processes complete utterances. Deepgram Nova streams interim results during speech — the LLM can start processing before the caller finishes, shaving 200-300ms. Switch with `STT_PROVIDER=deepgram` (`providers/stt.py`).
 
-2. **GPU inference or vLLM**: Ollama on CPU is the local-demo bottleneck. In production I'd serve the model via vLLM on a GPU with PagedAttention for efficient batching, or use a cloud LLM (GPT-4o-mini via `LLM_PROVIDER=openai`, `services.py:22-25`).
+2. **GPU inference or vLLM**: Ollama on CPU is the local-demo bottleneck. In production I'd serve the model via vLLM on a GPU with PagedAttention for efficient batching, or use a cloud LLM (GPT-4o-mini via `LLM_PROVIDER=openai`, `providers/llm.py`).
 
-3. **Streaming TTS**: Piper generates complete audio synchronously. ElevenLabs streams audio chunks as they're synthesized (~220ms TTFB). Switch with `TTS_PROVIDER=elevenlabs` (`services.py:36-39`).
+3. **Streaming TTS**: Piper generates complete audio synchronously. ElevenLabs streams audio chunks as they're synthesized (~220ms TTFB). Switch with `TTS_PROVIDER=elevenlabs` (`providers/tts.py`).
 
 4. **Smart turn detection**: Replace the fixed 700ms silence threshold with a model like [smart-turn](https://huggingface.co/livekit/smart-turn-v2) that uses linguistic context to decide if a pause is a turn boundary. Particularly valuable for legal intake where callers pause to think about sensitive details.
 
@@ -148,7 +148,7 @@ The prototype is designed so production upgrades are config changes, not rewrite
 | Concurrency | Single process | Multiple workers + LB | Standard deployment |
 | Logging | JSON files | Structured logging + tracing | Add OpenTelemetry |
 
-The provider abstraction (`pipeline/services.py`) means each factory function returns a Pipecat service that plugs into the same pipeline. The business logic (tools, state machine, prompts) doesn't change.
+The provider abstraction (`app/providers/`) means each factory function returns a Pipecat service that plugs into the same pipeline. The business logic (tools, state machine, prompts) doesn't change.
 
 ### Scaling architecture
 
@@ -223,7 +223,7 @@ The pipeline doesn't know or care whether audio comes from a browser or Twilio �
 
 ### Warm transfer design
 
-When the agent decides to escalate (via `escalate_to_human` tool or automatic triggers in `flow.py`), the `escalate_to_human` handler (`tools/escalation.py:27-43`) builds a context bundle:
+When the agent decides to escalate (via the `request_handoff` tool or automatic triggers in `flow.py`), the `request_handoff` handler (`tools/handoff.py:27-51`) builds a context bundle:
 
 ```python
 context_for_human = {
@@ -300,7 +300,7 @@ This is more robust than `<Dial>` because:
 
 | Component | Prototype | Production |
 |---|---|---|
-| Escalation trigger logic | Implemented (`flow.py`, `escalation.py`) | Same |
+| Escalation trigger logic | Implemented (`flow.py`, `tools/handoff.py`) | Same |
 | Context bundle for human | Implemented (`context_for_human`) | Same + send via API |
 | Twilio transport adapter | Implemented (`api/twilio.py`) | Same |
 | Outbound transfer call | Not implemented | Twilio REST API + Conference |

@@ -76,7 +76,11 @@ class Settings(BaseSettings):
     port: int = 8000
     db_url: str = "sqlite+aiosqlite:///data/voice_agent.db"
 
-    max_concurrent_calls: int = 10
+    # Honest local default: the shared Whisper model serializes transcription on
+    # CPU and the per-turn SQLite upsert is a small blocking write, so more than a
+    # couple of simultaneous local calls degrade each other anyway. Raise it on a
+    # cloud stack (streaming STT, async DB); the gate itself is per-process.
+    max_concurrent_calls: int = 2
 
     # Allowed CORS origins (comma-separated). Defaults to localhost — the browser
     # demo is served same-origin, so it doesn't need "*", and this service handles
