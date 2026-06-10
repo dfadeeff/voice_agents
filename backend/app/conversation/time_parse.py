@@ -35,20 +35,23 @@ _HOUR_WORDS = {
     "achtzehn": 18,
 }
 _MINUTE = r"(dreißig|dreissig|30)"
-# "<hour> Uhr [dreißig]" OR "<hour> dreißig" (callers drop "Uhr": "vierzehn
-# dreißig" → 14:30). A bare hour with neither "Uhr" nor a minute isn't treated
-# as a time, so stray numbers don't false-match.
+# Longest-first so "dreizehn" wins over "drei" now that "Uhr" is optional.
+_HOUR_ALT = "|".join(sorted(_HOUR_WORDS, key=len, reverse=True))
+# An hour (digit or word), with "Uhr" and the half-hour both optional, so every
+# spoken form lands — "vierzehn Uhr", "vierzehn Uhr dreißig", "vierzehn dreißig",
+# and a bare "um 15" / "vierzehn" (→ on the hour). Only ever called once the caller
+# is choosing a slot (see _try_book), so a bare number is a chosen time.
 _REQUEST_TIME_RE = re.compile(
-    r"\b(?:um\s+)?(\d{1,2}|" + "|".join(_HOUR_WORDS) + r")\s*"
-    r"(?:uhr(?:\s*" + _MINUTE + r")?|" + _MINUTE + r")",
+    r"\b(?:um\s+)?(\d{1,2}|" + _HOUR_ALT + r")(?:\s*uhr)?(?:\s*" + _MINUTE + r")?",
     re.IGNORECASE,
 )
 
 
 def parse_requested_time(text: str) -> str | None:
-    """Extract a specific clock time the caller asked for ('dreizehn Uhr' → '13:00',
-    'neun Uhr dreißig' → '09:30', 'vierzehn dreißig' → '14:30'). Returns 'HH:MM'
-    or None."""
+    """Extract a specific clock time the caller asked for, with or without 'Uhr'
+    ('dreizehn Uhr' → '13:00', 'vierzehn dreißig' → '14:30', 'um 15' → '15:00').
+    Returns 'HH:MM' or None. Slots are on the hour and half hour, so only ':30'
+    minutes are recognised."""
     m = _REQUEST_TIME_RE.search(text.lower())
     if not m:
         return None
@@ -56,5 +59,5 @@ def parse_requested_time(text: str) -> str | None:
     hour = int(token) if token.isdigit() else _HOUR_WORDS.get(token)
     if hour is None or not 0 <= hour <= 23:
         return None
-    minute = 30 if (m.group(2) or m.group(3)) else 0
+    minute = 30 if m.group(2) else 0
     return f"{hour:02d}:{minute:02d}"

@@ -1095,9 +1095,17 @@ class TestRequestedTimeParsing:
     def test_full_hour(self):
         assert self._parse()("dreizehn Uhr") == "13:00"
 
-    def test_bare_hour_is_not_a_time(self):
-        # A lone number with neither "Uhr" nor a minute must not match.
-        assert self._parse()("vierzehn") is None
+    def test_any_hour_with_half_hour_without_uhr(self):
+        # Not hardcoded to 14:30 — every offered half-hour parses without "Uhr".
+        assert self._parse()("neun dreißig") == "09:30"
+        assert self._parse()("zehn dreißig") == "10:30"
+
+    def test_bare_hour_is_a_time_in_booking(self):
+        # Only called when the caller is choosing a slot, so a bare hour is the
+        # chosen time on the hour ("um 15" → 15 Uhr), not a stray number.
+        assert self._parse()("um 15") == "15:00"
+        assert self._parse()("vierzehn") == "14:00"
+        assert self._parse()("Können wir um neun?") == "09:00"
 
 
 class TestPhoneSplitDictation:
