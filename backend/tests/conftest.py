@@ -3,6 +3,7 @@ import tempfile
 
 import pytest
 import pytest_asyncio
+
 from app.conversation.manager import ConversationManager
 from app.services.calendar import CalendarService
 from app.tools.registry import build_default_registry

@@ -48,3 +48,9 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+
+[tool.ruff.lint.isort]
+# Explicit so import sorting is identical whether ruff runs from the repo root
+# (the pre-commit hook) or from backend/ (manual runs) — first-party detection
+# otherwise depends on the working directory.
+known-first-party = ["app"]

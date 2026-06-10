@@ -5,12 +5,6 @@ and tool name sanitization.
 """
 
 import pytest
-from app.conversation.flow import CONTACT_FIELDS
-from app.conversation.manager import ConversationManager
-from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity, LegalArea
-from app.pipeline.orchestrator import register_tools_on_llm
-from app.pipeline.processors import _guard_false_booking, _guard_impossible_handoff
-from app.tools.registry import ToolRegistry
 from pipecat.frames.frames import (
     AggregatedTextFrame,
     InterruptionFrame,
@@ -19,6 +13,13 @@ from pipecat.frames.frames import (
     TTSTextFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection
+
+from app.conversation.flow import CONTACT_FIELDS
+from app.conversation.manager import ConversationManager
+from app.models.schemas import CallerIntent, CallPhase, ExtractedEntity, LegalArea
+from app.pipeline.orchestrator import register_tools_on_llm
+from app.pipeline.processors import _guard_false_booking, _guard_impossible_handoff
+from app.tools.registry import ToolRegistry
 
 
 def _confirmed(field, value="test"):

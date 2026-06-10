@@ -1,6 +1,7 @@
 """Provider abstraction: registries, error handling, and Cartesia wiring."""
 
 import pytest
+
 from app.config import Settings
 from app.providers import ConversationAware
 from app.providers.llm import _BUILDERS as LLM_BUILDERS

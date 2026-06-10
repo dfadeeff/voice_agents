@@ -174,7 +174,7 @@ The agent is a receptionist/intake assistant, not a lawyer. It does not assess l
 
 This is enforced at two levels:
 - **System prompt**: every phase includes "NEVER give legal advice or opinions on cases"
-- **Escalation tool**: the LLM can call `escalate_to_human` with reason `caller_frustrated` or `complex_situation` when the caller pushes for advice
+- **Escalation tool**: the LLM can call `request_handoff` with reason `caller_frustrated` or `complex_situation` when the caller pushes for advice
 
 ## TTS Pronunciation
 
@@ -497,7 +497,7 @@ The prototype is production-shaped, not production-grade. It runs locally with z
 - **TTS quality**: Piper is functional but noticeably synthetic compared to cloud TTS. This is the most obvious "not production" tell in a demo. Cloud swap: Cartesia (lowest first-audio latency, set `TTS_PROVIDER=cartesia`) or ElevenLabs (most natural).
 - **End-to-end latency**: hardware and utterance dependent; local Whisper is currently the largest latency contributor. A cloud streaming stack would be substantially faster.
 - **Local tool calling**: Works best with Qwen models. llama3.1:8b was unreliable in my tests — outputs raw JSON text instead of using the tool calling API. Results may vary with different Ollama versions.
-- **Single-process**: One Uvicorn worker handles all calls. Production would use multiple workers behind a load balancer, with Redis for shared state.
+- **Single-process, few-call by design locally**: One Uvicorn worker; `MAX_CONCURRENT_CALLS` defaults to 2 because the shared Whisper model serializes transcription on CPU and the per-turn SQLite upsert is a small blocking write — claiming more concurrency locally would be dishonest. Both transports share one capacity gate (`api/session.py:call_capacity`); excess callers are rejected immediately (WebSocket close 1013), not silently queued. Production shape: multiple workers behind a load balancer, streaming cloud STT, async DB writes, Redis for shared conversation state.
 - **Confidence handling**: The prototype uses segment confidence plus field-specific confirmation policy. Production would use richer word/alternative confidence, email normalization, and repeated-confirmation analytics.
 - **Human handoff**: The browser demo records a callback/handoff request and summary. It does not bridge a live phone call.
 

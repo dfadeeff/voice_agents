@@ -11,7 +11,7 @@ from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketTransport,
 )
 
-from app.api.session import save_caller, start_call
+from app.api.session import call_capacity, save_caller, start_call
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/twilio")
@@ -35,10 +35,25 @@ async def twilio_voice_webhook(request: Request):
 
 @router.websocket("/stream")
 async def twilio_media_stream(websocket: WebSocket):
+    settings = websocket.app.state.settings
+    capacity = call_capacity(settings)
+
+    # Same capacity gate as the browser path. Twilio requires the socket to be
+    # accepted before anything else, so a full server accepts and immediately
+    # closes — Twilio then falls back per the webhook's TwiML (busy tone).
+    if capacity.locked():
+        await websocket.accept()
+        await websocket.close(code=1013, reason="Server at capacity")
+        return
+
+    async with capacity:
+        await _run_twilio_call(websocket, settings)
+
+
+async def _run_twilio_call(websocket: WebSocket, settings) -> None:
     await websocket.accept()
 
     call_id = str(uuid.uuid4())
-    settings = websocket.app.state.settings
 
     # Wait for the Twilio "start" event to get stream_sid
     start_data = await websocket.receive_text()

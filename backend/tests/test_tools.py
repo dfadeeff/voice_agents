@@ -1,6 +1,7 @@
 """Tests for all tool handlers — route, extraction, booking, handoff."""
 
 import pytest
+
 from app.models.schemas import CallerIntent, CallPhase, LegalArea
 
 
