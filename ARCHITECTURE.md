@@ -8,12 +8,12 @@ Inbound voice agent for a law firm. Handles calls end-to-end: greeting, routing 
 
 | Layer | Local (default) | Cloud (production) |
 |-------|----------------|---------------------|
-| **STT** | faster-whisper (small, CPU int8; medium for max accuracy) | Deepgram Nova-2 (streaming) |
+| **STT** | faster-whisper (small, CPU int8; medium for max accuracy) | Deepgram (streaming) |
 | **LLM** | Ollama Qwen2.5-7B | OpenAI GPT-4o-mini |
-| **TTS** | Piper (de_DE-eva_k-x_low) | ElevenLabs (streaming) |
+| **TTS** | Piper (de_DE-eva_k-x_low) | Cartesia / ElevenLabs (streaming) |
 | **VAD** | Silero VAD | same |
 | **Transport** | Browser WebSocket | + Twilio Media Streams |
-| **DB** | SQLite (aiosqlite) | Postgres (same SQLAlchemy models) |
+| **DB** | SQLite (aiosqlite) | Postgres (queries are plain SQL — swap driver + `DB_URL`) |
 | **Telephony** | none (mic/speaker) | Twilio (inbound phone number) |
 
 ## Project Structure

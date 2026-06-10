@@ -25,7 +25,7 @@ With the local stack, the theoretical best case (small Whisper model, a short ut
 - **LLM** (Ollama qwen2.5:7b): ~300-500ms TTFT depending on hardware
 - **TTS** (Piper): ~50ms TTFB (lightweight CPU model)
 
-Total: ~650ms-1s locally in that best case. Measured on real calls (`docs/latency-results.md`), local Whisper averaged ~1.8s per utterance (medium model), putting the caller-perceived gap around ~2.8s including the 0.8s VAD window — versus ~1.4s on the cloud stack. That measured gap, not the theoretical budget, is the motivation for streaming STT in production. With cloud providers (Deepgram + GPT-4o-mini + ElevenLabs), the Salesforce paper benchmarks ~755ms measured end-to-end.
+Total: ~650ms-1s locally in that best case. Measured on real calls (`docs/latency-results.md`), local Whisper averaged ~1.8s per utterance, putting the caller-perceived gap around ~2.8s including the 0.8s VAD window — versus ~1.4s on the cloud stack. That measured gap, not the theoretical budget, is the motivation for streaming STT in production. With cloud providers (Deepgram + GPT-4o-mini + ElevenLabs), the Salesforce paper benchmarks ~755ms measured end-to-end.
 
 ### How the pipeline reduces latency
 
@@ -160,7 +160,7 @@ The current architecture has one Uvicorn worker with an explicit per-process cap
 
 2. **Shared state**: Move `ConversationState` from in-memory to Redis (add a `redis_url` setting). The state dataclass is already serializable (`state.py`: `to_dict()`, `to_json()`), designed for this migration.
 
-3. **Database**: Swap SQLite for Postgres by changing `DB_URL`. The SQLAlchemy models and async queries work with both.
+3. **Database**: Swap SQLite for Postgres by changing `DB_URL` and the driver (the calendar service uses plain SQL via aiosqlite; the queries port directly).
 
 4. **Health endpoints** (`api/health.py`): `/health` returns basic liveness, `/ready` checks database connectivity and tool registry — a load balancer can use these for routing.
 
@@ -174,7 +174,7 @@ The current architecture has one Uvicorn worker with an explicit per-process cap
 | Call completion rate | Are callers reaching booking/farewell? | `ConversationState.phase` at disconnect |
 | Booking conversion rate | Business value | `booking_confirmed` flag |
 | Escalation rate | Agent limitations | `escalation_requested` flag |
-| STT confidence distribution | Audio quality / model accuracy | `get_word_confidence_for_value()` |
+| STT confidence distribution | Audio quality / model accuracy | Segment confidence (`set_transcription_confidence`) |
 | Tool call failure rate | LLM reliability | Tool handler error logs |
 | Phase progression | Where do calls stall? | Phase transition logs |
 | Repeated-question rate | Understanding failures | Turn count vs. phase advancement |
