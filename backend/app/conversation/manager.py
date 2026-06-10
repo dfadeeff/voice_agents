@@ -7,7 +7,12 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from app.conversation.cues import AREA_DENIAL_RE, CONFIRM_YES_RE
+from app.conversation.cues import (
+    AREA_DENIAL_RE,
+    CONFIRM_YES_RE,
+    OFFSCRIPT_QUESTION_RE,
+    REPEAT_REQUEST_RE,
+)
 from app.conversation.email_capture import EmailCapture
 from app.conversation.flow import PHASE_TOOLS, next_phase
 from app.conversation.insurance_capture import InsuranceCapture
@@ -258,6 +263,8 @@ class ConversationManager:
 
     async def resolve_email_if_pending(self, text: str) -> None:
         """LLM rescue for a spoken email the regex couldn't parse (see EmailCapture)."""
+        if self.state.offscript_question:
+            return  # a side question, not a mangled email — nothing to rescue
         await self._email.resolve_if_pending(text)
 
     def advance_phase(self) -> CallPhase:
@@ -276,6 +283,11 @@ class ConversationManager:
         to let the LLM drive (ROUTING / INFORMATION). Called by the pipeline after
         add_user_message on each turn. The reply parser dispatches on awaiting.
         """
+        if self.state.offscript_question:
+            # Side question during a scripted slot: keep awaiting unchanged and
+            # yield this one turn to the LLM, whose prompt instructs it to answer
+            # briefly and re-issue the ask. The spine resumes on the next reply.
+            return None
         line, awaiting = compute_prompt(self.state, self.lang)
         self.state.awaiting = awaiting
         return line
@@ -298,6 +310,9 @@ class ConversationManager:
     def add_user_message(self, text: str) -> None:
         self.state.turn_count += 1
         self.state.messages.append({"role": "user", "content": text})
+        # One-shot: a previous turn's side question was answered by the LLM; this
+        # reply is back on script.
+        self.state.offscript_question = False
         was_callback = self.state.callback_requested
         # An explicit "call me back" → callback request. A request to speak to a
         # (named) lawyer → book a consultation with them (not a callback): record
@@ -327,6 +342,19 @@ class ConversationManager:
         # Reply parsing dispatches on what the last scripted question asked for
         # (state.awaiting), not on regex over the agent's own prior sentence.
         awaiting = self.state.awaiting
+
+        # A side question instead of the asked-for datum ("Warum brauchen Sie
+        # meine E-Mail?") → hand this one turn to the LLM (answer briefly,
+        # re-ask) WITHOUT running the capture handlers, so it never burns an
+        # attempt or gets answered with "ich habe die E-Mail nicht verstanden".
+        if self._is_offscript_question(text, awaiting):
+            logger.info("Off-script question while awaiting %r: %r", awaiting, text)
+            self.state.offscript_question = True
+            self.state.offscript_attempts += 1
+            self.refresh_llm_context()
+            self.persist_progress()
+            return
+        self.state.offscript_attempts = 0
 
         # The caller is answering "which area?" after an ambiguous opening.
         if awaiting == "area":
@@ -363,6 +391,51 @@ class ConversationManager:
         self._try_capture_preferred_time(text)
         self._try_book(text)
         self.persist_progress()
+
+    # Scripted slots where a side question should divert to the LLM instead of
+    # being miscounted as a failed answer. Excludes slot/area/matter turns, whose
+    # natural replies often look like questions ("Haben Sie was am Donnerstag?").
+    _OFFSCRIPT_AWAITING = frozenset(
+        {
+            "name",
+            "name_confirm",
+            "email",
+            "email_confirm",
+            "email_spell",
+            "phone",
+            "phone_confirm",
+            "insurance",
+            "insurance_confirm",
+            "callback_time",
+        }
+    )
+
+    # Consecutive side-question diversions before the turn is processed on-script
+    # again, so a caller who only asks questions still hits the per-field attempt
+    # caps instead of looping forever.
+    _MAX_OFFSCRIPT_ATTEMPTS = 2
+
+    def _is_offscript_question(self, text: str, awaiting: str | None) -> bool:
+        """True when the reply to a scripted data ask is a side question/objection
+        rather than an answer ("Warum brauchen Sie meine E-Mail?")."""
+        if awaiting not in self._OFFSCRIPT_AWAITING:
+            return False
+        if self.state.offscript_attempts >= self._MAX_OFFSCRIPT_ATTEMPTS:
+            return False
+        # Anything carrying answer payload is an answer, question mark or not
+        # (digits while dictating, '@'/'punkt' while giving an email).
+        if re.search(r"[\d@]", text) or re.search(r"\bpunkt\b", text, re.IGNORECASE):
+            return False
+        # "Wie bitte?" asks for the question again — the scripted re-ask (with its
+        # bounded attempts) is the right response, not an LLM digression.
+        if REPEAT_REQUEST_RE.search(text):
+            return False
+        # A questioning confirmation ("ja, stimmt?") is still a confirmation.
+        if awaiting.endswith("_confirm") and (
+            CONFIRM_YES_RE.search(text.lower()) or AREA_DENIAL_RE.search(text.lower())
+        ):
+            return False
+        return bool(OFFSCRIPT_QUESTION_RE.search(text))
 
     def _handle_area_choice(self, text: str) -> None:
         """Resolve the legal area from the caller's disambiguation reply.
