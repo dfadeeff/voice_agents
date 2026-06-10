@@ -189,8 +189,12 @@ def compute_prompt(state: ConversationState, lang: str = "de") -> tuple[str | No
     # ----- Callback / human-handoff branch: name → phone → callback time -----
     if state.callback_requested:
         if phase in (CallPhase.CAPTURE, CallPhase.ESCALATION):
-            if not (name and name.confirmed):
+            if not name:
                 return scripts["ask_name"], "name"
+            if not name.confirmed:
+                # Low-confidence capture → read it back (mirrors the booking
+                # branch) instead of re-asking the same question forever.
+                return scripts["confirm_name"].format(name=name.value), "name_confirm"
             if phone and not phone.confirmed:
                 return scripts["confirm_phone"].format(phone=_spoken_phone(phone.value, lang)), (
                     "phone_confirm"
