@@ -4,6 +4,40 @@
 
 Inbound voice agent for a law firm. Handles calls end-to-end: greeting, routing by legal area, entity capture with confidence handling, consultation booking, and escalation to humans. Runs locally with zero API keys by default; swaps to cloud providers (Deepgram, OpenAI, ElevenLabs) via env vars for production deployment with Twilio telephony.
 
+## Walkthrough Summary — the six questions
+
+Short answers to the reviewers' walkthrough questions, each linking to the deeper section or document.
+
+### How did you design the STT → LLM → TTS pipeline?
+
+A cascaded [Pipecat](https://github.com/pipecat-ai/pipecat) pipeline per call: transport → Silero VAD → STT (faster-whisper locally, Deepgram in cloud mode) → conversation manager + LLM (Ollama qwen2.5:7b locally, OpenAI in cloud mode) with **phase-filtered tools** → pre-TTS sanitizer → TTS (Piper locally; Cartesia/ElevenLabs in cloud mode) → transport. The core design decision is a **hybrid**: a deterministic scripted spine owns every accuracy-critical turn (read-backs, qualification, booking — turns where an LLM could drift or hallucinate a booking), while the LLM owns open dialogue (routing, general information, off-script side questions). Providers sit behind name→builder registries, so local↔cloud is an env-var change, not a code change. TTS is fed sentence-by-sentence so the first sentence plays while later ones are still synthesizing.
+→ [System Diagram](#system-diagram), [Conversation Design: Scripted Spine + LLM at the Edges](#conversation-design-scripted-spine--llm-at-the-edges), [Decision Ownership](#decision-ownership), [Provider Abstraction](#provider-abstraction)
+
+### How does the agent route callers across different legal matters?
+
+Three areas (employment, tenancy, traffic), routed twice for reliability: the LLM's `route_call` tool classifies intent + area, and a deterministic keyword router runs as a fallback because small local models sometimes skip the tool call. An ambiguous opening ("Mietvertrag gekündigt" touches two areas) triggers a scripted disambiguation question instead of a guess; an unrecognised area escalates to a human. After routing, the questions branch per area: traffic asks for the insurance/claim number (captured digit-by-digit with read-back), employment asks about deadlines (e.g. the three-week dismissal-claim window), tenancy asks whether the issue was reported in writing.
+→ [State Machine](#state-machine-flowpy), [Routing disambiguation](#routing-disambiguation--never-stall-in-routing), [Per-Phase Ownership](#per-phase-ownership)
+
+### How do you handle booking consultations and unavailable appointment slots?
+
+Booking is fully deterministic — the LLM never invents a slot. Once contact details are confirmed, the manager reads available slots from the SQLite calendar and offers three; the caller's choice ("die erste", "10 Uhr 30") is parsed in code. If the caller names a time that isn't free, the agent apologises *naming that time* and re-offers alternatives; declined (date, time) pairs are excluded from every later offer so the same time never resurfaces via another lawyer. The booking write is atomic (a slot taken between offer and booking triggers a re-offer, not a double booking), and the agent only ever says "gebucht" after the database write succeeds.
+→ [How a Turn Drives State](#how-a-turn-drives-state), `services/calendar.py`, recorded example: `demo/02_unavailable_slot.md`
+
+### How do you approach low-confidence entity extraction (names, emails)?
+
+Whisper's segment confidence travels with every transcript. A name below the 0.75 threshold is stored **unconfirmed**, which forces a scripted read-back ("Ich habe Ihren Namen als … notiert — ist das korrekt?"); email and phone are *always* read back, since they're the fields phone-quality audio mangles most. The unhappy paths are first-class: a rejected email read-back twice in a row switches to letter-by-letter **spelling mode**; three unparseable attempts skip email entirely (a phone number suffices to book); phone numbers dictated in bursts are buffered across turns and only read back once plausibly complete; an optional LLM rescue reassembles garbled spoken emails ("anapunktsch mitatgembail.com" → anna.schmidt@gmail.com, recovered at 0.42 STT confidence in `demo/01`); and a side question like "Warum brauchen Sie meine E-Mail?" is answered briefly and re-asked without burning a retry attempt.
+→ [Confidence-Aware Entity Extraction](#confidence-aware-entity-extraction), [Single Turn Data Flow](#single-turn-data-flow), recorded examples: `demo/01`, `demo/03`
+
+### How and when does the agent decide to escalate to a human?
+
+Four triggers, each chosen because the agent is provably out of its depth there: **(1)** the caller asks for a person — a named lawyer becomes a booking with that lawyer or a callback request, never a dead end; **(2)** the matter is outside the covered areas (e.g. family law) — routed to escalation rather than guessed at; **(3)** three consecutive misunderstandings — the streak counter forces a handoff before the caller is trapped in a loop; **(4)** the LLM itself judges the caller frustrated or the matter too complex via the `request_handoff` tool. The behaviour is deliberately honest: the agent records a callback request plus a context bundle (reason, summary, captured details) for the human, and a hard guard blocks it from ever claiming "ich verbinde Sie" — a live transfer it cannot perform. The production warm-transfer design (dial-out, briefing, bridging, and its failure modes) is in QUESTIONS.md Q4.
+→ [Escalation Triggers](#escalation-triggers), [Production Warm Transfer Design](#production-warm-transfer-design), `tools/handoff.py`, `conversation/policy.py`, [QUESTIONS.md → Q4](QUESTIONS.md)
+
+### What is your thinking on latency, turn-taking, interruptions, and production readiness?
+
+**Latency** is budgeted per stage and measured, not guessed: caller-perceived gap ≈ VAD window (0.8 s) + STT + decision/TTS (~0.2 s) — measured at ~2.8 s full-local vs ~1.4 s on the cloud stack, which is why streaming STT is the single production lever that matters most (`docs/latency-results.md`). **Turn-taking**: Silero VAD with an 800 ms silence window, widened per-turn to 2 s while the agent is awaiting a dictated field (phone/email/insurance), because callers read numbers in bursts a short window would chop apart. **Interruptions**: Pipecat's barge-in — caller speech stops TTS playback, cancels in-flight generation, and resets the sanitizer buffer, so the transcript records what was actually said. **Production readiness** is stated honestly: one process with an explicit capacity gate shared by both transports (`MAX_CONCURRENT_CALLS=2` locally, because shared Whisper serializes on CPU); serializable per-call state ready for Redis; plain-SQL persistence ready for Postgres; per-call latency/outcome logs as the monitoring seed; and `make demo-call` as an end-to-end audio regression net — which caught a real bug (a low-confidence name looping the callback flow) that 441 unit tests had missed.
+→ [QUESTIONS.md → Q1–Q3](QUESTIONS.md), [Scaling Architecture](#scaling-architecture), `docs/latency-results.md`
+
 ## Stack
 
 | Layer | Local (default) | Cloud (production) |
